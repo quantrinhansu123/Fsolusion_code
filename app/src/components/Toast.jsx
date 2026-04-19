@@ -21,8 +21,8 @@ export default function Toast({ message, type = 'error', onClose }) {
           {isError ? 'error' : 'check_circle'}
         </span>
         <div className="flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider mb-0.5">
-            {isError ? 'Lỗi hệ thống' : 'Thành công'}
+          <p className={`text-xs font-semibold mb-0.5 ${isError ? 'text-[#ba1a1a]' : 'text-[#006591]'}`}>
+            {isError ? 'Lỗi' : 'Thành công'}
           </p>
           <p className="text-sm font-medium">{message}</p>
         </div>

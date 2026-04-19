@@ -1,0 +1,9 @@
+# Supabase CLI — https://supabase.com/docs/guides/cli/config
+# Chạy: supabase functions deploy resolve-link-preview
+
+[functions.resolve-link-preview]
+verify_jwt = true
+
+# Tạo user / đổi mật khẩu qua Auth Admin API (cần deploy + SUPABASE_SERVICE_ROLE_KEY trên Supabase)
+[functions.admin-user]
+verify_jwt = true

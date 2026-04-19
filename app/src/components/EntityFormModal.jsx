@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
+import { deadlineToFormValue } from '../utils/deadline'
+import { imageFileToDataUrl, getImageFromClipboardEvent, getImageFromDataTransfer } from '../utils/imagePaste'
 
-const STATUS_OPTIONS = [
+export const STATUS_OPTIONS = [
   { value: 'pending',     label: 'Đang chờ' },
   { value: 'in_progress', label: 'Đang làm' },
   { value: 'completed',   label: 'Hoàn thành' },
@@ -94,6 +96,19 @@ function DateInput({ value, onChange }) {
   )
 }
 
+function DateTimeInput({ value, onChange }) {
+  const display = deadlineToFormValue(value ?? '')
+  return (
+    <input
+      type="datetime-local"
+      step={60}
+      className={inputCls}
+      value={display}
+      onChange={e => onChange(e.target.value)}
+    />
+  )
+}
+
 // Generic entity form (project / feature / task / subtask / customer)
 export function EntityFormModal({ title, subtitle, fields, data, onChange, onSave, onClose, saveLabel = 'Lưu' }) {
   return (
@@ -145,9 +160,152 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
             </FormField>
           )
         }
-        if (field.type === 'grid') {
+        if (field.type === 'content_image_pairs') {
+          const key = field.name
+          let blocks = Array.isArray(data[key]) && data[key].length > 0
+            ? data[key]
+            : [{ content: '', image_url: '' }]
+          const setBlocks = next => onChange(key, next)
+          const updateRow = (i, patch) => {
+            setBlocks(blocks.map((b, j) => (j === i ? { ...b, ...patch } : b)))
+          }
+          const removeRow = i => {
+            if (blocks.length <= 1) return
+            setBlocks(blocks.filter((_, j) => j !== i))
+          }
+          const addRow = () => setBlocks([...blocks, { content: '', image_url: '' }])
           return (
-            <div key={field.name} className="grid grid-cols-2 gap-4">
+            <FormField key={key} label={field.label}>
+              <div className="space-y-3">
+                {blocks.map((block, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-[#bec8d2]/30 bg-[#faf8ff]/60 p-3 space-y-2"
+                    onPasteCapture={async ev => {
+                      const file = getImageFromClipboardEvent(ev)
+                      if (!file) return
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                      const url = await imageFileToDataUrl(file)
+                      if (url) updateRow(i, { image_url: url })
+                    }}
+                    onDragOver={ev => {
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                    }}
+                    onDrop={async ev => {
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                      const file = getImageFromDataTransfer(ev.dataTransfer)
+                      if (!file) return
+                      const url = await imageFileToDataUrl(file)
+                      if (url) updateRow(i, { image_url: url })
+                    }}
+                  >
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
+                        Dòng {i + 1}
+                      </span>
+                      {blocks.length > 1 && (
+                        <button
+                          type="button"
+                          className="text-[11px] text-[#ba1a1a] font-medium hover:underline"
+                          onClick={() => removeRow(i)}
+                        >
+                          Xóa dòng
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 items-stretch">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <span className="block text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
+                          Nội dung
+                        </span>
+                        <textarea
+                          rows={3}
+                          className={`${inputCls} resize-y min-h-[64px]`}
+                          placeholder={field.placeholderContent || 'Nhập nội dung...'}
+                          value={block.content}
+                          onChange={e => updateRow(i, { content: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1.5 w-full lg:w-[min(280px,36%)] lg:max-w-[280px] shrink-0">
+                        <span className="block text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
+                          Ảnh
+                        </span>
+                        <div
+                          tabIndex={0}
+                          className="w-full rounded-xl border border-dashed border-[#bec8d2]/70 bg-white px-2 py-2 min-h-[112px] flex flex-col focus:outline-none focus:ring-2 focus:ring-[#006591]/25 text-sm text-[#131b2e]"
+                        >
+                          {block.image_url ? (
+                            <div className="relative rounded-lg overflow-hidden bg-[#f0f0f5] flex-1 flex items-center justify-center min-h-[96px]">
+                              <img
+                                src={block.image_url}
+                                alt=""
+                                className="max-h-44 w-full object-contain"
+                                onError={e => {
+                                  e.currentTarget.style.display = 'none'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                title="Xóa ảnh"
+                                className="absolute top-1.5 right-1.5 rounded-full bg-[#131b2e]/75 text-white p-1 hover:bg-[#131b2e] shadow-sm"
+                                onClick={() => updateRow(i, { image_url: '' })}
+                              >
+                                <span className="material-symbols-outlined text-[18px] leading-none block">close</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-1 flex-col items-center justify-center gap-1 py-5 text-center text-[11px] text-[#6e7881] pointer-events-none select-none">
+                              <span className="material-symbols-outlined text-3xl text-[#bec8d2]">content_paste</span>
+                              <span>
+                                <strong className="text-[#131b2e]">Ctrl+V</strong> hoặc kéo thả ảnh vào dòng này
+                              </span>
+                              <span className="text-[10px] text-[#9aa3ab]">Ảnh hiện ngay và lưu kèm nhiệm vụ</span>
+                            </div>
+                          )}
+                        </div>
+                        {!block.image_url?.startsWith('data:') && (
+                          <input
+                            type="url"
+                            className={`${inputCls} text-xs py-2.5`}
+                            placeholder="Hoặc nhập link ảnh https://..."
+                            value={block.image_url || ''}
+                            onChange={e => updateRow(i, { image_url: e.target.value })}
+                          />
+                        )}
+                        {block.image_url?.startsWith('data:') && (
+                          <p className="text-[10px] text-[#3e4850] leading-snug">
+                            Ảnh đã nhúng (JPEG).{' '}
+                            <button
+                              type="button"
+                              className="font-semibold text-[#006591] hover:underline"
+                              onClick={() => updateRow(i, { image_url: '' })}
+                            >
+                              Xóa để dùng link
+                            </button>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addRow}
+                  className="w-full text-sm font-semibold text-[#006591] border border-dashed border-[#006591]/45 rounded-xl px-4 py-2.5 hover:bg-[#f2f3ff] transition-colors"
+                >
+                  + Thêm dòng (nội dung + link ảnh)
+                </button>
+              </div>
+            </FormField>
+          )
+        }
+        if (field.type === 'grid') {
+          const gridCols = field.gridCols ?? 'grid-cols-1 sm:grid-cols-2'
+          return (
+            <div key={field.name} className={`grid ${gridCols} gap-4`}>
               {field.children.map(child => (
                 <FormField key={child.name} label={child.label}>
                   {child.type === 'select' ? (
@@ -164,10 +322,23 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
                       </select>
                       <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#6e7881] pointer-events-none">expand_more</span>
                     </div>
+                  ) : child.type === 'textarea' ? (
+                    <textarea
+                      rows={child.rows || 4}
+                      className={`${inputCls} resize-y min-h-[72px]`}
+                      placeholder={child.placeholder}
+                      value={data[child.name] || ''}
+                      onChange={e => onChange(child.name, e.target.value)}
+                    />
+                  ) : child.type === 'datetime-local' ? (
+                    <DateTimeInput
+                      value={data[child.name]}
+                      onChange={val => onChange(child.name, val)}
+                    />
                   ) : child.type === 'date' ? (
-                    <DateInput 
-                      value={data[child.name]} 
-                      onChange={val => onChange(child.name, val)} 
+                    <DateInput
+                      value={data[child.name]}
+                      onChange={val => onChange(child.name, val)}
                     />
                   ) : (
                     <input
@@ -205,7 +376,7 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
 // Pre-configured forms for each entity
 export const CUSTOMER_FIELDS = [
   { name: 'name',    label: 'Tên khách hàng', placeholder: 'VD: Công ty ABC' },
-  { name: 'email',   label: 'Email', type: 'email', placeholder: 'contact@company.com' },
+  { name: 'email',   label: 'Liên hệ', type: 'text', placeholder: 'SĐT, Zalo…' },
   { name: 'phone',   label: 'Số điện thoại', placeholder: '090 xxx xxxx' },
   { name: 'address', label: 'Địa chỉ', type: 'textarea', placeholder: 'Địa chỉ đầy đủ...' },
 ]
@@ -217,7 +388,7 @@ export const PROJECT_FIELDS = [
   {
     name: 'meta', type: 'grid', children: [
       { name: 'pricing',     label: 'Ngân sách (₫)', type: 'text', placeholder: '0' },
-      { name: 'deadline',    label: 'Hạn chót', type: 'date' },
+      { name: 'deadline',    label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
     ]
   },
   { name: 'status', label: 'Trạng thái', type: 'select' },
@@ -228,7 +399,7 @@ export const FEATURE_FIELDS = [
   { name: 'description', label: 'Mô tả', type: 'textarea', placeholder: 'Chi tiết yêu cầu...' },
   {
     name: 'meta', type: 'grid', children: [
-      { name: 'deadline', label: 'Hạn chót', type: 'date' },
+      { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
     ]
   },
@@ -237,22 +408,32 @@ export const FEATURE_FIELDS = [
 export const TASK_FIELDS = [
   { name: 'name',        label: 'Tên task', placeholder: 'VD: Design UI mockups' },
   { name: 'assigned_to', label: 'Người phụ trách', type: 'select' },
-  { name: 'description', label: 'Mô tả', type: 'textarea', placeholder: 'Chi tiết công việc...' },
+  {
+    name: 'content_blocks',
+    label: 'Nội dung & ảnh',
+    type: 'content_image_pairs',
+    placeholderContent: 'Chi tiết công việc...',
+  },
   {
     name: 'meta', type: 'grid', children: [
-      { name: 'deadline', label: 'Hạn chót', type: 'date' },
+      { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
     ]
   },
 ]
 
 export const SUBTASK_FIELDS = [
-  { name: 'name',        label: 'Tên subtask', placeholder: 'VD: Line chart widget' },
+  { name: 'name',        label: 'Tên tiểu mục', placeholder: 'VD: Line chart widget' },
   { name: 'assigned_to', label: 'Người phụ trách', type: 'select' },
-  { name: 'description', label: 'Mô tả', type: 'textarea', placeholder: 'Chi tiết...' },
+  {
+    name: 'content_blocks',
+    label: 'Nội dung & ảnh',
+    type: 'content_image_pairs',
+    placeholderContent: 'Chi tiết tiểu mục...',
+  },
   {
     name: 'meta', type: 'grid', children: [
-      { name: 'deadline', label: 'Hạn chót', type: 'date' },
+      { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
     ]
   },

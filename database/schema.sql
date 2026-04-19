@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS public.users (
     full_name    TEXT        NOT NULL,
     email        TEXT        NOT NULL UNIQUE,
     role         TEXT        NOT NULL DEFAULT 'employee',
+    department   TEXT,
     avatar_url   TEXT,
+    password_updated_at TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -37,7 +39,7 @@ CREATE TABLE IF NOT EXISTS projects (
     name          TEXT        NOT NULL,
     description   TEXT,
     pricing       NUMERIC(15, 2),
-    deadline      DATE,
+    deadline      TIMESTAMPTZ,
     status        TEXT        NOT NULL DEFAULT 'pending'
                                 CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS features (
     project_id    UUID        NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
     name          TEXT        NOT NULL,
     description   TEXT,
-    deadline      DATE,
+    deadline      TIMESTAMPTZ,
     status        TEXT        NOT NULL DEFAULT 'pending'
                                 CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -60,22 +62,39 @@ CREATE TABLE IF NOT EXISTS tasks (
     task_id       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     feature_id    UUID        NOT NULL REFERENCES features(feature_id) ON DELETE CASCADE,
     name          TEXT        NOT NULL,
+    assigned_to   UUID        REFERENCES public.users(user_id) ON DELETE SET NULL,
     description   TEXT,
-    deadline      DATE,
+    image_url     TEXT,
+    content_blocks JSONB      DEFAULT '[]'::jsonb,
+    deadline      TIMESTAMPTZ,
     status        TEXT        NOT NULL DEFAULT 'pending'
                                 CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
+    completed_at  TIMESTAMPTZ,
+    status_updated_at TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS task_status_history (
+    history_id    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    task_id       UUID NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
+    recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS subtasks (
     subtask_id    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     task_id       UUID        NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
     name          TEXT        NOT NULL,
+    assigned_to   UUID        REFERENCES public.users(user_id) ON DELETE SET NULL,
     description   TEXT,
-    deadline      DATE,
+    image_url     TEXT,
+    content_blocks JSONB      DEFAULT '[]'::jsonb,
+    deadline      TIMESTAMPTZ,
     status        TEXT        NOT NULL DEFAULT 'pending'
                                 CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
+    completed_at  TIMESTAMPTZ,
+    work_time     JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -136,6 +155,7 @@ ALTER TABLE customers    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE features     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subtasks     ENABLE ROW LEVEL SECURITY;
 
 -- 5. Policies (Clean and Re-create)
@@ -165,5 +185,27 @@ CREATE POLICY "features_access" ON features FOR ALL USING (get_user_role(auth.ui
 
 CREATE POLICY "tasks_view_all" ON tasks FOR SELECT USING (get_user_role(auth.uid()) = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id WHERE f.feature_id = tasks.feature_id AND pa.user_id = auth.uid()));
 CREATE POLICY "tasks_modify_manager_admin" ON tasks FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'manager'));
+CREATE POLICY "tasks_update_project_member" ON tasks FOR UPDATE USING (EXISTS (SELECT 1 FROM project_assignments pa INNER JOIN features f ON f.project_id = pa.project_id WHERE f.feature_id = tasks.feature_id AND pa.user_id = auth.uid())) WITH CHECK (EXISTS (SELECT 1 FROM project_assignments pa INNER JOIN features f ON f.project_id = pa.project_id WHERE f.feature_id = tasks.feature_id AND pa.user_id = auth.uid()));
 
-CREATE POLICY "subtasks_access" ON subtasks FOR ALL USING (get_user_role(auth.uid()) = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid()));
+CREATE POLICY "subtasks_select" ON subtasks FOR SELECT USING (get_user_role(auth.uid()) IN ('admin', 'manager') OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid()));
+CREATE POLICY "subtasks_insert" ON subtasks FOR INSERT WITH CHECK (get_user_role(auth.uid()) IN ('admin', 'manager') OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid()));
+CREATE POLICY "subtasks_update" ON subtasks FOR UPDATE USING (get_user_role(auth.uid()) IN ('admin', 'manager') OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid())) WITH CHECK (get_user_role(auth.uid()) IN ('admin', 'manager') OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid()));
+CREATE POLICY "subtasks_delete" ON subtasks FOR DELETE USING (get_user_role(auth.uid()) IN ('admin', 'manager') OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = subtasks.task_id AND pa.user_id = auth.uid()));
+
+CREATE POLICY "task_status_history_select" ON task_status_history FOR SELECT USING (get_user_role(auth.uid()) = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = task_status_history.task_id AND pa.user_id = auth.uid()));
+CREATE POLICY "task_status_history_insert" ON task_status_history FOR INSERT WITH CHECK (get_user_role(auth.uid()) = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa JOIN features f ON f.project_id = pa.project_id JOIN tasks t ON t.feature_id = f.feature_id WHERE t.task_id = task_status_history.task_id AND pa.user_id = auth.uid()));
+
+-- Upgrade existing databases (safe if column already exists)
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_to UUID REFERENCES public.users(user_id) ON DELETE SET NULL;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS assigned_to UUID REFERENCES public.users(user_id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS content_blocks JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS content_blocks JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS work_time JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMPTZ;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS department TEXT;

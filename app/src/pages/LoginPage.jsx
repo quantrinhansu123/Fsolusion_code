@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
+import { humanizeAuthError } from '../utils/authErrors'
+import { normalizeSignInForAuth } from '../utils/authSignIn'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState('')
+  const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -15,15 +17,23 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
 
+    const signInId = normalizeSignInForAuth(login)
+    if (!signInId) {
+      setError('Nhập tên đăng nhập.')
+      setLoading(false)
+      return
+    }
+
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
+      email: signInId,
       password,
     })
 
     if (signInError) {
-      setError(signInError.message)
+      setError(humanizeAuthError(signInError.message))
       setLoading(false)
     } else {
+      setLoading(false)
       navigate('/dashboard')
     }
   }
@@ -44,29 +54,30 @@ export default function LoginPage() {
             <span className="material-symbols-outlined icon-fill text-[#006591] text-3xl">work</span>
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-[#131b2e] mb-2">Project Manager</h1>
-          <p className="text-[#3e4850] text-base font-medium">Đăng nhập để tiếp tục</p>
+          <p className="text-[#3e4850] text-base font-medium">Nhập tên đăng nhập và mật khẩu</p>
         </header>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl flex items-center gap-2">
-            <span className="material-symbols-outlined text-lg">error</span>
-            {error}
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl flex items-start gap-2">
+            <span className="material-symbols-outlined text-lg shrink-0 mt-0.5">error</span>
+            <span>{error}</span>
           </div>
         )}
 
         {/* Form */}
         <form className="space-y-6" onSubmit={handleSubmit}>
-          {/* Email */}
           <div className="space-y-2">
-            <label className="block text-xs font-semibold uppercase tracking-[0.05em] text-[#3e4850] ml-1" htmlFor="email">
-              Email
+            <label className="block text-xs font-semibold uppercase tracking-[0.05em] text-[#3e4850] ml-1" htmlFor="login">
+              Tên đăng nhập
             </label>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="name@company.com"
+              id="login"
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={login}
+              onChange={e => setLogin(e.target.value)}
+              placeholder="vd. admin"
               className="w-full bg-[#faf8ff] text-[#131b2e] rounded-full border border-[#bec8d2]/40 px-5 py-3.5 text-base font-medium placeholder-[#bec8d2] focus:outline-none focus:border-[#006591] focus:ring-1 focus:ring-[#006591] transition-all duration-200"
               required
             />
@@ -81,6 +92,8 @@ export default function LoginPage() {
               <input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
+                name="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -111,13 +124,6 @@ export default function LoginPage() {
             >
               {loading ? 'Đang xử lý...' : 'Đăng nhập'}
             </button>
-          </div>
-
-          {/* Forgot */}
-          <div className="text-right mt-6">
-            <a href="#" className="text-sm font-semibold text-[#006591] hover:text-[#0ea5e9] transition-colors pb-1">
-              Quên mật khẩu?
-            </a>
           </div>
         </form>
       </main>

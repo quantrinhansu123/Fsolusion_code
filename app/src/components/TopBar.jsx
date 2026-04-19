@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../utils/supabase'
 
-export default function TopBar({ title }) {
+export default function TopBar({ title, subtitle }) {
   const [user, setUser] = useState(null)
 
   useEffect(() => {
@@ -28,8 +28,11 @@ export default function TopBar({ title }) {
 
   return (
     <header className="h-20 w-full sticky top-0 z-10 bg-[#faf8ff]/90 backdrop-blur-xl flex items-center justify-between px-10 border-b border-[#bec8d2]/15">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-[#131b2e]">{title}</h2>
+      <div className="min-w-0">
+        <h2 className="text-2xl font-bold tracking-tight text-[#131b2e] truncate">{title}</h2>
+        {subtitle ? (
+          <p className="text-sm text-[#3e4850] mt-0.5 truncate">{subtitle}</p>
+        ) : null}
       </div>
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-4">
