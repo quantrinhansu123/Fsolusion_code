@@ -183,6 +183,7 @@ function useModal() {
   const open = (type, ctx = {}) => {
     setModal({ type, ...ctx })
     const { initial, ...rest } = ctx
+    delete rest.featureOptions
     setForm({
       ...(initial != null && typeof initial === 'object' ? initial : {}),
       ...rest,
@@ -1616,6 +1617,7 @@ export default function ProjectsPage() {
       delete cleanData.project_assignments
       delete cleanData.customers
       delete cleanData.user_ids
+      delete cleanData.featureOptions
 
       Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === '') delete cleanData[key]
