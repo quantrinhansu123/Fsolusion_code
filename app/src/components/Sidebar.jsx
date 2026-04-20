@@ -45,9 +45,9 @@ export default function Sidebar() {
         {role !== 'employee' && (
           <button
             onClick={() => navigate('/projects')}
-            className="mb-6 w-full py-3 px-4 primary-gradient text-white rounded-xl shadow-lg font-medium hover:brightness-110 transition-all flex items-center justify-center gap-2"
+            className="mb-6 w-full py-2.5 px-4 primary-gradient text-white rounded-xl shadow-lg font-medium text-[13px] hover:brightness-110 transition-all flex items-center justify-center gap-2"
           >
-            <span className="material-symbols-outlined text-sm">add</span>
+            <span className="material-symbols-outlined text-base">add</span>
             Dự án mới
           </button>
         )}
@@ -58,8 +58,8 @@ export default function Sidebar() {
             to="/dashboard"
             className={({ isActive }) =>
               isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
+                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
+                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
             }
           >
             <span className="material-symbols-outlined">dashboard</span>
@@ -70,8 +70,8 @@ export default function Sidebar() {
             to="/projects"
             className={({ isActive }) =>
               isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
+                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
+                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
             }
           >
             <span className="material-symbols-outlined">account_tree</span>
@@ -82,8 +82,8 @@ export default function Sidebar() {
             to="/staff-subtasks"
             className={({ isActive }) =>
               isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
+                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
+                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
             }
           >
             <span className="material-symbols-outlined">view_kanban</span>
