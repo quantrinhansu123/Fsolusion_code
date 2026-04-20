@@ -78,6 +78,18 @@ export default function Sidebar() {
             Quản lý dự án
           </NavLink>
 
+          <NavLink
+            to="/staff-subtasks"
+            className={({ isActive }) =>
+              isActive
+                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
+                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
+            }
+          >
+            <span className="material-symbols-outlined">view_kanban</span>
+            Task theo nhân sự
+          </NavLink>
+
           {(role === 'admin' || role === 'manager') && (
             <NavLink
               to="/progress"

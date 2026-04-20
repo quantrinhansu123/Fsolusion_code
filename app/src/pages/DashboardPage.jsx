@@ -3,6 +3,20 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 
+const SUBTASK_STATUS_LABELS = {
+  pending: 'Đang chờ',
+  in_progress: 'Đang làm',
+  completed: 'Hoàn thành',
+  overdue: 'Trễ hẹn',
+}
+
+function formatSubtaskDeadline(iso) {
+  if (!iso) return 'Không có hạn'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Không có hạn'
+  return d.toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState([
     { label: 'Tổng khách hàng', value: '0', trend: '...', trendLabel: 'đang tải', icon: 'groups', bg: 'bg-teal-100', iconColor: 'text-teal-600', trendBg: 'bg-teal-50', trendText: 'text-teal-600', circleBg: 'bg-teal-50' },
@@ -10,6 +24,8 @@ export default function DashboardPage() {
     { label: 'Tổng doanh thu', value: '0 ₫', trend: '...', trendLabel: 'tổng cộng', icon: 'bar_chart', bg: 'bg-green-100', iconColor: 'text-green-600', trendBg: 'bg-green-50', trendText: 'text-green-600', circleBg: 'bg-green-50' },
   ])
   const [activities, setActivities] = useState([])
+  const [subtaskByStaff, setSubtaskByStaff] = useState([])
+  const [selectedAssignee, setSelectedAssignee] = useState('all')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -77,6 +93,30 @@ export default function DashboardPage() {
       ].sort((a, b) => new Date(b.meta.split('vào ')[1] || 0) - new Date(a.meta.split('vào ')[1] || 0))
 
       setActivities(combined.slice(0, 5))
+
+      // 3. Fetch subtask theo nhân sự phụ trách
+      const { data: subtaskData } = await supabase
+        .from('subtasks')
+        .select(`
+          subtask_id,
+          name,
+          status,
+          deadline,
+          assigned_to,
+          updated_at,
+          users:assigned_to(user_id, full_name),
+          task:tasks(
+            name,
+            feature:features(
+              name,
+              project:projects(name)
+            )
+          )
+        `)
+        .not('assigned_to', 'is', null)
+        .order('updated_at', { ascending: false })
+
+      setSubtaskByStaff(subtaskData || [])
     } catch (err) {
       console.error('Error fetching dashboard data:', err)
     } finally {
@@ -89,6 +129,20 @@ export default function DashboardPage() {
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006591]"></div>
     </div>
   )
+
+  const assigneeOptions = Array.from(
+    new Map(
+      subtaskByStaff.map(s => [s.assigned_to, {
+        id: s.assigned_to,
+        name: s.users?.full_name || 'Chưa rõ tên',
+      }])
+    ).values()
+  )
+
+  const filteredSubtasks =
+    selectedAssignee === 'all'
+      ? subtaskByStaff
+      : subtaskByStaff.filter(s => s.assigned_to === selectedAssignee)
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
@@ -165,6 +219,74 @@ export default function DashboardPage() {
               ))}
               {activities.length === 0 && (
                 <p className="text-sm text-[#3e4850] italic py-4 text-center">Chưa có hoạt động nào được ghi nhận.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 border border-[#bec8d2]/15 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div>
+                <h3 className="text-lg font-bold text-[#131b2e]">Task theo nhân sự</h3>
+                <p className="text-xs text-[#3e4850] mt-1">Nhấn từng nhân sự để chỉ xem các subtask họ đang phụ trách.</p>
+              </div>
+              <span className="text-xs font-semibold text-[#3e4850] bg-[#f2f3ff] px-3 py-1 rounded-lg">
+                {filteredSubtasks.length} subtask
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setSelectedAssignee('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  selectedAssignee === 'all'
+                    ? 'bg-[#006591] text-white border-[#006591]'
+                    : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
+                }`}
+              >
+                Tất cả
+              </button>
+              {assigneeOptions.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedAssignee(p.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    selectedAssignee === p.id
+                      ? 'bg-[#006591] text-white border-[#006591]'
+                      : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              {filteredSubtasks.map(st => (
+                <div key={st.subtask_id} className="rounded-xl border border-[#bec8d2]/15 bg-[#faf8ff] p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#131b2e]">{st.name}</p>
+                      <p className="text-xs text-[#3e4850] mt-0.5">
+                        {st.task?.feature?.project?.name || '—'} · {st.task?.feature?.name || '—'} · {st.task?.name || '—'}
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#dae2fd] text-[#3e4850]">
+                      {SUBTASK_STATUS_LABELS[st.status] || st.status}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-[#3e4850]">
+                    <span className="font-medium">Phụ trách:</span> {st.users?.full_name || '—'} ·{' '}
+                    <span className="font-medium">Hạn:</span> {formatSubtaskDeadline(st.deadline)}
+                  </div>
+                </div>
+              ))}
+
+              {filteredSubtasks.length === 0 && (
+                <p className="text-sm text-[#3e4850] italic py-4 text-center">
+                  Không có subtask nào cho nhân sự đã chọn.
+                </p>
               )}
             </div>
           </div>
