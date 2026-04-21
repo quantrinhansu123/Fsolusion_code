@@ -69,6 +69,7 @@ export default function StaffSubtasksPage() {
   const [selectedStatus, setSelectedStatus] = useState('all')
   const [selectedProjectIds, setSelectedProjectIds] = useState([])
   const [deadlineFilter, setDeadlineFilter] = useState('all')
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [updatingStatusId, setUpdatingStatusId] = useState(null)
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -123,9 +124,9 @@ export default function StaffSubtasksPage() {
         })
         .select('*')
         .single()
-      
+
       if (error) throw error
-      
+
       setActiveSessionId(data.session_id)
       setIsWorking(true)
       setSessionStartTime(Date.now())
@@ -147,7 +148,7 @@ export default function StaffSubtasksPage() {
           status: 'completed'
         })
         .eq('session_id', activeSessionId)
-      
+
       if (error) throw error
 
       setActiveSessionId(null)
@@ -362,11 +363,77 @@ export default function StaffSubtasksPage() {
               </button>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-[#bec8d2]/20 bg-white p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#3e4850]">
-                  Bộ lọc
-                </p>
+            {/* ── COMPACT FILTER TOOLBAR ── */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white px-3 py-2 space-y-2">
+              {/* HÀNG 1: Nhân sự (scroll ngang) + Check-in cụm mini (bên phải) */}
+              <div className="flex items-center gap-3 min-h-[32px]">
+                {/* Nhân sự - scroll ngang */}
+                <div className="flex-1 overflow-x-auto scrollbar-hide min-w-0">
+                  <div className="flex items-center gap-1.5 w-max">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAssignee('all')}
+                      className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === 'all'
+                          ? 'bg-[#006591] text-white border-[#006591]'
+                          : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'
+                        }`}
+                    >
+                      Tất cả ({subtasks.length})
+                    </button>
+                    {assigneeOptions.filter(p => p.count > 0).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedAssignee(p.id)}
+                        className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === p.id
+                            ? 'bg-[#006591] text-white border-[#006591]'
+                            : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'
+                          }`}
+                      >
+                        {p.name} ({p.count})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="shrink-0 h-6 w-px bg-[#e2e8f0]" />
+
+                {/* Cụm Check-in mini */}
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCheckIn}
+                    disabled={isWorking}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${isWorking
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-[#006591] text-white hover:bg-[#00536f]'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-[13px]">login</span>
+                    Check-in
+                  </button>
+
+                  <span className={`font-mono text-[12px] font-bold tracking-widest px-2 py-0.5 rounded ${isWorking ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-50'
+                    }`}>
+                    {formatTimer(sessionTimer)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleCheckOut}
+                    disabled={!isWorking}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors ${!isWorking
+                        ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-white border-red-400 text-red-600 hover:bg-red-50'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-[13px]">logout</span>
+                    Check-out
+                  </button>
+                </div>
+
+                {/* Nút đặt lại */}
                 <button
                   type="button"
                   onClick={() => {
@@ -375,123 +442,107 @@ export default function StaffSubtasksPage() {
                     setSelectedProjectIds([])
                     setDeadlineFilter('all')
                   }}
-                  className="text-[11px] font-semibold text-[#006591] hover:underline"
+                  className="shrink-0 text-[10.5px] font-semibold text-[#006591] hover:underline whitespace-nowrap"
                 >
-                  Đặt lại bộ lọc
+                  Đặt lại
                 </button>
               </div>
 
-              <div>
-                <p className="mb-1.5 text-[11px] font-semibold text-[#3e4850]">Theo nhân sự</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAssignee('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                      selectedAssignee === 'all'
-                        ? 'bg-[#006591] text-white border-[#006591]'
-                        : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
-                    }`}
-                  >
-                    Tất cả ({subtasks.length})
-                  </button>
-                  {assigneeOptions.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedAssignee(p.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                        selectedAssignee === p.id
-                          ? 'bg-[#006591] text-white border-[#006591]'
-                          : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
-                      }`}
-                    >
-                      {p.name} ({p.count})
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cụm nút Chấm công (Check-in/Check-out) */}
-              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
-                <div className="text-[13px] text-slate-600 font-medium">
-                  Trạng thái ca làm việc:
-                </div>
-                <div className="flex items-center gap-4">
-                  <button 
-                    type="button"
-                    onClick={handleCheckIn}
-                    disabled={isWorking}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm ${isWorking ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-[#006591] hover:opacity-90 text-white'}`}
-                  >
-                    🔵 Check-in (Bắt đầu)
-                  </button>
-                  
-                  <span className={`font-mono font-bold text-sm tracking-widest ${isWorking ? 'text-green-600' : 'text-slate-700'}`}>
-                    {formatTimer(sessionTimer)}
-                  </span>
-                  
-                  <button 
-                    type="button"
-                    onClick={handleCheckOut}
-                    disabled={!isWorking}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm border ${!isWorking ? 'bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed' : 'bg-white hover:bg-red-50 text-red-600 border-red-600'}`}
-                  >
-                    ⏹ Check-out (Kết thúc)
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <div>
-                  <p className="mb-1.5 text-[11px] font-semibold text-[#3e4850]">Theo trạng thái</p>
+              {/* HÀNG 2: 3 cột - Trạng thái | Deadline | Dự án */}
+              <div className="grid grid-cols-3 gap-2">
+                {/* Cột 1: Trạng thái */}
+                <div className="relative">
                   <select
                     value={selectedStatus}
                     onChange={e => setSelectedStatus(e.target.value)}
-                    className="w-full rounded-lg border border-[#bec8d2]/40 bg-white py-2 pl-2 pr-7 text-xs font-semibold text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-2 focus:ring-[#006591]/20"
+                    className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 pr-7 text-[11.5px] font-medium text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/20"
                   >
                     <option value="all">Tất cả trạng thái</option>
                     {STATUS_OPTIONS.map(o => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-[#94a3b8]">expand_more</span>
                 </div>
-                <div>
-                  <p className="mb-1.5 text-[11px] font-semibold text-[#3e4850]">Theo deadline</p>
+
+                {/* Cột 2: Deadline */}
+                <div className="relative">
                   <select
                     value={deadlineFilter}
                     onChange={e => setDeadlineFilter(e.target.value)}
-                    className="w-full rounded-lg border border-[#bec8d2]/40 bg-white py-2 pl-2 pr-7 text-xs font-semibold text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-2 focus:ring-[#006591]/20"
+                    className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 pr-7 text-[11.5px] font-medium text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/20"
                   >
                     {DEADLINE_FILTER_OPTIONS.map(o => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-[#94a3b8]">expand_more</span>
                 </div>
-              </div>
 
-              <div>
-                <p className="mb-1.5 text-[11px] font-semibold text-[#3e4850]">Theo dự án (checkbox)</p>
-                <div className="max-h-36 overflow-y-auto rounded-lg border border-[#bec8d2]/20 bg-[#faf8ff] px-2 py-2">
-                  {projectOptions.length === 0 ? (
-                    <p className="px-1 py-1 text-[11px] italic text-[#6e7881]">Chưa có dự án.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {projectOptions.map(p => (
-                        <label key={p.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1 hover:bg-white">
-                          <span className="inline-flex min-w-0 items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={selectedProjectIds.includes(p.id)}
-                              onChange={() => toggleProjectFilter(p.id)}
-                              className="h-3.5 w-3.5 rounded border-[#bec8d2]/40 text-[#006591] focus:ring-[#006591]/30"
-                            />
-                            <span className="truncate text-[11px] text-[#131b2e]" title={p.name}>{p.name}</span>
-                          </span>
-                          <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] text-[#64748b]">{p.count}</span>
-                        </label>
-                      ))}
-                    </div>
+                {/* Cột 3: Dự án — Custom Multi-select */}
+                <div className="relative">
+                  {/* Trigger button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowProjectDropdown(v => !v)}
+                    className="w-full flex items-center justify-between gap-1 rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 pr-2 text-[11.5px] font-medium text-[#131b2e] hover:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/20 transition-colors"
+                  >
+                    <span className={selectedProjectIds.length === 0 ? 'text-[#94a3b8]' : 'text-[#131b2e] font-semibold truncate'}>
+                      {selectedProjectIds.length === 0
+                        ? 'Tất cả dự án'
+                        : `${selectedProjectIds.length} dự án`}
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      {selectedProjectIds.length > 0 && (
+                        <span
+                          role="button"
+                          tabIndex={-1}
+                          onClick={e => { e.stopPropagation(); setSelectedProjectIds([]) }}
+                          className="rounded bg-[#006591] px-1.5 py-0.5 text-[10px] font-bold text-white cursor-pointer"
+                        >
+                          {selectedProjectIds.length} ✕
+                        </span>
+                      )}
+                      <span className="material-symbols-outlined text-[14px] text-[#94a3b8]">{showProjectDropdown ? 'expand_less' : 'expand_more'}</span>
+                    </span>
+                  </button>
+
+                  {/* Popup dropdown — z-50 để không bị đè */}
+                  {showProjectDropdown && (
+                    <>
+                      {/* Backdrop trong suốt để click ngoài đóng */}
+                      <div className="fixed inset-0 z-40" onClick={() => setShowProjectDropdown(false)} />
+                      <div className="absolute left-0 top-full mt-1 z-50 w-full min-w-[200px] max-h-52 overflow-y-auto rounded-lg border border-[#e2e8f0] bg-white shadow-lg py-1">
+                        {projectOptions.length === 0 ? (
+                          <p className="px-3 py-2 text-[11px] italic text-[#94a3b8]">Chưa có dự án</p>
+                        ) : (
+                          projectOptions.map(p => {
+                            const checked = selectedProjectIds.includes(p.id)
+                            return (
+                              <label
+                                key={p.id}
+                                className="flex items-center justify-between gap-2 px-3 py-1.5 hover:bg-[#f2f3ff] cursor-pointer"
+                              >
+                                <span className="inline-flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => {
+                                      setSelectedProjectIds(prev =>
+                                        checked ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                                      )
+                                    }}
+                                    className="h-3.5 w-3.5 rounded text-[#006591]"
+                                  />
+                                  <span className="text-[11.5px] text-[#131b2e] truncate">{p.name}</span>
+                                </span>
+                                <span className="shrink-0 text-[10px] text-[#64748b] bg-[#f8fafc] rounded px-1.5 py-0.5">{p.count}</span>
+                              </label>
+                            )
+                          })
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -506,66 +557,72 @@ export default function StaffSubtasksPage() {
                       {group.items.length} subtask
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 border border-[#e2e8f0] rounded-[10px] p-3 shadow-sm">
                     {group.items.map(st => {
                       const sessions = normalizeSubtaskWorkTime(st.work_time)
                       const running = subtaskHasOpenWorkSession(sessions)
                       const taskName = st.tasks?.name || '—'
                       const featureName = st.tasks?.features?.name || '—'
+                      const timeStr = formatSubtaskWorkTimeSummary(sessions)
+                      const timeSummary = timeStr.includes('- tổng') ? timeStr.split('- tổng')[1].trim() : timeStr
+
                       return (
-                        <div key={st.subtask_id} className="bg-white border border-[#bec8d2]/18 rounded-xl p-3 space-y-3 shadow-sm">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-[#131b2e]">{st.name}</p>
-                              <p className="text-[11px] text-[#3e4850] mt-0.5 truncate">
-                                {featureName} · {taskName}
-                              </p>
-                              <p className="text-[11px] text-[#6e7881] mt-0.5">
-                                Phụ trách: {st.users?.full_name || '—'}
-                              </p>
+                        <div
+                          key={st.subtask_id}
+                          className="rounded-md border border-slate-200 bg-slate-50/50 px-2 py-1.5 hover:bg-blue-50/50 transition-colors"
+                        >
+                          <div className="flex flex-col gap-1 xl:flex-row xl:items-center xl:justify-between xl:gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <p className="truncate text-sm font-bold leading-tight text-[#131b2e]">{st.name}</p>
+                                <span className="truncate text-[10.5px] text-[#64748b]">
+                                  {st.users?.full_name ? `${st.users.full_name.split(' ').slice(-2).join(' ')} · ` : ''}
+                                  {featureName} · {taskName}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10.5px] text-[#475569]">
+                                <span className="inline-flex min-w-0 items-center gap-1" title="Hạn chót">
+                                  <span className="material-symbols-outlined text-[12px] text-[#94a3b8]">event</span>
+                                  <span className="truncate">{st.deadline ? new Date(st.deadline).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' }) : '—'}</span>
+                                </span>
+                                <span className="inline-flex min-w-0 items-center gap-1" title="Tổng thời gian">
+                                  <span className="material-symbols-outlined text-[12px] text-[#94a3b8]">schedule</span>
+                                  <span className="truncate">Tổng: {timeSummary}</span>
+                                </span>
+                              </div>
                             </div>
-                            <select
-                              value={st.status || 'pending'}
-                              onChange={e => updateSubtaskStatus(st.subtask_id, e.target.value)}
-                              disabled={updatingStatusId === st.subtask_id}
-                              className="shrink-0 rounded-lg border border-[#bec8d2]/50 bg-white py-1 pl-2 pr-7 text-[11px] font-semibold text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-2 focus:ring-[#006591]/20 disabled:opacity-55"
-                            >
-                              {STATUS_OPTIONS.map(o => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
-                          </div>
 
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#3e4850]">
-                            <span className="inline-flex items-center gap-1 bg-[#f2f3ff] rounded-md px-2 py-1">
-                              <span className="material-symbols-outlined text-[14px]">event</span>
-                              Hạn: {formatDateTime(st.deadline)}
-                            </span>
-                            <span className="inline-flex items-center gap-1 bg-[#f2f3ff] rounded-md px-2 py-1">
-                              <span className="material-symbols-outlined text-[14px]">schedule</span>
-                              {formatSubtaskWorkTimeSummary(sessions)}
-                            </span>
-                          </div>
+                            <div className="flex shrink-0 items-center justify-end gap-1">
+                              <select
+                                value={st.status || 'pending'}
+                                onChange={e => updateSubtaskStatus(st.subtask_id, e.target.value)}
+                                disabled={updatingStatusId === st.subtask_id}
+                                className="w-[96px] rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-[#131b2e] focus:outline-none focus:ring-1 focus:ring-[#006591]/25 disabled:opacity-55"
+                              >
+                                {STATUS_OPTIONS.map(o => (
+                                  <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                              </select>
 
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={updatingWorkTimeId === st.subtask_id || running}
-                              onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(sessions))}
-                              className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold bg-[#1e8e3e]/15 text-[#1e8e3e] border border-[#1e8e3e]/35 hover:bg-[#1e8e3e]/25 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[15px]">play_arrow</span>
-                              Bắt đầu
-                            </button>
-                            <button
-                              type="button"
-                              disabled={updatingWorkTimeId === st.subtask_id || !running}
-                              onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(sessions))}
-                              className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold bg-[#b06000]/12 text-[#8a4a00] border border-[#b06000]/35 hover:bg-[#b06000]/20 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[15px]">pause</span>
-                              Tạm dừng
-                            </button>
+                              <button
+                                type="button"
+                                disabled={updatingWorkTimeId === st.subtask_id || running}
+                                onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(sessions))}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                title="Bắt đầu tính giờ"
+                              >
+                                <span className="material-symbols-outlined text-[13px]">play_arrow</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={updatingWorkTimeId === st.subtask_id || !running}
+                                onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(sessions))}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                title="Tạm dừng"
+                              >
+                                <span className="material-symbols-outlined text-[13px]">stop</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )

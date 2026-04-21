@@ -1595,6 +1595,10 @@ export default function ProjectsPage() {
   const [projectTasksViewId, setProjectTasksViewId] = useState(null)
   const [memberRowOpen, setMemberRowOpen] = useState({})
   const [savingAssign, setSavingAssign] = useState(false)
+  const [savingProject, setSavingProject] = useState(false)
+  const [savingSubtask, setSavingSubtask] = useState(false)
+  const [savingTask, setSavingTask] = useState(false)
+  const [savingFeature, setSavingFeature] = useState(false)
   const [toast, setToast] = useState(null)
   const [updatingTaskId, setUpdatingTaskId] = useState(null)
   const [updatingSubtaskId, setUpdatingSubtaskId] = useState(null)
@@ -1742,61 +1746,158 @@ export default function ProjectsPage() {
       } else if (type === 'add_project') {
         if (!cleanData.customer_id) throw new Error('Vui lòng chọn khách hàng')
         if (!cleanData.name) throw new Error('Vui lòng nhập tên dự án')
-        res = await supabase.from('projects').insert(cleanData)
+        
+        setSavingProject(true)
+        try {
+          // Thêm .select() để lấy dữ liệu vừa tạo về (nếu cần dùng trực tiếp, dù đã có fetchData)
+          res = await supabase.from('projects').insert(cleanData).select()
+          
+          if (res?.error) throw res.error
+          
+          // ✅ Cập nhật dữ liệu ngầm cho toàn bộ trang
+          await fetchData()
+          
+          // ✅ Reset form: Clear các field nhập liệu, Keep phân loại (Khách hàng & Trạng thái)
+          m.set('name', '')
+          m.set('description', '')
+          m.set('pricing', '')
+          m.set('deadline', '')
+          
+          // ✅ Thông báo thành công
+          setToast({ 
+            message: `Đã tạo dự án thành công!`, 
+            type: 'success' 
+          })
+        } finally {
+          setSavingProject(false)
+        }
+        return // Dừng lại ở đây (Save & Stay) — Không chạy xuống m.close() bên dưới.
       } else if (type === 'edit_project') {
-        res = await supabase.from('projects').update(cleanData).eq('project_id', id)
+        setSavingProject(true)
+        try {
+          res = await supabase.from('projects').update(cleanData).eq('project_id', id)
+          if (res?.error) throw res.error
+          await fetchData()
+          setToast({ message: 'Đã cập nhật dự án thành công!', type: 'success' })
+        } finally {
+          setSavingProject(false)
+        }
+        return // Save & Stay
       } else if (type === 'add_feature') {
         res = await supabase.from('features').insert({ ...cleanData, project_id: projectId })
       } else if (type === 'edit_feature') {
-        res = await supabase.from('features').update(cleanData).eq('feature_id', id)
+        setSavingFeature(true)
+        try {
+          res = await supabase.from('features').update(cleanData).eq('feature_id', id)
+          if (res?.error) throw res.error
+          await fetchData()
+          setToast({ message: 'Đã cập nhật tính năng thành công!', type: 'success' })
+        } finally {
+          setSavingFeature(false)
+        }
+        return // Save & Stay
       } else if (type === 'add_task') {
         let fid = cleanData.feature_id ?? featureId
         delete cleanData.feature_id
         if (!fid) throw new Error('Vui lòng chọn tính năng')
-        const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
-        Object.assign(cleanData, sanitized)
-        res = await supabase.from('tasks').insert({ ...cleanData, feature_id: fid })
-      } else if (type === 'edit_task') {
-        const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
-        Object.assign(cleanData, sanitized)
-        if (cleanData.status !== 'completed') {
-          cleanData.completed_at = null
-        } else if (!cleanData.completed_at) {
-          cleanData.completed_at = new Date().toISOString()
+        
+        setSavingTask(true)
+        try {
+          const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
+          Object.assign(cleanData, sanitized)
+          res = await supabase.from('tasks').insert({ ...cleanData, feature_id: fid })
+          if (res?.error) throw res.error
+
+          // ✅ Cập nhật dữ liệu ngầm cho trang
+          await fetchData()
+
+          // ✅ Reset form theo yêu cầu: Xóa Tên Task, Nội dung & Ảnh. Giữ Người phụ trách.
+          m.set('name', '')
+          m.set('content_blocks', [{ content: '', image_url: '' }])
+          
+          setToast({ message: 'Đã thêm nhiệm vụ thành công!', type: 'success' })
+        } finally {
+          setSavingTask(false)
         }
-        res = await supabase.from('tasks').update(cleanData).eq('task_id', id)
+        return // Dừng lại ở đây (Save & Stay)
+      } else if (type === 'edit_task') {
+        setSavingTask(true)
+        try {
+          const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
+          Object.assign(cleanData, sanitized)
+          if (cleanData.status !== 'completed') {
+            cleanData.completed_at = null
+          } else if (!cleanData.completed_at) {
+            cleanData.completed_at = new Date().toISOString()
+          }
+          res = await supabase.from('tasks').update(cleanData).eq('task_id', id)
+          if (res?.error) throw res.error
+          await fetchData()
+          setToast({ message: 'Đã cập nhật nhiệm vụ thành công!', type: 'success' })
+        } finally {
+          setSavingTask(false)
+        }
+        return // Save & Stay
       } else if (type === 'add_subtask') {
         if (!taskId) throw new Error('Thiếu liên kết nhiệm vụ — hãy đóng và mở lại form thêm tiểu mục.')
         if (!String(cleanData.name ?? '').trim()) throw new Error('Vui lòng nhập tên tiểu mục')
-        const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
-        const row = {
-          task_id: taskId,
-          name: String(cleanData.name).trim(),
-          ...sanitized,
-          status: cleanData.status || 'pending',
-          work_time: [],
+        
+        setSavingSubtask(true)
+        try {
+          const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
+          const row = {
+            task_id: taskId,
+            name: String(cleanData.name).trim(),
+            ...sanitized,
+            status: cleanData.status || 'pending',
+            work_time: [],
+          }
+          if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
+          if (cleanData.assigned_to) row.assigned_to = cleanData.assigned_to
+          
+          res = await supabase.from('subtasks').insert(row)
+          if (res?.error) throw res.error
+
+          // ✅ Cập nhật dữ liệu ngầm cho trang
+          await fetchData()
+
+          // ✅ Reset form theo yêu cầu: Xóa Tên, Nội dung & Ảnh. Giữ Người phụ trách.
+          m.set('name', '')
+          m.set('content_blocks', [{ content: '', image_url: '' }])
+          
+          setToast({ message: 'Đã thêm tiểu mục thành công!', type: 'success' })
+        } finally {
+          setSavingSubtask(false)
         }
-        if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
-        if (cleanData.assigned_to) row.assigned_to = cleanData.assigned_to
-        res = await supabase.from('subtasks').insert(row)
+        return // Dừng lại ở đây (Save & Stay)
       } else if (type === 'edit_subtask') {
         if (!id) throw new Error('Thiếu mã tiểu mục')
         if (!String(cleanData.name ?? '').trim()) throw new Error('Vui lòng nhập tên tiểu mục')
-        const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
-        const patch = {
-          name: String(cleanData.name).trim(),
-          ...sanitized,
-          status: cleanData.status || 'pending',
+        
+        setSavingSubtask(true)
+        try {
+          const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
+          const patch = {
+            name: String(cleanData.name).trim(),
+            ...sanitized,
+            status: cleanData.status || 'pending',
+          }
+          if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
+          else patch.deadline = null
+          if (cleanData.assigned_to) patch.assigned_to = cleanData.assigned_to
+          if (patch.status !== 'completed') {
+            patch.completed_at = null
+          } else {
+            patch.completed_at = cleanData.completed_at || new Date().toISOString()
+          }
+          res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
+          if (res?.error) throw res.error
+          await fetchData()
+          setToast({ message: 'Đã cập nhật tiểu mục thành công!', type: 'success' })
+        } finally {
+          setSavingSubtask(false)
         }
-        if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
-        else patch.deadline = null
-        if (cleanData.assigned_to) patch.assigned_to = cleanData.assigned_to
-        if (patch.status !== 'completed') {
-          patch.completed_at = null
-        } else {
-          patch.completed_at = cleanData.completed_at || new Date().toISOString()
-        }
-        res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
+        return // Save & Stay
       } else {
         throw new Error(`Loại form không được hỗ trợ: ${String(type)}`)
       }
@@ -1807,6 +1908,7 @@ export default function ProjectsPage() {
       fetchData()
     } catch (err) {
       console.error('Error saving:', err)
+      setSavingProject(false)
       setToast({ message: formatSaveError(err), type: 'error' })
     }
   }
@@ -2206,7 +2308,7 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={c.customer_id}
-                    className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm"
+                    className="rounded-xl border border-[#e2e8f0] bg-white shadow-sm"
                   >
                     <button
                       type="button"
@@ -2329,10 +2431,8 @@ export default function ProjectsPage() {
                                 </div>
 
                                 {/* Status Badge */}
-                                <div className="hidden sm:flex items-center w-[65px] justify-center">
-                                  <span className={`inline-flex items-center justify-center w-full rounded border px-1.5 py-[2px] text-[10px] font-semibold tracking-wide border-transparent ${sm.pill}`}>
-                                    {sm.label}
-                                  </span>
+                                <div className="hidden sm:flex items-center w-[80px] justify-center">
+                                  <StatusBadge status={p.status} />
                                 </div>
 
                                 {/* Actions */}
@@ -2685,7 +2785,20 @@ export default function ProjectsPage() {
         />
       )}
       {m.modal && cfg && (
-        <EntityFormModal title={cfg.title} fields={cfg.fields} data={m.form} onChange={m.set} onSave={handleSave} onClose={m.close} />
+        <EntityFormModal 
+          title={cfg.title} 
+          fields={cfg.fields} 
+          data={m.form} 
+          onChange={m.set} 
+          onSave={handleSave} 
+          onClose={m.close}
+          isLoading={
+            ((m.modal?.type === 'add_project' || m.modal?.type === 'edit_project') && savingProject) || 
+            ((m.modal?.type === 'add_subtask' || m.modal?.type === 'edit_subtask') && savingSubtask) ||
+            ((m.modal?.type === 'add_task' || m.modal?.type === 'edit_task') && savingTask) ||
+            ((m.modal?.type === 'add_feature' || m.modal?.type === 'edit_feature') && savingFeature)
+          }
+        />
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>

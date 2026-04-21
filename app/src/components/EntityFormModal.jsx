@@ -110,7 +110,7 @@ function DateTimeInput({ value, onChange }) {
 }
 
 // Generic entity form (project / feature / task / subtask / customer)
-export function EntityFormModal({ title, subtitle, fields, data, onChange, onSave, onClose, saveLabel = 'Lưu' }) {
+export function EntityFormModal({ title, subtitle, fields, data, onChange, onSave, onClose, saveLabel = 'Lưu', isLoading = false }) {
   return (
     <Modal
       title={title}
@@ -118,11 +118,20 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose} className="px-6 py-2.5 rounded-xl text-sm font-medium text-[#006591] hover:bg-[#f2f3ff] transition-colors">
+          <button onClick={onClose} disabled={isLoading} className="px-6 py-2.5 rounded-xl text-sm font-medium text-[#006591] hover:bg-[#f2f3ff] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             Hủy
           </button>
-          <button onClick={onSave} className="px-6 py-2.5 rounded-xl text-sm font-medium text-white primary-gradient shadow-md hover:brightness-110 transition-all active:scale-95">
-            {saveLabel}
+          <button 
+            onClick={onSave} 
+            disabled={isLoading}
+            className={`px-6 py-2.5 rounded-xl text-sm font-medium text-white shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
+              isLoading ? 'bg-slate-400 cursor-not-allowed opacity-80' : 'primary-gradient hover:brightness-110'
+            }`}
+          >
+            {isLoading && (
+              <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+            )}
+            {isLoading ? 'Đang lưu...' : saveLabel}
           </button>
         </>
       }
