@@ -90,6 +90,18 @@ export default function Sidebar() {
             Task theo nhân sự
           </NavLink>
 
+          <NavLink
+            to="/attendance"
+            className={({ isActive }) =>
+              isActive
+                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
+                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
+            }
+          >
+            <span className="material-symbols-outlined">calendar_month</span>
+            Chấm Công
+          </NavLink>
+
           {(role === 'admin' || role === 'manager') && (
             <NavLink
               to="/progress"

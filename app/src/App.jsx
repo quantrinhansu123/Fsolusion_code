@@ -7,6 +7,7 @@ import CustomerManagement from './pages/CustomerManagement'
 import TodosPage from './pages/TodosPage'
 import ProgressReportPage from './pages/ProgressReportPage'
 import StaffSubtasksPage from './pages/StaffSubtasksPage'
+import AttendancePage from './pages/AttendancePage'
 import './index.css'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/todos" element={<TodosPage />} />
         <Route path="/progress" element={<ProgressReportPage />} />
         <Route path="/staff-subtasks" element={<StaffSubtasksPage />} />
+        <Route path="/attendance" element={<AttendancePage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

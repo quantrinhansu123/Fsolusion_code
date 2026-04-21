@@ -73,9 +73,93 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
 
+  // -- STATE CHẤM CÔNG --
+  const [activeSessionId, setActiveSessionId] = useState(null)
+  const [isWorking, setIsWorking] = useState(false)
+  const [sessionTimer, setSessionTimer] = useState(0)
+  const [sessionStartTime, setSessionStartTime] = useState(null)
+
   useEffect(() => {
     fetchData()
   }, [])
+
+  // --- LOGIC CHẤM CÔNG ---
+  useEffect(() => {
+    let interval = null
+    if (isWorking && sessionStartTime) {
+      interval = setInterval(() => {
+        setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
+      }, 1000)
+    } else {
+      clearInterval(interval)
+    }
+    return () => clearInterval(interval)
+  }, [isWorking, sessionStartTime])
+
+  function formatTimer(seconds) {
+    const h = String(Math.floor(seconds / 3600)).padStart(2, '0')
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')
+    const s = String(seconds % 60).padStart(2, '0')
+    return `${h}:${m}:${s}`
+  }
+
+  async function handleCheckIn() {
+    // Lấy ID từ bộ lọc nhân sự trên giao diện
+    if (!selectedAssignee || selectedAssignee === 'all') {
+      setToast({ message: 'Vui lòng chọn một nhân sự cụ thể để Check-in!', type: 'error' })
+      return
+    }
+
+    try {
+      const today = new Date().toISOString().split('T')[0]
+
+      // Truyền selectedAssignee vào user_id (thay vì lấy user.id từ token)
+      const { data, error } = await supabase
+        .from('work_sessions')
+        .insert({
+          user_id: selectedAssignee,
+          work_date: today,
+          status: 'working'
+        })
+        .select('*')
+        .single()
+      
+      if (error) throw error
+      
+      setActiveSessionId(data.session_id)
+      setIsWorking(true)
+      setSessionStartTime(Date.now())
+      setSessionTimer(0)
+      setToast({ message: 'Đã Check-in thành công!', type: 'success' })
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi check-in', type: 'error' })
+    }
+  }
+
+  async function handleCheckOut() {
+    if (!activeSessionId) return
+    try {
+      const { error } = await supabase
+        .from('work_sessions')
+        .update({
+          check_out_time: new Date().toISOString(),
+          status: 'completed'
+        })
+        .eq('session_id', activeSessionId)
+      
+      if (error) throw error
+
+      setActiveSessionId(null)
+      setIsWorking(false)
+      setSessionStartTime(null)
+      setToast({ message: 'Đã Check-out kết thúc ca', type: 'success' })
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi check-out', type: 'error' })
+    }
+  }
+  // -------------------------
 
   async function fetchData() {
     setLoading(true)
@@ -196,8 +280,14 @@ export default function StaffSubtasksPage() {
     setUpdatingStatusId(subtaskId)
     try {
       const patch = { status }
-      if (status === 'completed') patch.completed_at = new Date().toISOString()
-      else patch.completed_at = null
+      if (status === 'completed') {
+        patch.completed_at = new Date().toISOString()
+        if (activeSessionId) {
+          patch.session_id = activeSessionId
+        }
+      } else {
+        patch.completed_at = null
+      }
 
       const { error } = await supabase
         .from('subtasks')
@@ -319,6 +409,36 @@ export default function StaffSubtasksPage() {
                       {p.name} ({p.count})
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Cụm nút Chấm công (Check-in/Check-out) */}
+              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+                <div className="text-[13px] text-slate-600 font-medium">
+                  Trạng thái ca làm việc:
+                </div>
+                <div className="flex items-center gap-4">
+                  <button 
+                    type="button"
+                    onClick={handleCheckIn}
+                    disabled={isWorking}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm ${isWorking ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+                  >
+                    🟢 Check-in (Bắt đầu)
+                  </button>
+                  
+                  <span className={`font-mono font-bold text-sm tracking-widest ${isWorking ? 'text-green-600' : 'text-slate-700'}`}>
+                    {formatTimer(sessionTimer)}
+                  </span>
+                  
+                  <button 
+                    type="button"
+                    onClick={handleCheckOut}
+                    disabled={!isWorking}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm border ${!isWorking ? 'bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed' : 'bg-white hover:bg-red-50 text-red-600 border-red-600'}`}
+                  >
+                    ⏹ Check-out (Kết thúc)
+                  </button>
                 </div>
               </div>
 
