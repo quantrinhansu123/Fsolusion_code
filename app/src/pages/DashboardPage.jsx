@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const [activities, setActivities] = useState([])
   const [subtaskByStaff, setSubtaskByStaff] = useState([])
   const [selectedAssignee, setSelectedAssignee] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export default function DashboardPage() {
           icon: 'folder',
           iconBg: 'bg-[#c9e6ff]',
           iconColor: 'text-[#001e2f]',
-          title: `Dự án mới: ${p.name}`,
+          title: p.name,
           meta: `Khởi tạo vào ${new Date(p.created_at).toLocaleDateString('vi-VN')}`,
           tag: 'Dự án',
           tagCls: 'bg-[#dae2fd] text-[#3e4850]',
@@ -84,7 +85,7 @@ export default function DashboardPage() {
             icon: t.status === 'completed' ? 'task_alt' : 'description',
             iconBg: t.status === 'completed' ? 'bg-[#ffdcbd]' : 'bg-[#dae2fd]',
             iconColor: 'text-[#001e2f]',
-            title: `Nhiệm vụ: ${t.name}`,
+            title: t.name,
             meta: `Trạng thái: ${STATUS_MAP[t.status] || t.status}`,
             tag: 'Task',
             tagCls: 'bg-[#dae2fd] text-[#3e4850]',
@@ -148,39 +149,45 @@ export default function DashboardPage() {
     <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
       <Sidebar />
 
-      <div className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto">
+      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Dashboard" />
 
         <div className="p-10 space-y-10 max-w-7xl mx-auto w-full">
           {/* Heading */}
-          <div className="flex items-end justify-between">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <h3 className="text-2xl font-bold text-[#131b2e] tracking-tight">Tổng quan hoạt động</h3>
-              <p className="text-[#3e4850] mt-1 text-sm">Cập nhật số liệu kinh doanh mới nhất.</p>
+              <h3 className="text-xl md:text-2xl font-bold text-[#131b2e] tracking-tight">Tổng quan hoạt động</h3>
+              <p className="text-[#3e4850] mt-1 text-xs md:text-sm">Cập nhật số liệu kinh doanh mới nhất.</p>
             </div>
-            <div className="text-sm text-[#3e4850] font-medium bg-[#f2f3ff] px-4 py-2 rounded-lg">
+            <div className="inline-flex text-[11px] md:text-sm text-[#3e4850] font-bold bg-[#f2f3ff] px-3 py-1.5 md:px-4 md:py-2 rounded-lg w-fit">
               {new Date().toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}
             </div>
           </div>
 
           {/* Stat cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-3 md:grid-cols-3 gap-2 md:gap-6">
             {stats.map(s => (
               <div
                 key={s.label}
-                className="bg-white rounded-2xl p-6 shadow-[0_8px_30px_rgb(19,27,46,0.04)] border border-[#bec8d2]/10 hover:shadow-[0_8px_30px_rgb(19,27,46,0.09)] transition-shadow duration-300 relative overflow-hidden group"
+                className="bg-white rounded-xl md:rounded-2xl p-2 md:p-6 shadow-[0_8px_30px_rgb(19,27,46,0.04)] border border-[#bec8d2]/10 hover:shadow-[0_8px_30_rgb(19,27,46,0.09)] transition-shadow duration-300 relative overflow-hidden group h-full flex flex-col justify-center"
               >
-                <div className={`absolute -right-6 -top-6 w-24 h-24 ${s.circleBg} rounded-full group-hover:scale-110 transition-transform duration-500`} />
-                <div className="flex items-start justify-between relative z-10">
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-[#3e4850] font-semibold mb-2">{s.label}</p>
-                    <h4 className="text-4xl font-black text-[#131b2e] tracking-tighter">{s.value}</h4>
+                <div className={`absolute -right-4 -top-4 md:-right-6 md:-top-6 w-12 h-12 md:w-24 md:h-24 ${s.circleBg} rounded-full group-hover:scale-110 transition-transform duration-500`} />
+                
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between items-center text-center md:text-left relative z-10 gap-2">
+                  <div className="flex flex-col items-center md:items-start">
+                    <p className="text-[9px] md:text-xs uppercase tracking-wider text-[#3e4850] font-bold mb-1 md:mb-2 line-clamp-1">
+                      {s.label.replace('Tổng ', '')}
+                    </p>
+                    <h4 className="text-sm md:text-4xl font-black text-[#131b2e] tracking-tighter truncate w-full">
+                      {s.value}
+                    </h4>
                   </div>
-                  <div className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center ${s.iconColor}`}>
-                    <span className="material-symbols-outlined icon-fill">{s.icon}</span>
+                  <div className={`w-7 h-7 md:w-12 md:h-12 rounded-lg md:rounded-xl ${s.bg} flex items-center justify-center ${s.iconColor} shrink-0`}>
+                    <span className="material-symbols-outlined icon-fill text-[16px] md:text-[24px]">{s.icon}</span>
                   </div>
                 </div>
-                <div className="mt-6 flex items-center gap-2 text-sm">
+
+                <div className="mt-4 md:mt-6 hidden md:flex items-center gap-2 text-sm">
                   {s.trend && (
                     <span className={`${s.trendText} ${s.trendBg} px-2 py-0.5 rounded flex items-center gap-1 font-medium`}>
                       <span className="material-symbols-outlined text-[14px]">trending_up</span>
@@ -203,20 +210,47 @@ export default function DashboardPage() {
               </button>
             </div>
             <div className="space-y-3">
-              {activities.map((a, i) => (
-                <div key={i} className="bg-white p-4 rounded-xl flex items-center justify-between hover:shadow-md transition-shadow">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor}`}>
-                      <span className="material-symbols-outlined icon-fill">{a.icon}</span>
+              {/* DESKTOP VIEW: Cards */}
+              <div className="hidden lg:block space-y-3">
+                {activities.map((a, i) => (
+                  <div key={i} className="bg-white p-4 rounded-xl flex items-center justify-between hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor}`}>
+                        <span className="material-symbols-outlined icon-fill">{a.icon}</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#131b2e]">{a.title}</p>
+                        <p className="text-xs text-[#3e4850] mt-0.5">{a.meta}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-[#131b2e]">{a.title}</p>
-                      <p className="text-xs text-[#3e4850] mt-0.5">{a.meta}</p>
+                    <span className={`text-xs font-medium px-3 py-1 rounded-full ${a.tagCls}`}>{a.tag}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* MOBILE VIEW: Timeline */}
+              <div className="lg:hidden relative space-y-6 pl-6">
+                {/* Vertical Line */}
+                <div className="absolute left-[15px] top-2 bottom-2 w-px bg-[#bec8d2]/30" />
+                
+                {activities.map((a, i) => (
+                  <div key={i} className="relative flex items-start gap-4">
+                    {/* Timeline Dot/Icon */}
+                    <div className={`absolute -left-[27px] w-6 h-6 rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor} z-10 border-4 border-[#f2f3ff] shadow-sm`}>
+                      <span className="material-symbols-outlined text-[12px] icon-fill">{a.icon}</span>
+                    </div>
+                    
+                    <div className="bg-white/60 p-3 rounded-xl border border-white/50 shadow-sm flex-1">
+                      <p className="text-xs font-bold text-[#131b2e] leading-tight mb-1">{a.title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] text-[#3e4850] opacity-80">{a.meta}</p>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-[#006591]/70">{a.tag}</span>
+                      </div>
                     </div>
                   </div>
-                  <span className={`text-xs font-medium px-3 py-1 rounded-full ${a.tagCls}`}>{a.tag}</span>
-                </div>
-              ))}
+                ))}
+              </div>
+
               {activities.length === 0 && (
                 <p className="text-sm text-[#3e4850] italic py-4 text-center">Chưa có hoạt động nào được ghi nhận.</p>
               )}
@@ -234,61 +268,139 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-2 mb-4">
-              <button
-                type="button"
-                onClick={() => setSelectedAssignee('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                  selectedAssignee === 'all'
-                    ? 'bg-[#006591] text-white border-[#006591]'
-                    : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
-                }`}
+            <div className="mb-4 max-w-xs">
+              <select
+                value={selectedAssignee}
+                onChange={(e) => {
+                  setSelectedAssignee(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] focus:outline-none focus:ring-2 focus:ring-[#006591] focus:border-transparent transition-all appearance-none cursor-pointer"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23006591' d='M1 1l5 5 5-5'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 12px center',
+                  paddingRight: '36px'
+                }}
               >
-                Tất cả
-              </button>
-              {assigneeOptions.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setSelectedAssignee(p.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                    selectedAssignee === p.id
-                      ? 'bg-[#006591] text-white border-[#006591]'
-                      : 'bg-white text-[#3e4850] border-[#bec8d2]/40 hover:bg-[#f2f3ff]'
-                  }`}
-                >
-                  {p.name}
-                </button>
-              ))}
+                <option value="all">Tất cả nhân sự</option>
+                {assigneeOptions.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="space-y-2">
-              {filteredSubtasks.map(st => (
-                <div key={st.subtask_id} className="rounded-xl border border-[#bec8d2]/15 bg-[#faf8ff] p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#131b2e]">{st.name}</p>
-                      <p className="text-xs text-[#3e4850] mt-0.5">
-                        {st.task?.feature?.project?.name || '—'} · {st.task?.feature?.name || '—'} · {st.task?.name || '—'}
+            {(() => {
+              const itemsPerPage = 4
+              const totalPages = Math.ceil(filteredSubtasks.length / itemsPerPage)
+              const startIdx = (currentPage - 1) * itemsPerPage
+              const endIdx = startIdx + itemsPerPage
+              const paginatedItems = filteredSubtasks.slice(startIdx, endIdx)
+
+              return (
+                <>
+                  <div className="space-y-2">
+                    {paginatedItems.map(st => (
+                      <div key={st.subtask_id} className="rounded-xl border border-[#bec8d2]/15 bg-[#faf8ff] p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-[#131b2e]">{st.name}</p>
+                            <p className="text-xs text-[#3e4850] mt-0.5">
+                              {st.task?.feature?.project?.name || '—'} · {st.task?.feature?.name || '—'} · {st.task?.name || '—'}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#dae2fd] text-[#3e4850]">
+                            {SUBTASK_STATUS_LABELS[st.status] || st.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-[11px] text-[#3e4850]">
+                          <span className="font-medium">Phụ trách:</span> {st.users?.full_name || '—'} ·{' '}
+                          <span className="font-medium">Hạn:</span> {formatSubtaskDeadline(st.deadline)}
+                        </div>
+                      </div>
+                    ))}
+
+                    {filteredSubtasks.length === 0 && (
+                      <p className="text-sm text-[#3e4850] italic py-4 text-center">
+                        Không có subtask nào cho nhân sự đã chọn.
                       </p>
-                    </div>
-                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#dae2fd] text-[#3e4850]">
-                      {SUBTASK_STATUS_LABELS[st.status] || st.status}
-                    </span>
+                    )}
                   </div>
-                  <div className="mt-2 text-[11px] text-[#3e4850]">
-                    <span className="font-medium">Phụ trách:</span> {st.users?.full_name || '—'} ·{' '}
-                    <span className="font-medium">Hạn:</span> {formatSubtaskDeadline(st.deadline)}
-                  </div>
-                </div>
-              ))}
 
-              {filteredSubtasks.length === 0 && (
-                <p className="text-sm text-[#3e4850] italic py-4 text-center">
-                  Không có subtask nào cho nhân sự đã chọn.
-                </p>
-              )}
-            </div>
+                  {totalPages > 1 && filteredSubtasks.length > 0 && (
+                    <div className="mt-6 flex items-center justify-center gap-1 flex-nowrap overflow-x-auto">
+                      <button
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-2 rounded-lg border border-[#bec8d2]/40 text-[#131b2e] text-xs md:text-sm font-medium hover:bg-[#f2f3ff] disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                      >
+                        Trước
+                      </button>
+                      
+                      {/* Show first 2 pages */}
+                      {[1, 2].filter(p => p <= totalPages).map(page => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                            currentPage === page
+                              ? 'bg-[#006591] text-white border border-[#006591]'
+                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ))}
+                      
+                      {/* Ellipsis if there are more pages */}
+                      {totalPages > 4 && (
+                        <span className="px-2 py-2 text-xs md:text-sm text-[#3e4850]">...</span>
+                      )}
+                      
+                      {/* Show last 2 pages if more than 4 total pages */}
+                      {totalPages > 4 && [totalPages - 1, totalPages].map(page => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                            currentPage === page
+                              ? 'bg-[#006591] text-white border border-[#006591]'
+                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ))}
+                      
+                      {/* Show all pages if 4 or fewer */}
+                      {totalPages <= 4 && Array.from({ length: totalPages - 2 }, (_, i) => 3 + i).map(page => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                            currentPage === page
+                              ? 'bg-[#006591] text-white border border-[#006591]'
+                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ))}
+                      
+                      <button
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-2 rounded-lg border border-[#bec8d2]/40 text-[#131b2e] text-xs md:text-sm font-medium hover:bg-[#f2f3ff] disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                      >
+                        Sau
+                      </button>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </div>
       </div>

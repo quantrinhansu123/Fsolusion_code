@@ -618,16 +618,16 @@ function ModalTaskCard({
     <>
       {statusActionsOutside ? (
         <>
-          <div className="flex min-w-0 w-full flex-nowrap items-start gap-2 overflow-x-auto pb-0.5 sm:gap-3">
+          <div className="flex min-w-0 w-full flex-wrap lg:flex-nowrap items-start gap-2 pb-0.5 sm:gap-3">
             {onTaskStatusChange ? (
-              <div className="mt-0.5 shrink-0 flex flex-col gap-0.5 max-w-[9.5rem]">
+              <div className="mt-0.5 shrink-0 flex flex-col gap-0.5 w-[calc(50%-4px)] lg:w-auto lg:max-w-[9.5rem]">
                 <span className="text-[9px] font-bold uppercase tracking-wide text-[#64748b]">Trạng thái</span>
                 <select
                   aria-label="Trạng thái nhiệm vụ"
                   value={task.status || 'pending'}
                   disabled={updatingTaskId === task.task_id}
                   onChange={e => onTaskStatusChange(task.task_id, e.target.value)}
-                  className="w-full max-w-[9.5rem] rounded-lg border border-[#bec8d2]/50 bg-white py-1 pl-1.5 pr-6 text-[11px] font-semibold text-[#131b2e] shadow-sm focus:border-[#006591] focus:outline-none focus:ring-2 focus:ring-[#006591]/20 disabled:opacity-55 disabled:cursor-not-allowed"
+                  className="w-full rounded-lg border border-[#bec8d2]/50 bg-white py-1 pl-1.5 pr-6 text-[11px] font-semibold text-[#131b2e] shadow-sm focus:border-[#006591] focus:outline-none focus:ring-2 focus:ring-[#006591]/20 disabled:opacity-55 disabled:cursor-not-allowed"
                 >
                   {STATUS_OPTIONS.map(o => (
                     <option key={o.value} value={o.value}>
@@ -647,7 +647,7 @@ function ModalTaskCard({
             ) : (
               <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full border-2 border-[#eef1f6]" aria-hidden />
             )}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
               <p className="text-sm font-semibold leading-snug text-[#131b2e]">{task.name}</p>
               {subtitleLine ? (
                 <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[#64748b]">{subtitleLine}</p>
@@ -656,7 +656,7 @@ function ModalTaskCard({
                 <p className="mt-1 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
               ) : null}
             </div>
-            <div className="flex w-auto min-w-0 shrink-0 flex-col items-end gap-1">
+            <div className="flex w-auto flex-1 lg:flex-none min-w-0 lg:shrink-0 flex-col items-end gap-1">
               <div className="flex max-w-full flex-nowrap items-center justify-end gap-x-2 gap-y-1 text-[11px] text-[#475569] sm:gap-x-3">
                 <span className="shrink-0 tabular-nums text-[#334155]" title={formatDeadlineDisplay(task.deadline)}>
                   {formatDeadlineShort(task.deadline)}
@@ -712,19 +712,21 @@ function ModalTaskCard({
           ) : null}
           {displayBlocks.length > 0 || canModify ? (
             <>
-              <div className="mt-2 flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto rounded-lg border border-[#e8edf4] bg-[#f8fafc] px-2 py-2">
+              <div className="mt-2 rounded-lg border border-[#e8edf4] bg-[#f8fafc] px-2 py-1.5 space-y-1.5 sm:space-y-0 sm:flex sm:flex-nowrap sm:items-center sm:justify-between sm:gap-2">
+                {/* Label: Nội dung chi tiết */}
                 <button
                   type="button"
                   onClick={() => setShowTaskDetailModal(true)}
-                  className="inline-flex min-w-0 max-w-[min(100%,12rem)] shrink items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef2f7] sm:max-w-none sm:shrink-0"
+                  className="inline-flex w-full sm:w-auto min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef2f7]"
                 >
                   <span className="material-symbols-outlined shrink-0 text-[16px] text-[#94a3b8]">notes</span>
                   <span className="text-[10px] font-bold uppercase tracking-wide text-[#64748b]">
                     Nội dung chi tiết ({displayBlocks.length})
                   </span>
                 </button>
+                {/* Action Buttons */}
                 {canModify ? (
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
                       title="Thêm tiểu mục"
@@ -1089,7 +1091,7 @@ function ModalTaskCard({
                   </span>
                 </div>
 
-                {/* HEADER BẢNG */}
+                {/* HEADER BẢNG - Ẩn trên Mobile */}
                 <div className="hidden lg:grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 px-0 py-2 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
                     <input
@@ -1115,7 +1117,6 @@ function ModalTaskCard({
                   <div>Theo dõi tiến độ</div>
                   <div className="text-right">Thao tác</div>
                 </div>
-
                 <ul className="space-y-0">
                   {group.items.map(st => {
                     const workSessions = normalizeSubtaskWorkTime(st.work_time)
@@ -1135,58 +1136,68 @@ function ModalTaskCard({
                     const isSelected = selectedTaskIds.includes(st.subtask_id)
                     const isCompleted = stSel === 'completed'
 
-                    // CẤU TRÚC GRID 7 CỘT (Subtask Row)
+                    {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */}
                     return (
-                      <li key={st.subtask_id} className={`grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 items-start border-b border-slate-200 py-4 min-w-0 w-full transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}>
-                        {/* CỘT Checkbox */}
-                        <div className="flex items-center justify-center pt-1 h-full">
-                          <input
-                            type="checkbox"
-                            className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTaskIds(prev => [...prev, st.subtask_id])
-                              } else {
-                                setSelectedTaskIds(prev => prev.filter(id => id !== st.subtask_id))
-                              }
-                            }}
-                          />
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-3 lg:gap-4 items-start border-b border-slate-200 py-4 min-w-0 w-full transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                        
+                        {/* 1. Hàng đầu Mobile: Checkbox + Tên + Badge Trạng thái */}
+                        <div className="flex items-start gap-2 w-full lg:contents">
+                          {/* Checkbox (Cột 1 Desktop) */}
+                          <div className="flex items-center justify-center pt-1 lg:h-full">
+                            <input
+                              type="checkbox"
+                              className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedTaskIds(prev => [...prev, st.subtask_id])
+                                } else {
+                                  setSelectedTaskIds(prev => prev.filter(id => id !== st.subtask_id))
+                                }
+                              }}
+                            />
+                          </div>
+
+                          {/* Thông tin chính (Cột 2 Desktop) */}
+                          <div className="flex flex-col gap-2 min-w-0 flex-1 lg:h-full">
+                            <span className={`text-sm lg:text-[14px] font-bold lg:font-semibold leading-snug break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#131b2e]'}`}>
+                              {st.name}
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {onSubtaskStatusChange ? (
+                                <select
+                                  aria-label="Trạng thái tiểu mục"
+                                  value={stSel}
+                                  disabled={busy}
+                                  onChange={e => onSubtaskStatusChange(st.subtask_id, e.target.value)}
+                                  className={`w-fit max-w-full cursor-pointer rounded-md border py-1 pl-2 pr-7 text-[11px] font-medium shadow-sm focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/25 disabled:cursor-not-allowed disabled:opacity-45 ${selCls}`}
+                                  style={{ backgroundPosition: 'right 6px center', backgroundSize: '10px' }}
+                                >
+                                  {SUBTASK_STATUS_PILLS.map(opt => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <StatusBadge status={st.status} />
+                              )}
+                              {/* Người gán (Chỉ hiện trên mobile ở đây) */}
+                              <div className="lg:hidden text-[11px] text-slate-500 flex items-center gap-1 min-w-0 truncate">
+                                <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
+                                <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
+                              </div>
+                            </div>
+                            {/* Người gán (Desktop) */}
+                            <div className="hidden lg:flex text-[11px] text-slate-500 mt-auto items-center gap-1 min-w-0 truncate">
+                                <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
+                                <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
+                            </div>
+                          </div>
                         </div>
 
-                        {/* CỘT 1: Thông tin & Trạng thái */}
-                        <div className="flex flex-col gap-2 min-w-0 h-full">
-                          <span className={`text-[14px] font-semibold leading-snug break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#131b2e]'}`}>
-                            {st.name}
-                          </span>
-                          <div>
-                            {onSubtaskStatusChange ? (
-                              <select
-                                aria-label="Trạng thái tiểu mục"
-                                value={stSel}
-                                disabled={busy}
-                                onChange={e => onSubtaskStatusChange(st.subtask_id, e.target.value)}
-                                className={`w-fit max-w-full cursor-pointer rounded-md border py-1 pl-2 pr-7 text-[11px] font-medium shadow-sm focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/25 disabled:cursor-not-allowed disabled:opacity-45 ${selCls}`}
-                                style={{ backgroundPosition: 'right 6px center', backgroundSize: '10px' }}
-                              >
-                                {SUBTASK_STATUS_PILLS.map(opt => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <StatusBadge status={st.status} />
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-auto flex items-center gap-1 min-w-0 truncate">
-                            <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
-                            <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
-                          </div>
-                        </div>
-
-                        {/* CỘT 2: Ghi chú & Hướng dẫn */}
-                        <div className="flex flex-col min-w-0 w-full h-full">
+                        {/* 2. Ghi chú (Cột 3 Desktop) */}
+                        <div className="flex flex-col min-w-0 w-full lg:h-full pl-6 lg:pl-0">
                           {subDisplayBlocks.filter(b => b.content?.trim()).length > 0 ? (
                             <div className="bg-slate-50 p-2.5 rounded-md text-[13px] whitespace-pre-wrap break-words w-full text-[#131b2e]">
                               <ul className="list-inside list-disc marker:text-[#006591] space-y-1">
@@ -1200,148 +1211,157 @@ function ModalTaskCard({
                               </ul>
                             </div>
                           ) : (
-                            <div className="bg-slate-50 p-2.5 rounded-md text-[13px] whitespace-pre-wrap break-words w-full text-slate-400 italic">
+                            <div className="bg-slate-50 p-2.5 rounded-md text-[13px] whitespace-pre-wrap break-words w-full text-slate-400 italic lg:block hidden">
                               Không có ghi chú
                             </div>
                           )}
                         </div>
 
-                        {/* CỘT 3: Ảnh đính kèm */}
-                        <div className="flex items-center justify-center pt-1 min-w-0 w-full">
+                        {/* 3. Ảnh đính kèm (Cột 4 Desktop) */}
+                        <div className="flex lg:items-center lg:justify-center pt-1 min-w-0 w-auto pl-6 lg:pl-0 lg:w-full">
                           {isMediaImg ? (
                             <img
                               src={mediaUrl}
                               alt="Minh chứng"
                               onClick={() => setImageLightboxUrl(mediaUrl)}
-                              className="w-12 h-12 object-cover rounded shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
+                              className="w-14 h-14 lg:w-12 lg:h-12 object-cover rounded-lg shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
                             />
                           ) : mediaUrl ? (
-                            <a href={mediaUrl} target="_blank" rel="noreferrer" title="Mở file đính kèm" className="w-12 h-12 flex items-center justify-center rounded shadow-sm border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                            <a href={mediaUrl} target="_blank" rel="noreferrer" title="Mở file đính kèm" className="w-14 h-14 lg:w-12 lg:h-12 flex flex-col items-center justify-center rounded-lg shadow-sm border border-slate-200 bg-white cursor-pointer hover:bg-slate-50 transition-colors">
                               <span className="material-symbols-outlined text-[24px] text-[#006591]">attach_file</span>
+                              <span className="lg:hidden text-[9px] font-bold text-slate-400 uppercase mt-0.5">Mở file</span>
                             </a>
                           ) : (
-                            <div className="w-12 h-12 bg-slate-100 rounded border border-dashed border-slate-300 flex items-center justify-center text-[20px] text-slate-300" title="Không có ảnh">
-                              🖼️
-                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => m.open('edit_subtask', { id: st.subtask_id })}
+                              className="w-14 h-14 lg:w-12 lg:h-12 bg-slate-50 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-300 hover:border-[#006591] hover:text-[#006591] transition-all group" 
+                              title="Nhấn để đính kèm file"
+                            >
+                              <span className="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform">add_photo_alternate</span>
+                              <span className="lg:hidden text-[9px] font-bold text-slate-400 uppercase mt-0.5">Đính kèm</span>
+                            </button>
                           )}
                         </div>
 
-                        {/* CỘT 4: Thống kê Thời gian hiện theo Khối */}
-                        <div className="flex flex-col gap-3 min-w-0">
-                          {/* Khối 1 */}
-                          <div>
-                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">Giao: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{formatIsoTimeClock(st.created_at)}</span></div>
-                            <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                              ({formatIsoDateSlashShort(st.created_at)} - lúc tạo)
+                        {/* 4. Thống kê & Bộ đếm (Cột 5, 6 Desktop) — Grid 2 cột trên Mobile */}
+                        <div className="flex flex-col lg:contents w-full pl-6 lg:pl-0 gap-4">
+                          {/* Thống kê (Cột 5 Desktop) */}
+                          <div className="grid grid-cols-2 lg:flex lg:flex-col gap-3 min-w-0 bg-[#f8fafc] lg:bg-transparent p-3 lg:p-0 rounded-lg border border-slate-100 lg:border-none shadow-sm lg:shadow-none">
+                            {/* Khối 1 */}
+                            <div>
+                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">Giao: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{formatIsoTimeClock(st.created_at)}</span></div>
+                              <div className="text-[10px] text-slate-400 font-normal leading-tight">
+                                ({formatIsoDateSlashShort(st.created_at)})
+                              </div>
                             </div>
-                          </div>
-                          {/* Khối 2 */}
-                          <div>
-                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
-                              Xong: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{st.completed_at ? formatIsoTimeClock(st.completed_at) : '—'}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                              {st.completed_at ? `(${formatIsoDateSlashShort(st.completed_at)} - đã xong)` : ''}
-                            </div>
-                          </div>
-                          {/* Khối 3 */}
-                          {st.completed_at && (
+                            {/* Khối 2 */}
                             <div>
                               <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
-                                Giao {'->'} Xong: <span className="font-medium text-emerald-700 text-[12px]">{formatGiaoDenHoanThanhCell(st)}</span>
+                                Xong: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{st.completed_at ? formatIsoTimeClock(st.completed_at) : '—'}</span>
                               </div>
                               <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                                (Chỉ khi đã xong)
+                                {st.completed_at ? `(${formatIsoDateSlashShort(st.completed_at)})` : '—'}
                               </div>
                             </div>
-                          )}
-                          {/* Khối 4 */}
-                          <div>
-                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide flex items-baseline gap-1">
-                              Tổng phiên: <div className="text-[12px] font-medium text-[#131b2e]"><SubtaskLiveSessionTotal workTimeRaw={st.work_time} /></div>
+                            {/* Khối 3 (Desktop Only) */}
+                            {st.completed_at && (
+                              <div className="hidden lg:block">
+                                <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
+                                  Giao {'->'} Xong: <span className="font-medium text-emerald-700 text-[12px]">{formatGiaoDenHoanThanhCell(st)}</span>
+                                </div>
+                              </div>
+                            )}
+                            {/* Khối 4 Mobile Full row */}
+                            <div className="col-span-2 lg:col-span-1 border-t border-slate-100 pt-2 lg:border-none lg:pt-0">
+                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide flex items-baseline gap-1">
+                                Tổng phiên: <div className="text-[12px] font-medium text-[#131b2e]"><SubtaskLiveSessionTotal workTimeRaw={st.work_time} /></div>
+                              </div>
                             </div>
-                            <div className="text-[10px] text-slate-400 font-normal leading-tight flex flex-wrap">
-                              (Bắt đầu - Tạm dừng)
-                            </div>
+                          </div>
+
+                          {/* Bộ đếm (Timer) (Cột 6 Desktop) */}
+                          <div className="flex flex-col gap-1 min-w-0 justify-start w-full bg-[#f0f9ff]/40 lg:bg-transparent p-3 lg:p-0 rounded-lg border border-sky-100 lg:border-none">
+                            {onSubtaskWorkTimeSave ? (
+                              <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
+                                <>
+                                  {!workRunning ? (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={async () => {
+                                        const cur = normalizeSubtaskWorkTime(st.work_time)
+                                        if (subtaskHasOpenWorkSession(cur)) return
+                                        await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
+                                      }}
+                                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-[#e2e8f0] bg-white px-3 py-2 text-xs font-bold text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                                      Bắt đầu
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={busy || !workRunning}
+                                      onClick={async () => {
+                                        const cur = normalizeSubtaskWorkTime(st.work_time)
+                                        if (!subtaskHasOpenWorkSession(cur)) return
+                                        await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
+                                      }}
+                                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">pause</span>
+                                      Tạm dừng
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={busy || (!st.work_time && !workRunning)}
+                                    onClick={async () => {
+                                      if (confirm('Bạn có chắc muốn đặt lại toàn bộ thời gian làm việc của tiểu mục này?')) {
+                                        await onSubtaskWorkTimeSave(st.subtask_id, null)
+                                      }
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1 rounded-md border border-[#bec8d2]/40 bg-white px-3 py-2 text-xs font-bold text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
+                                    title="Đặt lại phiên làm việc"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">replay</span>
+                                    <span className="lg:hidden ml-1">Đặt lại</span>
+                                  </button>
+                                </>
+                              } />
+                            ) : (
+                              <div className="text-[11px] text-slate-400 italic">Time tracking vô hiệu</div>
+                            )}
                           </div>
                         </div>
 
-                        {/* CỘT 5: Bộ đếm (Timer) */}
-                        <div className="flex flex-col gap-1 min-w-0 justify-start w-full">
-                          {onSubtaskWorkTimeSave ? (
-                            <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
-                              <>
-                                {!workRunning ? (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={async () => {
-                                      const cur = normalizeSubtaskWorkTime(st.work_time)
-                                      if (subtaskHasOpenWorkSession(cur)) return
-                                      await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
-                                    }}
-                                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
-                                  >
-                                    <span className="material-symbols-outlined text-[13px]">play_arrow</span>
-                                    Bắt đầu
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    disabled={busy || !workRunning}
-                                    onClick={async () => {
-                                      const cur = normalizeSubtaskWorkTime(st.work_time)
-                                      if (!subtaskHasOpenWorkSession(cur)) return
-                                      await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
-                                    }}
-                                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-amber-300 bg-amber-50 px-2 py-[5px] text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
-                                  >
-                                    <span className="material-symbols-outlined text-[13px]">pause</span>
-                                    Tạm dừng
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={busy || workRunning}
-                                  onClick={async () => {
-                                    const cur = normalizeSubtaskWorkTime(st.work_time)
-                                    if (subtaskHasOpenWorkSession(cur)) return
-                                    if (cur.length === 0) return
-                                    if (!window.confirm('Xóa toán bộ phiên?')) return
-                                    await onSubtaskWorkTimeSave(st.subtask_id, [])
-                                  }}
-                                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#64748b] hover:bg-[#f1f5f9] disabled:opacity-45 shadow-sm transition-colors"
-                                >
-                                  <span className="material-symbols-outlined text-[13px]">restart_alt</span>
-                                  Đặt lại
-                                </button>
-                              </>
-                            } />
-                          ) : (
-                            <div className="text-[11px] text-slate-400 italic">Time tracking vô hiệu</div>
-                          )}
-                        </div>
-
-                        {/* CỘT 6: Thao tác */}
-                        <div className="flex flex-row gap-2 min-w-0 justify-end">
-                          {canModify && onDeleteSubtask && (
+                        {/* 5. Thao tác (Cột 7 Desktop) */}
+                        <div className="grid grid-cols-2 lg:flex lg:items-center lg:justify-end gap-2 w-full pt-2 lg:pt-0 border-t border-slate-100 lg:border-none pl-6 lg:pl-0">
+                          {canModify && (
                             <>
                               <button
                                 type="button"
-                                onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
-                                className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-[#e2e8f0] bg-white text-[#64748b] hover:bg-[#f8fafc] hover:text-[#006591] transition-colors shadow-sm"
-                                title="Sửa"
+                                onClick={() => m.open('edit_subtask', { id: st.subtask_id })}
+                                className="p-2.5 lg:p-1.5 rounded-md lg:rounded-lg border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                title="Sửa tiểu mục"
                               >
-                                <span className="material-symbols-outlined text-[15px]">edit</span>
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                                <span className="lg:hidden text-xs font-bold uppercase tracking-tight">Sửa</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteSubtask(st.subtask_id)}
-                                className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors shadow-sm"
-                                title="Xóa"
-                              >
-                                <span className="material-symbols-outlined text-[15px]">delete</span>
-                              </button>
+                              {onDeleteSubtask ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteSubtask(st.subtask_id)}
+                                  className="p-2.5 lg:p-1.5 rounded-md lg:rounded-lg border border-[#fecaca] bg-[#fff5f5] text-[#b91c1c] hover:bg-[#ffe4e4] transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                  title="Xóa tiểu mục"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                                  <span className="lg:hidden text-xs font-bold uppercase tracking-tight">Xóa</span>
+                                </button>
+                              ) : (
+                                <div className="lg:hidden" /> /* Placeholder để giữ grid 2 cột nếu không có nút xóa */
+                              )}
                             </>
                           )}
                         </div>
@@ -1588,11 +1608,30 @@ function AssignTeamModal({ allUsers, selectedIds, onToggle, onSave, onClose, sav
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const [customers, setCustomers] = useState([])
+  const [projectsModalCustomerId, setProjectsModalCustomerId] = useState(null)
+  const [projectTasksViewId, setProjectTasksViewId] = useState(null)
+  const [modalProjectPage, setModalProjectPage] = useState(1)
+  const PAGE_SIZE_MODAL = 3
+
+  useEffect(() => {
+    setModalProjectPage(1)
+  }, [projectsModalCustomerId])
+
+  const projectsModalCustomer = useMemo(() => {
+    if (!projectsModalCustomerId) return null
+    return customers.find(c => c.customer_id === projectsModalCustomerId) || null
+  }, [projectsModalCustomerId, customers])
+
+  const totalPagesModal = projectsModalCustomer
+    ? Math.ceil(projectsModalCustomer.projects.length / PAGE_SIZE_MODAL)
+    : 0
+  const paginatedModalProjects = projectsModalCustomer
+    ? projectsModalCustomer.projects.slice((modalProjectPage - 1) * PAGE_SIZE_MODAL, modalProjectPage * PAGE_SIZE_MODAL)
+    : []
+
   const [userRole, setUserRole] = useState('employee')
   const [allUsers, setAllUsers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [projectsModalCustomerId, setProjectsModalCustomerId] = useState(null)
-  const [projectTasksViewId, setProjectTasksViewId] = useState(null)
   const [memberRowOpen, setMemberRowOpen] = useState({})
   const [savingAssign, setSavingAssign] = useState(false)
   const [savingProject, setSavingProject] = useState(false)
@@ -1612,9 +1651,6 @@ export default function ProjectsPage() {
   const [openProjectMenuId, setOpenProjectMenuId] = useState(null)
   const m = useModal()
 
-  const projectsModalCustomer = projectsModalCustomerId
-    ? customers.find(c => c.customer_id === projectsModalCustomerId)
-    : null
 
   const projectInTasksView = projectTasksViewId && projectsModalCustomer
     ? projectsModalCustomer.projects?.find(p => p.project_id === projectTasksViewId)
@@ -1746,27 +1782,27 @@ export default function ProjectsPage() {
       } else if (type === 'add_project') {
         if (!cleanData.customer_id) throw new Error('Vui lòng chọn khách hàng')
         if (!cleanData.name) throw new Error('Vui lòng nhập tên dự án')
-        
+
         setSavingProject(true)
         try {
           // Thêm .select() để lấy dữ liệu vừa tạo về (nếu cần dùng trực tiếp, dù đã có fetchData)
           res = await supabase.from('projects').insert(cleanData).select()
-          
+
           if (res?.error) throw res.error
-          
+
           // ✅ Cập nhật dữ liệu ngầm cho toàn bộ trang
           await fetchData()
-          
+
           // ✅ Reset form: Clear các field nhập liệu, Keep phân loại (Khách hàng & Trạng thái)
           m.set('name', '')
           m.set('description', '')
           m.set('pricing', '')
           m.set('deadline', '')
-          
+
           // ✅ Thông báo thành công
-          setToast({ 
-            message: `Đã tạo dự án thành công!`, 
-            type: 'success' 
+          setToast({
+            message: `Đã tạo dự án thành công!`,
+            type: 'success'
           })
         } finally {
           setSavingProject(false)
@@ -1800,7 +1836,7 @@ export default function ProjectsPage() {
         let fid = cleanData.feature_id ?? featureId
         delete cleanData.feature_id
         if (!fid) throw new Error('Vui lòng chọn tính năng')
-        
+
         setSavingTask(true)
         try {
           const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
@@ -1814,7 +1850,7 @@ export default function ProjectsPage() {
           // ✅ Reset form theo yêu cầu: Xóa Tên Task, Nội dung & Ảnh. Giữ Người phụ trách.
           m.set('name', '')
           m.set('content_blocks', [{ content: '', image_url: '' }])
-          
+
           setToast({ message: 'Đã thêm nhiệm vụ thành công!', type: 'success' })
         } finally {
           setSavingTask(false)
@@ -1841,7 +1877,7 @@ export default function ProjectsPage() {
       } else if (type === 'add_subtask') {
         if (!taskId) throw new Error('Thiếu liên kết nhiệm vụ — hãy đóng và mở lại form thêm tiểu mục.')
         if (!String(cleanData.name ?? '').trim()) throw new Error('Vui lòng nhập tên tiểu mục')
-        
+
         setSavingSubtask(true)
         try {
           const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
@@ -1854,7 +1890,7 @@ export default function ProjectsPage() {
           }
           if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
           if (cleanData.assigned_to) row.assigned_to = cleanData.assigned_to
-          
+
           res = await supabase.from('subtasks').insert(row)
           if (res?.error) throw res.error
 
@@ -1864,7 +1900,7 @@ export default function ProjectsPage() {
           // ✅ Reset form theo yêu cầu: Xóa Tên, Nội dung & Ảnh. Giữ Người phụ trách.
           m.set('name', '')
           m.set('content_blocks', [{ content: '', image_url: '' }])
-          
+
           setToast({ message: 'Đã thêm tiểu mục thành công!', type: 'success' })
         } finally {
           setSavingSubtask(false)
@@ -1873,7 +1909,7 @@ export default function ProjectsPage() {
       } else if (type === 'edit_subtask') {
         if (!id) throw new Error('Thiếu mã tiểu mục')
         if (!String(cleanData.name ?? '').trim()) throw new Error('Vui lòng nhập tên tiểu mục')
-        
+
         setSavingSubtask(true)
         try {
           const sanitized = sanitizeTaskContentForSave(cleanData.content_blocks)
@@ -2190,7 +2226,7 @@ export default function ProjectsPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
       <Sidebar />
-      <div className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto">
+      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar
           title={
             projectTasksViewId && projectInTasksView
@@ -2203,49 +2239,46 @@ export default function ProjectsPage() {
               : 'Theo dõi tiến độ và quản lý phân công công việc'
           }
         />
-        <main className="flex-1 px-6 py-6 sm:px-8 sm:py-8">
-          <div className="max-w-5xl mx-auto space-y-5 pb-20">
-            {userRole === 'admin' && (
-              <div className="flex justify-end">
+        <main className="flex-1 px-3 py-4 sm:px-8 sm:py-8">
+          <div className="mx-auto w-full max-w-5xl space-y-5 pb-20">
+            <div className={`grid gap-2.5 sm:gap-3 ${userRole === 'admin' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'}`}>
+              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                  <span className="material-symbols-outlined text-[16px]">folder</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Tổng dự án</div>
+                  <div className="text-[15px] font-bold tabular-nums text-[#131b2e] leading-snug">{projectListStats.total}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
+                  <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Đang hoạt động</div>
+                  <div className="text-[15px] font-bold tabular-nums text-emerald-700 leading-snug">{projectListStats.active}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600">
+                  <span className="material-symbols-outlined text-[16px]">warning</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Sắp đến hạn</div>
+                  <div className="text-[15px] font-bold tabular-nums text-amber-700 leading-snug">{projectListStats.due}</div>
+                </div>
+              </div>
+              {userRole === 'admin' && (
                 <button
                   type="button"
                   onClick={() => m.open('add_project')}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-4 py-1.5 text-[12px] font-medium text-sky-800 shadow-sm hover:bg-sky-100/90"
+                  className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-800 shadow-sm hover:bg-sky-100/90"
                 >
                   <span className="material-symbols-outlined text-[16px] text-sky-700">add</span>
                   Dự án mới
                 </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#f1f5f9] bg-white px-3.5 py-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
-                  <span className="material-symbols-outlined text-[16px]">folder</span>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">Tổng dự án</div>
-                  <div className="text-[15px] font-bold tabular-nums text-[#131b2e] leading-snug">{projectListStats.total}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#f1f5f9] bg-white px-3.5 py-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
-                  <span className="material-symbols-outlined text-[16px]">play_arrow</span>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">Đang hoạt động</div>
-                  <div className="text-[15px] font-bold tabular-nums text-emerald-700 leading-snug">{projectListStats.active}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#f1f5f9] bg-white px-3.5 py-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">Sắp đến hạn</div>
-                  <div className="text-[15px] font-bold tabular-nums text-amber-700 leading-snug">{projectListStats.due}</div>
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
@@ -2654,37 +2687,106 @@ export default function ProjectsPage() {
             )
           ) : (
             <div className="space-y-4">
-              {projectsModalCustomer.projects.map(p => {
+              {/* MOBILE ONLY: PAGINATION TOP (Optional, but sếp said "ở cuối danh sách") */}
+
+              {(window.innerWidth < 1024 ? paginatedModalProjects : projectsModalCustomer.projects).map(p => {
                 const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager'
+                const hasBudget = p.pricing != null && p.pricing !== ''
                 return (
-                  <div
-                    key={p.project_id}
-                    className="rounded-xl border border-[#bec8d2]/20 bg-[#faf8ff]/50 p-4 space-y-3"
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <p className="text-sm font-bold text-[#131b2e]">{p.name}</p>
-                        <p className="text-xs text-[#3e4850] line-clamp-2">{p.description || '—'}</p>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
-                          <span>
-                            Ngân sách:{' '}
-                            {p.pricing != null && p.pricing !== ''
-                              ? `${Number(p.pricing).toLocaleString('vi-VN')} ₫`
-                              : '—'}
-                          </span>
-                          <span>Hạn: {formatDeadlineDisplay(p.deadline)}</span>
+                  <div key={p.project_id}>
+                    {/* DESKTOP VIEW: Legacy Card Style */}
+                    <div className="hidden lg:block rounded-xl border border-[#bec8d2]/20 bg-[#faf8ff]/50 p-4 space-y-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="text-sm font-bold text-[#131b2e]">{p.name}</p>
+                          <p className="text-xs text-[#3e4850] line-clamp-2">{p.description || '—'}</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
+                            <span>
+                              Ngân sách:{' '}
+                              {hasBudget ? `${Number(p.pricing).toLocaleString('vi-VN')} ₫` : '—'}
+                            </span>
+                            <span>Hạn: {formatDeadlineDisplay(p.deadline)}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <StatusBadge status={p.status} />
+                          <button
+                            type="button"
+                            onClick={() => setProjectTasksViewId(p.project_id)}
+                            className="text-xs font-semibold text-[#006591] bg-[#dae2fd] hover:bg-[#c9d4fc] px-3 py-2 rounded-lg inline-flex items-center gap-1 transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">visibility</span>
+                            Xem
+                          </button>
+                          {isManagerOrAdmin && (
+                            <ThreeDotMenu
+                              items={[
+                                { icon: 'edit', label: 'Chỉnh sửa', onClick: () => m.open('edit_project', { id: p.project_id, ...p }) },
+                                {
+                                  icon: 'group_add',
+                                  label: 'Phân công nhân sự',
+                                  onClick: () =>
+                                    m.open('assign_team', {
+                                      projectId: p.project_id,
+                                      initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
+                                    }),
+                                  primary: true,
+                                },
+                                { icon: 'add_circle', label: 'Thêm tính năng mới', onClick: () => m.open('add_feature', { projectId: p.project_id }), primary: true },
+                                { icon: 'delete', label: 'Xóa', onClick: () => deleteEntity('projects', 'project_id', p.project_id), danger: true },
+                              ]}
+                            />
+                          )}
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <StatusBadge status={p.status} />
-                        <button
-                          type="button"
-                          onClick={() => setProjectTasksViewId(p.project_id)}
-                          className="text-xs font-semibold text-[#006591] bg-[#dae2fd] hover:bg-[#c9d4fc] px-3 py-2 rounded-lg inline-flex items-center gap-1 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">visibility</span>
-                          Xem
-                        </button>
+                      {isManagerOrAdmin && (
+                        <div className="border-t border-[#bec8d2]/15 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setMemberRowOpen(s => ({ ...s, [p.project_id]: !s[p.project_id] }))}
+                            className="flex w-full items-center justify-between gap-2 text-left rounded-lg px-1 py-1 hover:bg-[#f0f2fa]/80 transition-colors"
+                          >
+                            <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
+                              Nhân sự
+                              {(p.project_assignments || []).length > 0 && (
+                                <span className="font-semibold text-[#006591]">
+                                  {' '}
+                                  · {(p.project_assignments || []).length} người
+                                </span>
+                              )}
+                            </span>
+                            <span className="material-symbols-outlined text-[#6e7881] text-[18px] shrink-0">
+                              {memberRowOpen[p.project_id] ? 'expand_less' : 'expand_more'}
+                            </span>
+                          </button>
+                          {memberRowOpen[p.project_id] && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
+                              {(p.project_assignments || []).map(a => {
+                                const u = allUsers.find(x => x.user_id === a.user_id)
+                                return (
+                                  <div key={a.user_id} className="flex items-center gap-1 bg-[#f9fafb] border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[10px]">
+                                    {u?.full_name || a.users?.full_name || '...'}
+                                    <button
+                                      type="button"
+                                      onClick={() => removeAssignment(p.project_id, a.user_id)}
+                                      className="text-[#6e7881] hover:text-red-500 ml-0.5"
+                                      title="Gỡ khỏi dự án"
+                                    >
+                                      <span className="material-symbols-outlined text-[12px]">close</span>
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MOBILE VIEW: Ultra-Compact List Item */}
+                    <div className="lg:hidden border-b border-[#bec8d2]/15 pb-4 last:border-b-0 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[13px] font-bold text-[#131b2e] truncate grow">{p.name}</p>
                         {isManagerOrAdmin && (
                           <ThreeDotMenu
                             items={[
@@ -2692,85 +2794,112 @@ export default function ProjectsPage() {
                               {
                                 icon: 'group_add',
                                 label: 'Phân công nhân sự',
-                                onClick: () =>
-                                  m.open('assign_team', {
-                                    projectId: p.project_id,
-                                    initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
-                                  }),
+                                onClick: () => m.open('assign_team', {
+                                  projectId: p.project_id,
+                                  initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
+                                }),
                                 primary: true,
                               },
                               { icon: 'add_circle', label: 'Thêm tính năng mới', onClick: () => m.open('add_feature', { projectId: p.project_id }), primary: true },
-                              { icon: 'delete', label: 'Xóa', onClick: () => deleteEntity('projects', 'project_id', p.project_id), danger: true },
+                              { icon: 'delete', label: 'Xóa dự án', onClick: () => deleteEntity('projects', 'project_id', p.project_id), danger: true },
                             ]}
                           />
                         )}
                       </div>
-                    </div>
-                    {isManagerOrAdmin && (
-                      <div className="border-t border-[#bec8d2]/15 pt-2">
+
+                      {/* Row 2: Info & Actions */}
+                      <div className="flex flex-row items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 text-[10px] text-[#3e4850] bg-slate-100 px-1.5 py-0.5 rounded">
+                            <span className="material-symbols-outlined text-[12px]">event</span>
+                            {formatDeadlineDisplay(p.deadline)}
+                          </div>
+                          <StatusBadge status={p.status} />
+                          {hasBudget && (
+                            <span className="text-[10px] text-emerald-700 font-medium">
+                              {Number(p.pricing).toLocaleString('vi-VN')} ₫
+                            </span>
+                          )}
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() =>
-                            setMemberRowOpen(s => ({ ...s, [p.project_id]: !s[p.project_id] }))
-                          }
-                          className="flex w-full items-center justify-between gap-2 text-left rounded-lg px-1 py-1 hover:bg-[#f0f2fa]/80 transition-colors"
+                          onClick={() => setProjectTasksViewId(p.project_id)}
+                          className="text-[11px] font-bold text-[#006591] bg-[#dae2fd] active:scale-95 px-3 py-1 rounded-md transition-all uppercase tracking-tighter"
                         >
-                          <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
-                            Nhân sự
-                            {(p.project_assignments || []).length > 0 && (
-                              <span className="font-semibold text-[#006591]">
-                                {' '}
-                                · {(p.project_assignments || []).length} người
-                              </span>
-                            )}
-                          </span>
-                          <span className="material-symbols-outlined text-[#6e7881] text-[18px] shrink-0">
-                            {memberRowOpen[p.project_id] ? 'expand_less' : 'expand_more'}
-                          </span>
+                          Xem
                         </button>
-                        {memberRowOpen[p.project_id] && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
-                            {(p.project_assignments || []).map(a => {
-                              const u = allUsers.find(x => x.user_id === a.user_id)
-                              return (
-                                <div
-                                  key={a.user_id}
-                                  className="flex items-center gap-1 bg-[#f9fafb] border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[10px]"
-                                >
-                                  {u?.full_name || a.users?.full_name || '...'}
-                                  <button
-                                    type="button"
-                                    onClick={() => removeAssignment(p.project_id, a.user_id)}
-                                    className="text-[#6e7881] hover:text-red-500 ml-0.5"
-                                    title="Gỡ khỏi dự án"
-                                  >
-                                    <span className="material-symbols-outlined text-[12px]">close</span>
-                                  </button>
-                                </div>
-                              )
-                            })}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                m.open('assign_team', {
-                                  projectId: p.project_id,
-                                  initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
-                                })
-                              }
-                              className="w-6 h-6 rounded-full border border-dashed border-[#bec8d2] text-[#6e7881] flex items-center justify-center hover:border-[#006591] hover:text-[#006591]"
-                              title="Thêm / chỉnh phân công"
-                            >
-                              <span className="material-symbols-outlined text-sm">add</span>
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    )}
+
+                      {/* Staff Dropdown (Mobile Optimized) */}
+                      {isManagerOrAdmin && (
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => setMemberRowOpen(s => ({ ...s, [p.project_id]: !s[p.project_id] }))}
+                            className="flex h-8 w-full items-center justify-between gap-2 text-left rounded-lg px-2 bg-slate-50/50 border border-slate-100"
+                          >
+                            <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-tighter">
+                              NHÂN SỰ {(p.project_assignments || []).length > 0 && `· ${(p.project_assignments || []).length}`}
+                            </span>
+                            <span className="material-symbols-outlined text-[#6e7881] text-[16px]">
+                              {memberRowOpen[p.project_id] ? 'expand_less' : 'expand_more'}
+                            </span>
+                          </button>
+                          {memberRowOpen[p.project_id] && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {(p.project_assignments || []).map(a => {
+                                const u = allUsers.find(x => x.user_id === a.user_id)
+                                return (
+                                  <div key={a.user_id} className="flex items-center gap-1 bg-white border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[9px] font-medium text-[#131b2e]">
+                                    {u?.full_name || a.users?.full_name || '...'}
+                                    <button type="button" onClick={() => removeAssignment(p.project_id, a.user_id)} className="text-slate-400">
+                                      <span className="material-symbols-outlined text-[10px]">close</span>
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                              <button
+                                type="button"
+                                onClick={() => m.open('assign_team', { projectId: p.project_id, initial: { user_ids: (p.project_assignments || []).map(z => z.user_id) } })}
+                                className="w-6 h-6 flex items-center justify-center rounded-full bg-[#dae2fd] text-[#006591] border border-white"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">add</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
+
+              {/* MOBILE ONLY: MINI PAGINATION CONTROLS */}
+              {totalPagesModal > 1 && (
+                <div className="lg:hidden flex items-center justify-center gap-4 pt-2 pb-1 border-t border-[#bec8d2]/10">
+                  <button
+                    disabled={modalProjectPage === 1}
+                    onClick={() => setModalProjectPage(prev => Math.max(1, prev - 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#006591] disabled:opacity-30 active:scale-95 transition-all shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+                  </button>
+                  <p className="text-[11px] font-bold text-[#131b2e] tracking-widest tabular-nums">
+                    TRANG {modalProjectPage} / {totalPagesModal}
+                  </p>
+                  <button
+                    disabled={modalProjectPage === totalPagesModal}
+                    onClick={() => setModalProjectPage(prev => Math.min(totalPagesModal, prev + 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#006591] disabled:opacity-30 active:scale-95 transition-all shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
+
         </Modal>
       )}
 
@@ -2785,15 +2914,15 @@ export default function ProjectsPage() {
         />
       )}
       {m.modal && cfg && (
-        <EntityFormModal 
-          title={cfg.title} 
-          fields={cfg.fields} 
-          data={m.form} 
-          onChange={m.set} 
-          onSave={handleSave} 
+        <EntityFormModal
+          title={cfg.title}
+          fields={cfg.fields}
+          data={m.form}
+          onChange={m.set}
+          onSave={handleSave}
           onClose={m.close}
           isLoading={
-            ((m.modal?.type === 'add_project' || m.modal?.type === 'edit_project') && savingProject) || 
+            ((m.modal?.type === 'add_project' || m.modal?.type === 'edit_project') && savingProject) ||
             ((m.modal?.type === 'add_subtask' || m.modal?.type === 'edit_subtask') && savingSubtask) ||
             ((m.modal?.type === 'add_task' || m.modal?.type === 'edit_task') && savingTask) ||
             ((m.modal?.type === 'add_feature' || m.modal?.type === 'edit_feature') && savingFeature)

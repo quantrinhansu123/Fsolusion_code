@@ -37,18 +37,18 @@ export default function Modal({
         className={`bg-white w-full ${maxWidthClassName} max-h-[90vh] rounded-[20px] shadow-[0_32px_64px_rgba(19,27,46,0.14)] border border-[#bec8d2]/20 overflow-hidden flex flex-col`}
       >
         {/* Header */}
-        <div className="px-[18px] pt-4 pb-3 sm:px-6 flex justify-between items-start gap-3 border-b border-[#e2e8f0]">
+        <div className="px-[18px] pt-3 pb-3 sm:px-6 flex flex-col-reverse lg:flex-row lg:justify-between lg:items-start gap-2 border-b border-[#e2e8f0]">
           {headerChildren ? (
             <div className="min-w-0 flex-1">{headerChildren}</div>
           ) : (
             <div className="min-w-0 flex-1">
               {title ? (
-                <h3 className="text-2xl font-bold text-[#131b2e] tracking-tight">{title}</h3>
+                <h3 className="text-[16px] lg:text-2xl font-bold text-[#131b2e] tracking-tight leading-tight">{title}</h3>
               ) : null}
-              {subtitle ? <p className="text-sm text-[#3e4850] mt-1">{subtitle}</p> : null}
+              {subtitle ? <p className="text-sm text-[#3e4850] mt-1 hidden lg:block">{subtitle}</p> : null}
             </div>
           )}
-          <div className="flex items-start gap-2 shrink-0">
+          <div className="flex items-start gap-2 shrink-0 justify-between lg:justify-start">
             {headerActions}
             <button
               type="button"

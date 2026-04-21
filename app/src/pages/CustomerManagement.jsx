@@ -22,6 +22,8 @@ export default function CustomerManagement() {
   const [userRole, setUserRole] = useState('employee')
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
   const [addProjectFormData, setAddProjectFormData] = useState({})
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 5
 
   useEffect(() => {
     fetchCustomers()
@@ -155,85 +157,187 @@ export default function CustomerManagement() {
     }
   }
 
+  const totalPages = Math.ceil(customers.length / PAGE_SIZE)
+  const displayedCustomers = customers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
       <Sidebar />
 
-      <div className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto">
+      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Quản lý khách hàng" />
 
         <main className="flex-1 p-8">
           <div className="max-w-6xl mx-auto space-y-6">
-            <div className="flex justify-between items-end">
-              <div>
-                <h2 className="text-3xl font-bold tracking-tight text-[#131b2e] mb-1">Cơ sở khách hàng</h2>
-                <p className="text-[#3e4850] text-sm">Xem và quản lý thông tin các đối tác, khách hàng của agency.</p>
+            <div className="flex flex-row items-center justify-between gap-3 lg:items-end lg:gap-0">
+              <div className="min-w-0">
+                <h2 className="text-xl lg:text-3xl font-bold tracking-tight text-[#131b2e] lg:mb-1 truncate">
+                  <span className="lg:hidden">Khách hàng</span>
+                  <span className="hidden lg:inline">Cơ sở khách hàng</span>
+                </h2>
+                <p className="text-[#3e4850] text-sm hidden lg:block">Xem và quản lý thông tin các đối tác, khách hàng của agency.</p>
               </div>
               <button
                 onClick={() => { setEditingCustomer(null); setFormData({}); setIsModalOpen(true) }}
-                className="primary-gradient text-white px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 shadow-lg"
+                className="primary-gradient text-white px-3 py-1.5 lg:px-5 lg:py-2.5 rounded-xl font-semibold text-xs lg:text-sm flex items-center gap-2 shadow-lg shrink-0"
               >
-                <span className="material-symbols-outlined text-sm">person_add</span>
+                <span className="material-symbols-outlined text-[16px] lg:text-sm">person_add</span>
                 Thêm khách hàng
               </button>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-[#bec8d2]/15">
-              <table className="w-full text-left">
-                <thead className="bg-[#f9fafb] border-b border-[#bec8d2]/10">
-                  <tr className="text-[11px] font-bold text-[#3e4850] uppercase tracking-wider">
-                    <th className="px-6 py-4">Tên khách hàng</th>
-                    <th className="px-6 py-4">Liên hệ</th>
-                    <th className="px-6 py-4">Địa chỉ</th>
-                    <th className="px-6 py-4 text-center">Dự án</th>
-                    <th className="px-6 py-4 text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#bec8d2]/10">
-                  {customers.map(c => (
-                    <tr key={c.customer_id} className="hover:bg-[#fafafa] transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-sm">
-                            {c.name.charAt(0)}
-                          </div>
-                          <span className="text-sm font-semibold text-[#131b2e]">{c.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-xs text-[#131b2e] font-medium">
-                          {[c.phone, c.email].filter(Boolean).join(' · ') || '—'}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-xs text-[#3e4850] truncate max-w-xs">{c.address || '—'}</p>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="text-sm font-bold text-[#131b2e] bg-[#f2f3ff] px-3 py-1 rounded-lg tabular-nums inline-block">
-                          {c.project_count ?? 0}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openProjectsModal(c)}
-                            className="text-xs font-semibold text-[#006591] bg-[#dae2fd] hover:bg-[#c9d4fc] px-2.5 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1 shrink-0"
-                            title="Xem dự án"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">visibility</span>
-                            Xem
-                          </button>
-                          <ThreeDotMenu items={[
-                            { icon: 'edit',   label: 'Chỉnh sửa', onClick: () => { setEditingCustomer(c); setFormData(c); setIsModalOpen(true) } },
-                            { icon: 'delete', label: 'Xóa',        onClick: () => deleteCustomer(c.customer_id), danger: true },
-                          ]} />
-                        </div>
-                      </td>
+            <div className="bg-white rounded-2xl shadow-sm border border-[#bec8d2]/15 overflow-hidden">
+              {/* VIEW DESKTOP: Bảng giữ nguyên hiện trạng */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-[#f9fafb] border-b border-[#bec8d2]/10">
+                    <tr className="text-[11px] font-bold text-[#3e4850] uppercase tracking-wider">
+                      <th className="px-6 py-4">Tên khách hàng</th>
+                      <th className="px-6 py-4">Liên hệ</th>
+                      <th className="px-6 py-4">Địa chỉ</th>
+                      <th className="px-6 py-4 text-center">Dự án</th>
+                      <th className="px-6 py-4 text-right">Thao tác</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-[#bec8d2]/10">
+                    {customers.map(c => (
+                      <tr key={c.customer_id} className="hover:bg-[#fafafa] transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-sm">
+                              {c.name.charAt(0)}
+                            </div>
+                            <span className="text-sm font-semibold text-[#131b2e]">{c.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-[#131b2e] font-medium">
+                            {[c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-[#3e4850] truncate max-w-xs">{c.address || '—'}</p>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="text-sm font-bold text-[#131b2e] bg-[#f2f3ff] px-3 py-1 rounded-lg tabular-nums inline-block">
+                            {c.project_count ?? 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openProjectsModal(c)}
+                              className="text-xs font-semibold text-[#006591] bg-[#dae2fd] hover:bg-[#c9d4fc] px-2.5 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1 shrink-0"
+                              title="Xem dự án"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">visibility</span>
+                              Xem
+                            </button>
+                            <ThreeDotMenu items={[
+                              { icon: 'edit', label: 'Chỉnh sửa', onClick: () => { setEditingCustomer(c); setFormData(c); setIsModalOpen(true) } },
+                              { icon: 'delete', label: 'Xóa', onClick: () => deleteCustomer(c.customer_id), danger: true },
+                            ]} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* VIEW MOBILE: Danh sách nén gọn 3 hàng */}
+              <div className="lg:hidden divide-y divide-[#bec8d2]/10">
+                {displayedCustomers.map(c => (
+                  <div key={c.customer_id} className="p-4 space-y-2">
+                    {/* Hàng 1: Avatar -> Tên -> Badge */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-xs shrink-0">
+                          {c.name.charAt(0)}
+                        </div>
+                        <span className="text-sm font-bold text-[#131b2e] truncate">{c.name}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#131b2e] bg-[#f2f3ff] px-2 py-0.5 rounded-md tabular-nums whitespace-nowrap">
+                        {c.project_count ?? 0} dự án
+                      </span>
+                    </div>
+
+                    {/* Hàng 2: Thông tin liên hệ (Ẩn nếu là —) */}
+                    {(c.phone && c.phone !== '—' || c.email && c.email !== '—') && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#3e4850] font-medium">
+                        {c.phone && c.phone !== '—' && (
+                          <div className="flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px] text-[#006591]">call</span>
+                            {c.phone}
+                          </div>
+                        )}
+                        {c.email && c.email !== '—' && (
+                          <div className="flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px] text-[#006591]">mail</span>
+                            <span className="truncate max-w-[150px]">{c.email}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Hàng 3: Các nút thao tác dàn hàng ngang (Bỏ menu ba chấm trên Mobile) */}
+                    <div className="flex items-center justify-between gap-1 pt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openProjectsModal(c)}
+                        className="text-[10px] font-bold text-[#006591] bg-[#dae2fd] px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        XEM
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => { setEditingCustomer(c); setFormData(c); setIsModalOpen(true) }}
+                          className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">edit</span>
+                          SỬA
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteCustomer(c.customer_id)}
+                          className="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">delete</span>
+                          XÓA
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* PHÂN TRANG MOBILE */}
+              {totalPages > 1 && (
+                <div className="lg:hidden flex items-center justify-center gap-4 py-4 border-t border-[#bec8d2]/10 bg-[#f9fafb]/50">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#bec8d2]/20 text-[#3e4850] disabled:opacity-30 active:scale-90 transition-all shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-base">chevron_left</span>
+                  </button>
+                  <span className="text-xs font-bold text-[#3e4850]">
+                    Trang {currentPage}/{totalPages}
+                  </span>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-[#bec8d2]/20 text-[#3e4850] disabled:opacity-30 active:scale-90 transition-all shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-base">chevron_right</span>
+                  </button>
+                </div>
+              )}
+
               {customers.length === 0 && !loading && (
                 <div className="py-20 text-center">
                   <p className="text-[#3e4850] italic">Chưa có khách hàng nào trong hệ thống.</p>

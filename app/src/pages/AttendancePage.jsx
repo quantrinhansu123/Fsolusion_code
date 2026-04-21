@@ -13,6 +13,7 @@ export default function AttendancePage() {
   const [staffList, setStaffList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [showTasksId, setShowTasksId] = useState(null) // Quản lý xem task chi tiết trên Mobile
 
   // 1. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
   useEffect(() => {
@@ -128,27 +129,27 @@ export default function AttendancePage() {
     <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
       <Sidebar />
 
-      <div className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto">
+      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Bảng Chấm Công" />
 
         <main className="flex-1 p-8">
           <div className="max-w-7xl mx-auto space-y-6 pb-20">
 
             {/* 1. Khu vực Bộ lọc (Top Bar) */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <h2 className="text-xl font-bold text-slate-800">
                 Bảng Chấm Công
               </h2>
 
-              <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
                 <input
                   type="date"
                   value={filterDate}
                   onChange={e => {
                     setFilterDate(e.target.value)
-                    if (e.target.value) setFilterMonth('') // Xóa bộ lọc tháng nếu chọn ngày
+                    if (e.target.value) setFilterMonth('')
                   }}
-                  className="px-3 py-2 border border-slate-200 bg-white rounded-lg outline-none focus:border-blue-500 text-slate-700 shadow-sm"
+                  className="h-9 px-3 border border-slate-200 bg-white rounded-lg outline-none focus:border-blue-500 text-slate-700 shadow-sm text-[12px]"
                 />
 
                 <input
@@ -156,15 +157,15 @@ export default function AttendancePage() {
                   value={filterMonth}
                   onChange={e => {
                     setFilterMonth(e.target.value)
-                    if (e.target.value) setFilterDate('') // Xóa bộ lọc ngày nếu chọn tháng
+                    if (e.target.value) setFilterDate('')
                   }}
-                  className="px-3 py-2 border border-slate-200 bg-white rounded-lg outline-none focus:border-blue-500 text-slate-700 shadow-sm"
+                  className="h-9 px-3 border border-slate-200 bg-white rounded-lg outline-none focus:border-blue-500 text-slate-700 shadow-sm text-[12px]"
                 />
 
                 <select
                   value={filterUser}
                   onChange={e => setFilterUser(e.target.value)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500 text-slate-700 bg-white shadow-sm min-w-[160px]"
+                  className="h-9 px-3 border border-slate-200 rounded-lg outline-none focus:border-blue-500 text-slate-700 bg-white shadow-sm text-[12px] min-w-[160px]"
                 >
                   <option value="all">Tất cả nhân sự</option>
                   {staffList.map(staff => (
@@ -192,7 +193,7 @@ export default function AttendancePage() {
                 </div>
               )}
 
-              <div className="overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[800px]">
                   <thead className="bg-slate-50 text-slate-500 text-[12px] uppercase whitespace-nowrap">
                     <tr>
@@ -264,17 +265,78 @@ export default function AttendancePage() {
                         </td>
                       </tr>
                     ))}
-
-                    {!loading && attendanceList.length === 0 && (
-                      <tr>
-                        <td colSpan="6" className="px-4 py-12 text-center text-slate-500 italic border-0">
-                          Không có dữ liệu ca làm việc phù hợp với bộ lọc.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
+
+              {/* VIEW MOBILE: Vertical Mini Cards */}
+              <div className="lg:hidden p-4 space-y-3">
+                {!loading && attendanceList.map((row) => (
+                  <div key={row.id} className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm active:scale-[0.98] transition-transform">
+                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-50">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[11px] uppercase shadow-sm">
+                          {row.user.avatar}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 text-[14px] leading-tight truncate">{row.user.name}</p>
+                          <p className="text-[11px] text-slate-400 font-medium">{row.work_date}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
+                        className="bg-[#f2f3ff] text-[#006591] px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-[#dce4ff] flex items-center gap-1 active:scale-95 transition-all"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">list_alt</span>
+                        TASK ĐÃ LÀM
+                      </button>
+                    </div>
+
+                    {showTasksId === row.id && (
+                      <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-top-1">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Chi tiết task hoàn thành:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {row.tasks.length > 0 ? row.tasks.map((task, idx) => (
+                            <span key={idx} className="bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded text-[10px]">
+                              {task}
+                            </span>
+                          )) : <span className="text-[10px] text-slate-400 italic">Chưa có task nào được ghi nhận</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Vào</span>
+                        <span className="bg-white border border-slate-200 text-green-600 px-2 py-0.5 rounded text-[11px] font-bold">
+                          {row.check_in}
+                        </span>
+                      </div>
+                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Ra</span>
+                        <span className="bg-white border border-slate-200 text-red-600 px-2 py-0.5 rounded text-[11px] font-bold">
+                          {row.check_out}
+                        </span>
+                      </div>
+                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Tổng</span>
+                        <span className="text-slate-800 text-[13px] font-black">
+                          {row.total_hours}
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+
+              {!loading && attendanceList.length === 0 && (
+                <div className="px-4 py-12 text-center text-slate-500 italic">
+                  Không có dữ liệu ca làm việc phù hợp với bộ lọc.
+                </div>
+              )}
             </div>
 
           </div>

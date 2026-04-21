@@ -5,9 +5,18 @@ import { supabase } from '../utils/supabase'
 export default function Sidebar() {
   const navigate = useNavigate()
   const [user, setUser] = useState(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
     fetchProfile()
+  }, [])
+
+  useEffect(() => {
+    function handleOpenSidebar() {
+      setMobileOpen(true)
+    }
+    window.addEventListener('open-mobile-sidebar', handleOpenSidebar)
+    return () => window.removeEventListener('open-mobile-sidebar', handleOpenSidebar)
   }, [])
 
   async function fetchProfile() {
@@ -27,24 +36,50 @@ export default function Sidebar() {
     employee: 'Nhân viên'
   }
 
-  return (
-    <nav className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-[#131b2e] shadow-2xl z-50">
-      <div className="flex flex-col gap-2 p-6 h-full">
-        {/* Brand */}
-        <div className="flex items-center gap-3 mb-8 px-2">
-          <div className="w-10 h-10 rounded-xl primary-gradient flex items-center justify-center text-white shadow-lg">
-            <span className="material-symbols-outlined icon-fill text-white">architecture</span>
-          </div>
-          <div>
+  const linkBase = 'flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-[13px]'
+  const linkActive = 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white shadow-lg font-medium'
+  const linkInactive = 'text-slate-400 hover:text-white hover:bg-white/5'
+  const drawerNavClass = `fixed left-0 top-0 z-50 h-screen w-64 bg-[#131b2e] shadow-2xl transform transition-transform duration-300 ease-out ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:hidden`
+  const desktopNavClass = 'hidden md:flex h-screen w-64 fixed left-0 top-0 flex-col bg-[#131b2e] shadow-2xl z-50'
+
+  const closeMobileSidebar = () => setMobileOpen(false)
+
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    navigate('/login')
+  }
+
+  function renderSidebarBody(isMobile = false) {
+    return (
+      <div className="flex h-full flex-col gap-2 p-6">
+        <div className="mb-8 flex items-center gap-3 px-2">
+          {!isMobile && (
+            <div className="w-10 h-10 rounded-xl primary-gradient flex items-center justify-center text-white shadow-lg">
+              <span className="material-symbols-outlined icon-fill text-white">architecture</span>
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold tracking-tighter text-white">Project Manager</h1>
             <p className="text-xs text-slate-400">{ROLE_NAMES[role]}</p>
           </div>
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={closeMobileSidebar}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-white transition-colors md:hidden"
+              aria-label="Đóng menu"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          ) : null}
         </div>
 
-        {/* CTA - Hidden for Employees? User didn't specify, but usually Yes */}
         {role !== 'employee' && (
           <button
-            onClick={() => navigate('/projects')}
+            onClick={() => {
+              navigate('/projects')
+              if (isMobile) closeMobileSidebar()
+            }}
             className="mb-6 w-full py-2.5 px-4 primary-gradient text-white rounded-xl shadow-lg font-medium text-[13px] hover:brightness-110 transition-all flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-base">add</span>
@@ -52,93 +87,38 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* Nav links */}
         <div className="flex flex-col gap-1 flex-grow">
-          <NavLink
-            to="/dashboard"
-            className={({ isActive }) =>
-              isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
-            }
-          >
+          <NavLink to="/dashboard" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">dashboard</span>
             Tổng quan
           </NavLink>
-
-          <NavLink
-            to="/projects"
-            className={({ isActive }) =>
-              isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
-            }
-          >
+          <NavLink to="/projects" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">account_tree</span>
             Quản lý dự án
           </NavLink>
-
-          <NavLink
-            to="/staff-subtasks"
-            className={({ isActive }) =>
-              isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
-            }
-          >
+          <NavLink to="/staff-subtasks" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">view_kanban</span>
             Task theo nhân sự
           </NavLink>
-
-          <NavLink
-            to="/attendance"
-            className={({ isActive }) =>
-              isActive
-                ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-2.5 font-medium text-[13px]'
-                : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-all duration-200 rounded-xl text-[13px]'
-            }
-          >
+          <NavLink to="/attendance" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">calendar_month</span>
             Chấm Công
           </NavLink>
 
           {(role === 'admin' || role === 'manager') && (
-            <NavLink
-              to="/progress"
-              className={({ isActive }) =>
-                isActive
-                  ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                  : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
-              }
-            >
+            <NavLink to="/progress" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
               <span className="material-symbols-outlined">bar_chart</span>
               Báo cáo tiến độ
             </NavLink>
           )}
 
-          {/* Admin Only */}
           {role === 'admin' && (
             <>
-              <NavLink
-                to="/customers"
-                className={({ isActive }) =>
-                  isActive
-                    ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                    : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
-                }
-              >
+              <NavLink to="/customers" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">groups</span>
                 Danh sách khách hàng
               </NavLink>
-
-              <NavLink
-                to="/users"
-                className={({ isActive }) =>
-                  isActive
-                    ? 'bg-gradient-to-r from-[#006591] to-[#0ea5e9] text-white rounded-xl shadow-lg flex items-center gap-3 px-4 py-3 font-medium text-sm'
-                    : 'text-slate-400 hover:text-white flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all duration-200 rounded-xl text-sm'
-                }
-              >
+              <NavLink to="/users" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">manage_accounts</span>
                 Quản lý tài khoản
               </NavLink>
@@ -146,7 +126,6 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* User profile */}
         <div className="mt-auto border-t border-white/10 pt-6 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-sm">
             {name.charAt(0)}
@@ -157,8 +136,8 @@ export default function Sidebar() {
           </div>
           <button
             onClick={async () => {
-              await supabase.auth.signOut()
-              navigate('/login')
+              await handleSignOut()
+              if (isMobile) closeMobileSidebar()
             }}
             className="text-slate-400 hover:text-red-400 transition-colors"
             title="Đăng xuất"
@@ -167,6 +146,27 @@ export default function Sidebar() {
           </button>
         </div>
       </div>
-    </nav>
+    )
+  }
+
+  return (
+    <>
+      <div className={desktopNavClass}>
+        {renderSidebarBody(false)}
+      </div>
+
+      <div className={drawerNavClass}>
+        {renderSidebarBody(true)}
+      </div>
+
+      {mobileOpen ? (
+        <button
+          type="button"
+          aria-label="Đóng menu"
+          onClick={closeMobileSidebar}
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+        />
+      ) : null}
+    </>
   )
 }

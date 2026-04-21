@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-export default function ThreeDotMenu({ items }) {
+export default function ThreeDotMenu({ items, dropUp = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -22,7 +22,7 @@ export default function ThreeDotMenu({ items }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-8 w-48 bg-white rounded-xl shadow-[0_8px_32px_rgba(19,27,46,0.15)] border border-[#bec8d2]/20 py-2 z-[100]">
+        <div className={`absolute right-0 w-48 bg-white rounded-xl shadow-[0_8px_32px_rgba(19,27,46,0.15)] border border-[#bec8d2]/20 py-2 z-[100] ${dropUp ? 'bottom-8' : 'top-8'}`}>
           {items.map((item, i) => (
             <button
               key={i}

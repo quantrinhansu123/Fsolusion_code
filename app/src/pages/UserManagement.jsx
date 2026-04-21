@@ -22,6 +22,7 @@ export default function UserManagement() {
   const [saving, setSaving] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
+  const [currentPageMobile, setCurrentPageMobile] = useState(1)
   const [formData, setFormData] = useState({
     full_name: '',
     login: '',
@@ -157,17 +158,14 @@ export default function UserManagement() {
     <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
       <Sidebar />
 
-      <div className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto">
+      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Quản lý tài khoản" />
 
         <main className="flex-1 p-8">
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex justify-between items-end">
               <div>
-                <h2 className="text-3xl font-bold tracking-tight text-[#131b2e] mb-1">Danh sách nhân sự</h2>
-                <p className="text-[#3e4850] text-sm">
-                  Danh sách từ bảng <code className="text-[#006591]">users</code>. Tạo mới sẽ thêm tài khoản đăng nhập và ghi vai trò, bộ phận. Cột «Đổi mật khẩu gần nhất» là dữ liệu tham khảo nếu có.
-                </p>
+                <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[#131b2e] mb-1">Nhân sự</h2>
               </div>
               <button
                 onClick={() => {
@@ -175,14 +173,14 @@ export default function UserManagement() {
                   setFormData(emptyForm())
                   setIsModalOpen(true)
                 }}
-                className="primary-gradient text-white px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 shadow-lg"
+                className="primary-gradient text-white px-4 md:px-5 py-2 md:py-2.5 rounded-xl font-semibold text-xs md:text-sm flex items-center gap-2 shadow-lg hover:brightness-110 transition-all"
               >
                 <span className="material-symbols-outlined text-sm">person_add</span>
-                Tạo tài khoản mới
+                <span>Tạo tài khoản mới</span>
               </button>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-[#bec8d2]/15 overflow-x-auto">
+            <div className="bg-white rounded-2xl shadow-sm border border-[#bec8d2]/15 overflow-x-auto hidden lg:block">
               <table className="w-full text-left min-w-[880px]">
                 <thead className="bg-[#f9fafb] border-b border-[#bec8d2]/10">
                   <tr className="text-[11px] font-bold text-[#3e4850] uppercase tracking-wider">
@@ -257,6 +255,121 @@ export default function UserManagement() {
                   <p className="text-[#3e4850] italic">Chưa có tài khoản nào khác.</p>
                 </div>
               )}
+            </div>
+
+            {/* Mobile View */}
+            <div className="block lg:hidden">
+              {(() => {
+                const itemsPerPage = 5
+                const totalPages = Math.ceil(users.length / itemsPerPage)
+                const startIdx = (currentPageMobile - 1) * itemsPerPage
+                const endIdx = startIdx + itemsPerPage
+                const paginatedUsers = users.slice(startIdx, endIdx)
+
+                return (
+                  <>
+                    <div className="space-y-2">
+                      {paginatedUsers.map(u => (
+                        <div key={u.user_id} className="bg-white rounded-xl border border-[#bec8d2]/15 p-3 space-y-2">
+                          {/* Row 1: Avatar + Name/Email + Role Badge + Actions */}
+                          <div className="flex items-start gap-2 justify-between">
+                            <div className="flex items-start gap-2 flex-1 min-w-0">
+                              <div className="w-10 h-10 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-sm shrink-0">
+                                {u.full_name.charAt(0)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#131b2e] truncate">{u.full_name}</p>
+                                <p className="text-xs text-[#3e4850] truncate">{shortDisplayForProfile(u.email)}</p>
+                              </div>
+                            </div>
+                            <span
+                              className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase whitespace-nowrap shrink-0 ${ROLES.find(r => r.value === u.role)?.color}`}
+                            >
+                              {ROLES.find(r => r.value === u.role)?.label}
+                            </span>
+                          </div>
+
+                          {/* Row 2: Department + Created Date (if not empty) */}
+                          <div className="flex items-center justify-between text-[10px] text-[#3e4850] gap-2">
+                            {u.department?.trim() ? (
+                              <span className="flex-1 truncate" title={u.department}>
+                                <span className="font-medium">Bộ phận:</span> {u.department}
+                              </span>
+                            ) : null}
+                            <span className="whitespace-nowrap">
+                              <span className="font-medium">Tham gia:</span> {new Date(u.created_at).toLocaleDateString('vi-VN')}
+                            </span>
+                          </div>
+
+                          {/* Row 3: Password Updated (if not empty) */}
+                          {formatPasswordCol(u.password_updated_at) !== '—' && (
+                            <div className="text-[10px] text-[#3e4850]">
+                              <span className="font-medium">MK cập nhật:</span> {formatPasswordCol(u.password_updated_at)}
+                            </div>
+                          )}
+
+                          {/* Actions */}
+                          <div className="pt-1.5 border-t border-[#bec8d2]/10 flex justify-end gap-1.5">
+                            <button
+                              onClick={() => {
+                                setEditingUser(u)
+                                setFormData({
+                                  full_name: u.full_name,
+                                  login: shortDisplayForProfile(u.email),
+                                  role: u.role,
+                                  department: u.department ?? '',
+                                  password: '',
+                                })
+                                setIsModalOpen(true)
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-[#006591] hover:bg-[#dae2fd] transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-sm">edit</span>
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => deleteUser(u.user_id)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-sm">delete</span>
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="mt-4 flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setCurrentPageMobile(Math.max(1, currentPageMobile - 1))}
+                          disabled={currentPageMobile === 1}
+                          className="px-3 py-2 rounded-lg border border-[#bec8d2]/40 text-[#131b2e] text-xs font-medium hover:bg-[#f2f3ff] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          ◀
+                        </button>
+                        <span className="text-xs font-semibold text-[#3e4850]">
+                          {currentPageMobile} / {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPageMobile(Math.min(totalPages, currentPageMobile + 1))}
+                          disabled={currentPageMobile === totalPages}
+                          className="px-3 py-2 rounded-lg border border-[#bec8d2]/40 text-[#131b2e] text-xs font-medium hover:bg-[#f2f3ff] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    )}
+
+                    {users.length === 0 && (
+                      <div className="py-12 text-center">
+                        <p className="text-[#3e4850] italic text-sm">Chưa có tài khoản nào khác.</p>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           </div>
         </main>
