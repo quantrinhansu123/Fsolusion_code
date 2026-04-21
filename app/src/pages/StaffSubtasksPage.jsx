@@ -422,9 +422,9 @@ export default function StaffSubtasksPage() {
                     type="button"
                     onClick={handleCheckIn}
                     disabled={isWorking}
-                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm ${isWorking ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors shadow-sm ${isWorking ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-[#006591] hover:opacity-90 text-white'}`}
                   >
-                    🟢 Check-in (Bắt đầu)
+                    🔵 Check-in (Bắt đầu)
                   </button>
                   
                   <span className={`font-mono font-bold text-sm tracking-widest ${isWorking ? 'text-green-600' : 'text-slate-700'}`}>

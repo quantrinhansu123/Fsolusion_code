@@ -553,10 +553,15 @@ function ModalTaskCard({
   const [imageLightboxUrl, setImageLightboxUrl] = useState(null)
   /** subtask_id → mở ghi chú trong modal tiểu mục */
   const [subtaskNotesExpanded, setSubtaskNotesExpanded] = useState({})
+  const [selectedTaskIds, setSelectedTaskIds] = useState([])
+  const [showPrintModal, setShowPrintModal] = useState(false)
   const canModify = userRole !== 'employee'
 
   useEffect(() => {
-    if (showSubtasksModal) setSubtaskNotesExpanded({})
+    if (showSubtasksModal) {
+      setSubtaskNotesExpanded({})
+      setSelectedTaskIds([])
+    }
   }, [showSubtasksModal])
 
   useEffect(() => {
@@ -1049,7 +1054,17 @@ function ModalTaskCard({
                 <span aria-hidden>›</span>
                 <span>Nhóm theo ngày</span>
               </p>
-              <h3 className="text-base font-medium tracking-tight text-[#131b2e]">Tiểu mục</h3>
+              <div className="flex items-center justify-between pr-4 mt-1">
+                <h3 className="text-base font-medium tracking-tight text-[#131b2e]">Tiểu mục</h3>
+                <button
+                  type="button"
+                  disabled={selectedTaskIds.length === 0}
+                  onClick={() => setShowPrintModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#006591] bg-[#eef4ff] px-3 py-1.5 text-xs font-bold text-[#006591] hover:bg-[#dae2fd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Giao việc {selectedTaskIds.length > 0 && `(${selectedTaskIds.length})`}
+                </button>
+              </div>
             </div>
           }
           onClose={() => setShowSubtasksModal(false)}
@@ -1075,13 +1090,30 @@ function ModalTaskCard({
                 </div>
 
                 {/* HEADER BẢNG */}
-                <div className="hidden lg:grid grid-cols-[200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 px-0 py-2 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
-                   <div>Tiểu mục & Trạng thái</div>
-                   <div>Ghi chú & Hướng dẫn</div>
-                   <div className="text-center">Đính kèm</div>
-                   <div>Thống kê thời gian</div>
-                   <div>Theo dõi tiến độ</div>
-                   <div className="text-right">Thao tác</div>
+                <div className="hidden lg:grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 px-0 py-2 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
+                  <div className="flex items-center justify-center">
+                    <input
+                      type="checkbox"
+                      className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
+                      checked={group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const newIds = group.items.map(st => st.subtask_id)
+                          setSelectedTaskIds(prev => Array.from(new Set([...prev, ...newIds])))
+                        } else {
+                          const unselect = group.items.map(st => st.subtask_id)
+                          setSelectedTaskIds(prev => prev.filter(id => !unselect.includes(id)))
+                        }
+                      }}
+                      title="Chọn tất cả nhóm này"
+                    />
+                  </div>
+                  <div>Tiểu mục & Trạng thái</div>
+                  <div>Ghi chú & Hướng dẫn</div>
+                  <div className="text-center">Đính kèm</div>
+                  <div>Thống kê thời gian</div>
+                  <div>Theo dõi tiến độ</div>
+                  <div className="text-right">Thao tác</div>
                 </div>
 
                 <ul className="space-y-0">
@@ -1100,12 +1132,31 @@ function ModalTaskCard({
                     const mediaUrl = firstMedia ? firstMedia.image_url.trim() : null
                     const isMediaImg = mediaUrl ? (mediaUrl.startsWith('data:image/') || (isHttpUrl(mediaUrl) && shouldTryImageFirst(mediaUrl))) : false
 
-                    // CẤU TRÚC GRID 6 CỘT (Subtask Row)
+                    const isSelected = selectedTaskIds.includes(st.subtask_id)
+                    const isCompleted = stSel === 'completed'
+
+                    // CẤU TRÚC GRID 7 CỘT (Subtask Row)
                     return (
-                      <li key={st.subtask_id} className="grid grid-cols-[200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 items-start border-b border-slate-200 py-4 min-w-0 w-full">
+                      <li key={st.subtask_id} className={`grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-4 items-start border-b border-slate-200 py-4 min-w-0 w-full transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                        {/* CỘT Checkbox */}
+                        <div className="flex items-center justify-center pt-1 h-full">
+                          <input
+                            type="checkbox"
+                            className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedTaskIds(prev => [...prev, st.subtask_id])
+                              } else {
+                                setSelectedTaskIds(prev => prev.filter(id => id !== st.subtask_id))
+                              }
+                            }}
+                          />
+                        </div>
+
                         {/* CỘT 1: Thông tin & Trạng thái */}
                         <div className="flex flex-col gap-2 min-w-0 h-full">
-                          <span className="text-[14px] font-semibold text-[#131b2e] leading-snug break-words">
+                          <span className={`text-[14px] font-semibold leading-snug break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#131b2e]'}`}>
                             {st.name}
                           </span>
                           <div>
@@ -1129,8 +1180,8 @@ function ModalTaskCard({
                             )}
                           </div>
                           <div className="text-[11px] text-slate-500 mt-auto flex items-center gap-1 min-w-0 truncate">
-                             <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
-                             <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
+                            <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
+                            <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
                           </div>
                         </div>
 
@@ -1158,15 +1209,15 @@ function ModalTaskCard({
                         {/* CỘT 3: Ảnh đính kèm */}
                         <div className="flex items-center justify-center pt-1 min-w-0 w-full">
                           {isMediaImg ? (
-                            <img 
-                              src={mediaUrl} 
-                              alt="Minh chứng" 
+                            <img
+                              src={mediaUrl}
+                              alt="Minh chứng"
                               onClick={() => setImageLightboxUrl(mediaUrl)}
-                              className="w-12 h-12 object-cover rounded shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity" 
+                              className="w-12 h-12 object-cover rounded shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
                             />
                           ) : mediaUrl ? (
                             <a href={mediaUrl} target="_blank" rel="noreferrer" title="Mở file đính kèm" className="w-12 h-12 flex items-center justify-center rounded shadow-sm border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
-                               <span className="material-symbols-outlined text-[24px] text-[#006591]">attach_file</span>
+                              <span className="material-symbols-outlined text-[24px] text-[#006591]">attach_file</span>
                             </a>
                           ) : (
                             <div className="w-12 h-12 bg-slate-100 rounded border border-dashed border-slate-300 flex items-center justify-center text-[20px] text-slate-300" title="Không có ảnh">
@@ -1177,122 +1228,122 @@ function ModalTaskCard({
 
                         {/* CỘT 4: Thống kê Thời gian hiện theo Khối */}
                         <div className="flex flex-col gap-3 min-w-0">
-                           {/* Khối 1 */}
-                           <div>
-                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">Giao: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{formatIsoTimeClock(st.created_at)}</span></div>
-                              <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                                ({formatIsoDateSlashShort(st.created_at)} - lúc tạo)
-                              </div>
-                           </div>
-                           {/* Khối 2 */}
-                           <div>
-                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
-                                Xong: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{st.completed_at ? formatIsoTimeClock(st.completed_at) : '—'}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                                {st.completed_at ? `(${formatIsoDateSlashShort(st.completed_at)} - đã xong)` : ''}
-                              </div>
-                           </div>
-                           {/* Khối 3 */}
-                           {st.completed_at && (
-                           <div>
+                          {/* Khối 1 */}
+                          <div>
+                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">Giao: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{formatIsoTimeClock(st.created_at)}</span></div>
+                            <div className="text-[10px] text-slate-400 font-normal leading-tight">
+                              ({formatIsoDateSlashShort(st.created_at)} - lúc tạo)
+                            </div>
+                          </div>
+                          {/* Khối 2 */}
+                          <div>
+                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
+                              Xong: <span className="tabular-nums text-[#131b2e] text-[12px] font-medium">{st.completed_at ? formatIsoTimeClock(st.completed_at) : '—'}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-normal leading-tight">
+                              {st.completed_at ? `(${formatIsoDateSlashShort(st.completed_at)} - đã xong)` : ''}
+                            </div>
+                          </div>
+                          {/* Khối 3 */}
+                          {st.completed_at && (
+                            <div>
                               <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
                                 Giao {'->'} Xong: <span className="font-medium text-emerald-700 text-[12px]">{formatGiaoDenHoanThanhCell(st)}</span>
                               </div>
                               <div className="text-[10px] text-slate-400 font-normal leading-tight">
                                 (Chỉ khi đã xong)
                               </div>
-                           </div>
-                           )}
-                           {/* Khối 4 */}
-                           <div>
-                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide flex items-baseline gap-1">
-                                Tổng phiên: <div className="text-[12px] font-medium text-[#131b2e]"><SubtaskLiveSessionTotal workTimeRaw={st.work_time} /></div>
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-normal leading-tight flex flex-wrap">
-                                (Bắt đầu - Tạm dừng)
-                              </div>
-                           </div>
+                            </div>
+                          )}
+                          {/* Khối 4 */}
+                          <div>
+                            <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide flex items-baseline gap-1">
+                              Tổng phiên: <div className="text-[12px] font-medium text-[#131b2e]"><SubtaskLiveSessionTotal workTimeRaw={st.work_time} /></div>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-normal leading-tight flex flex-wrap">
+                              (Bắt đầu - Tạm dừng)
+                            </div>
+                          </div>
                         </div>
 
                         {/* CỘT 5: Bộ đếm (Timer) */}
                         <div className="flex flex-col gap-1 min-w-0 justify-start w-full">
-                           {onSubtaskWorkTimeSave ? (
-                               <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
-                                  <>
-                                     {!workRunning ? (
-                                        <button
-                                          type="button"
-                                          disabled={busy}
-                                          onClick={async () => {
-                                            const cur = normalizeSubtaskWorkTime(st.work_time)
-                                            if (subtaskHasOpenWorkSession(cur)) return
-                                            await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
-                                          }}
-                                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
-                                        >
-                                          <span className="material-symbols-outlined text-[13px]">play_arrow</span>
-                                          Bắt đầu
-                                        </button>
-                                     ) : (
-                                        <button
-                                          type="button"
-                                          disabled={busy || !workRunning}
-                                          onClick={async () => {
-                                            const cur = normalizeSubtaskWorkTime(st.work_time)
-                                            if (!subtaskHasOpenWorkSession(cur)) return
-                                            await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
-                                          }}
-                                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-amber-300 bg-amber-50 px-2 py-[5px] text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
-                                        >
-                                          <span className="material-symbols-outlined text-[13px]">pause</span>
-                                          Tạm dừng
-                                        </button>
-                                     )}
-                                     <button
-                                       type="button"
-                                       disabled={busy || workRunning}
-                                       onClick={async () => {
-                                         const cur = normalizeSubtaskWorkTime(st.work_time)
-                                         if (subtaskHasOpenWorkSession(cur)) return
-                                         if (cur.length === 0) return
-                                         if (!window.confirm('Xóa toán bộ phiên?')) return
-                                         await onSubtaskWorkTimeSave(st.subtask_id, [])
-                                       }}
-                                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#64748b] hover:bg-[#f1f5f9] disabled:opacity-45 shadow-sm transition-colors"
-                                     >
-                                       <span className="material-symbols-outlined text-[13px]">restart_alt</span>
-                                       Đặt lại
-                                     </button>
-                                  </>
-                               } />
-                           ) : (
-                              <div className="text-[11px] text-slate-400 italic">Time tracking vô hiệu</div>
-                           )}
+                          {onSubtaskWorkTimeSave ? (
+                            <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
+                              <>
+                                {!workRunning ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={async () => {
+                                      const cur = normalizeSubtaskWorkTime(st.work_time)
+                                      if (subtaskHasOpenWorkSession(cur)) return
+                                      await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
+                                    }}
+                                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[13px]">play_arrow</span>
+                                    Bắt đầu
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={busy || !workRunning}
+                                    onClick={async () => {
+                                      const cur = normalizeSubtaskWorkTime(st.work_time)
+                                      if (!subtaskHasOpenWorkSession(cur)) return
+                                      await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
+                                    }}
+                                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-amber-300 bg-amber-50 px-2 py-[5px] text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[13px]">pause</span>
+                                    Tạm dừng
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busy || workRunning}
+                                  onClick={async () => {
+                                    const cur = normalizeSubtaskWorkTime(st.work_time)
+                                    if (subtaskHasOpenWorkSession(cur)) return
+                                    if (cur.length === 0) return
+                                    if (!window.confirm('Xóa toán bộ phiên?')) return
+                                    await onSubtaskWorkTimeSave(st.subtask_id, [])
+                                  }}
+                                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-[4px] border border-[#e2e8f0] bg-white px-2 py-[5px] text-[11px] font-medium text-[#64748b] hover:bg-[#f1f5f9] disabled:opacity-45 shadow-sm transition-colors"
+                                >
+                                  <span className="material-symbols-outlined text-[13px]">restart_alt</span>
+                                  Đặt lại
+                                </button>
+                              </>
+                            } />
+                          ) : (
+                            <div className="text-[11px] text-slate-400 italic">Time tracking vô hiệu</div>
+                          )}
                         </div>
 
                         {/* CỘT 6: Thao tác */}
                         <div className="flex flex-row gap-2 min-w-0 justify-end">
-                           {canModify && onDeleteSubtask && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
-                                  className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-[#e2e8f0] bg-white text-[#64748b] hover:bg-[#f8fafc] hover:text-[#006591] transition-colors shadow-sm"
-                                  title="Sửa"
-                                >
-                                  <span className="material-symbols-outlined text-[15px]">edit</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => onDeleteSubtask(st.subtask_id)}
-                                  className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors shadow-sm"
-                                  title="Xóa"
-                                >
-                                  <span className="material-symbols-outlined text-[15px]">delete</span>
-                                </button>
-                              </>
-                           )}
+                          {canModify && onDeleteSubtask && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
+                                className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-[#e2e8f0] bg-white text-[#64748b] hover:bg-[#f8fafc] hover:text-[#006591] transition-colors shadow-sm"
+                                title="Sửa"
+                              >
+                                <span className="material-symbols-outlined text-[15px]">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteSubtask(st.subtask_id)}
+                                className="inline-flex items-center justify-center p-1.5 h-8 w-8 rounded-md border border-red-200 bg-white text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors shadow-sm"
+                                title="Xóa"
+                              >
+                                <span className="material-symbols-outlined text-[15px]">delete</span>
+                              </button>
+                            </>
+                          )}
                         </div>
                       </li>
                     )
@@ -1340,6 +1391,120 @@ function ModalTaskCard({
           />
         </div>
       ) : null}
+
+      {/* MODAL IN ẤN / XEM TRƯỚC ĐỂ CHỤP ẢNH */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-[120] bg-slate-100/60 overflow-y-auto backdrop-blur-sm">
+          {/* NÚT ĐÓNG BÁM DÍNH TRÊN CÙNG MÀN HÌNH */}
+          <button
+            onClick={() => setShowPrintModal(false)}
+            className="fixed top-6 right-8 z-[130] bg-white/95 hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-900 rounded-full w-12 h-12 flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
+            title="Đóng chế độ xem trước"
+          >
+            <span className="material-symbols-outlined text-[26px]">close</span>
+          </button>
+
+          {/* CONTENT CHÍNH */}
+          <div className="max-w-[1300px] mx-auto py-12 px-6">
+            <div className="bg-white rounded-[24px] shadow-2xl border border-slate-200 overflow-hidden">
+
+              {/* HEADER THEO PHONG CÁCH GIẤY A4 */}
+              <div className="w-full px-10 pt-10 pb-6 border-b border-slate-100 bg-white">
+                <h1 className="text-[24px] font-bold text-slate-800 tracking-tight">DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ</h1>
+                <p className="text-sm text-slate-500 mt-2">Dự án: {feature.name || 'Chung'} • Khối lượng: {selectedTaskIds.length} việc</p>
+              </div>
+
+              {/* LIST TASK CARDS */}
+              <div className="p-10 space-y-6 bg-[#f8fbff]">
+                {subs.filter(st => selectedTaskIds.includes(st.subtask_id)).map((st) => {
+                  const isCompleted = st.status === 'completed'
+                  const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
+                    b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim())
+                  )
+                  const firstMedia = subDisplayBlocks.find(b => b.image_url?.trim())
+                  const mediaUrl = firstMedia ? firstMedia.image_url.trim() : null
+                  const isMediaImg = mediaUrl ? (mediaUrl.startsWith('data:image/') || (isHttpUrl(mediaUrl) && shouldTryImageFirst(mediaUrl))) : false
+
+                  return (
+                    <div key={st.subtask_id} className="bg-white rounded-[20px] shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100 p-7 flex flex-col lg:flex-row gap-8 items-stretch">
+
+                      {/* CỘT 1: TIÊU ĐỀ & TRẠNG THÁI */}
+                      <div className="w-full lg:w-[35%] shrink-0 flex items-start gap-4">
+                        {/* Icon Vòng tròn Check */}
+                        <div className="mt-1 shrink-0">
+                          {isCompleted ? (
+                            <div className="w-[22px] h-[22px] rounded-full bg-[#1b64ff] flex items-center justify-center shadow-sm">
+                              <span className="material-symbols-outlined text-white text-[14px] font-bold">check</span>
+                            </div>
+                          ) : (
+                            <div className="w-[22px] h-[22px] rounded-full border-2 border-[#1b64ff] flex items-center justify-center bg-white shadow-sm"></div>
+                          )}
+                        </div>
+
+                        {/* Title & Tags */}
+                        <div className="flex flex-col gap-2 min-w-0 h-full">
+                          <h2 className={`text-[16px] font-bold leading-snug tracking-tight break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#3e4850]'}`}>
+                            {st.name}
+                          </h2>
+
+                          <div className="flex flex-wrap gap-2 mt-auto pt-3">
+                            <span className="px-2.5 py-1 bg-[#f1f5f9] text-slate-600 rounded text-[9px] uppercase font-bold tracking-wider opacity-90">
+                              {feature.name && feature.name !== 'Chung' ? feature.name : 'DATABASE'}
+                            </span>
+                            {st.deadline && (
+                              <span className="px-2.5 py-1 bg-[#eff6ff] text-[#1b64ff] rounded text-[9px] uppercase font-bold tracking-wider">
+                                PRIORITY HIGH
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* CỘT 2: GHI CHÚ & HƯỚNG DẪN */}
+                      <div className="w-full lg:w-[35%] flex-1">
+                        <div className={`h-full lg:border-l lg:border-slate-100 lg:pl-8 flex flex-col justify-center ${isCompleted ? 'opacity-60' : ''}`}>
+                          <ul className={`list-outside ml-4 space-y-3 text-[13.5px] leading-relaxed text-[#3e4850] marker:text-[#6e7881] ${isCompleted ? 'line-through text-slate-400' : ''}`} style={{ listStyleType: 'disc' }}>
+                            {subDisplayBlocks.filter(b => b.content?.trim()).map((b, bIdx) => {
+                              const lines = b.content.trim().split('\n').filter(l => l.trim())
+                              return lines.map((line, lIndex) => {
+                                const cleanLine = line.replace(/^-\s*/, '').replace(/^\d+\.\s*/, '')
+                                return <li key={`${bIdx}-${lIndex}`}>{cleanLine}</li>
+                              })
+                            })}
+                          </ul>
+                          {subDisplayBlocks.filter(b => b.content?.trim()).length === 0 && (
+                            <p className="italic text-slate-400 text-[13px]">Chưa có ghi chú hướng dẫn.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* CỘT 3: HÌNH ẢNH MINH HỌA */}
+                      <div className="w-full lg:w-[240px] shrink-0 flex flex-col justify-center items-center">
+                        {isMediaImg && mediaUrl ? (
+                          <>
+                            <div className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center">
+                              <img src={mediaUrl} alt="Preview" className="w-full h-full object-cover" />
+                            </div>
+                            <div className="mt-2.5 text-[10px] text-slate-400 italic text-center w-full truncate px-2">
+                              {userInitials(st.users?.full_name)} {st.users?.full_name ? st.users.full_name.split(' ').slice(-2).join(' ') : 'Chưa gán'} — Preview
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full rounded-[12px] bg-slate-50 border border-slate-100 aspect-[4/3] flex flex-col items-center justify-center gap-2 text-slate-300">
+                            <span className="material-symbols-outlined text-[32px]">image</span>
+                            <span className="text-[9px] uppercase font-bold tracking-wider">No preview available</span>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
