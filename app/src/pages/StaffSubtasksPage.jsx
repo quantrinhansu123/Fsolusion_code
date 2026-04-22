@@ -74,8 +74,22 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
 
-  // -- STATE CHẤM CÔNG (Đọc từ localStorage để gắn session_id khi hoàn thành subtask) --
-  const activeSessionId = localStorage.getItem('checkin_session_id')
+  // -- STATE CHẤM CÔNG: Chỉ dùng session nếu thuộc về user đang đăng nhập --
+  const [activeSessionId, setActiveSessionId] = useState(null)
+
+  useEffect(() => {
+    async function loadCurrentUser() {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) return
+      // Validate session: chỉ dùng nếu session_id là của user này
+      const storedSessionId = localStorage.getItem('checkin_session_id')
+      const storedUserId = localStorage.getItem('checkin_user_id')
+      if (storedSessionId && storedUserId === authUser.id) {
+        setActiveSessionId(storedSessionId)
+      }
+    }
+    loadCurrentUser()
+  }, [])
 
   // -- RESPONSIVE LOGIC (JS) --
   const [isMobileScreen, setIsMobileScreen] = useState(window.innerWidth < 1024)
@@ -318,7 +332,7 @@ export default function StaffSubtasksPage() {
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
-                  onClick={() => { setSelectedAssignee('all'); setSubtaskPage(1); }}
+                  onClick={() => { setSelectedAssignee('all'); }}
                   className={`px-2 py-2 rounded-lg text-[10px] font-bold border transition-all truncate ${selectedAssignee === 'all' ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0]'}`}
                 >
                   TẤT CẢ ({subtasks.length})
@@ -327,7 +341,7 @@ export default function StaffSubtasksPage() {
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => { setSelectedAssignee(p.id); setSubtaskPage(1); }}
+                    onClick={() => { setSelectedAssignee(p.id); }}
                     className={`px-2 py-2 rounded-lg text-[10px] font-bold border transition-all truncate ${selectedAssignee === p.id ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0]'}`}
                   >
                     {p.name.split(' ').pop().toUpperCase()} ({p.count})
@@ -339,7 +353,7 @@ export default function StaffSubtasksPage() {
               <div className="flex flex-col gap-2">
                 <select
                   value={selectedStatus}
-                  onChange={e => { setSelectedStatus(e.target.value); setSubtaskPage(1); }}
+                  onChange={e => { setSelectedStatus(e.target.value); }}
                   className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 text-[10px] font-bold text-[#131b2e]"
                 >
                   <option value="all">TẤT CẢ TRẠNG THÁI</option>
@@ -347,7 +361,7 @@ export default function StaffSubtasksPage() {
                 </select>
                 <select
                   value={deadlineFilter}
-                  onChange={e => { setDeadlineFilter(e.target.value); setSubtaskPage(1); }}
+                  onChange={e => { setDeadlineFilter(e.target.value); }}
                   className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 text-[10px] font-bold text-[#131b2e]"
                 >
                   {DEADLINE_FILTER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>)}
@@ -391,7 +405,7 @@ export default function StaffSubtasksPage() {
                 <div className="relative">
                   <select
                     value={selectedStatus}
-                    onChange={e => { setSelectedStatus(e.target.value); setSubtaskPage(1); }}
+                    onChange={e => { setSelectedStatus(e.target.value); }}
                     className="w-full appearance-none rounded-md border border-[#bec8d2]/30 bg-white py-1.5 pl-2.5 pr-7 text-[11.5px] font-medium text-[#131b2e] focus:border-[#006591] focus:outline-none"
                   >
                     <option value="all">Tất cả trạng thái</option>
@@ -402,7 +416,7 @@ export default function StaffSubtasksPage() {
                 <div className="relative">
                   <select
                     value={deadlineFilter}
-                    onChange={e => { setDeadlineFilter(e.target.value); setSubtaskPage(1); }}
+                    onChange={e => { setDeadlineFilter(e.target.value); }}
                     className="w-full appearance-none rounded-md border border-[#bec8d2]/30 bg-white py-1.5 pl-2.5 pr-7 text-[11.5px] font-medium text-[#131b2e] focus:border-[#006591] focus:outline-none"
                   >
                     {DEADLINE_FILTER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

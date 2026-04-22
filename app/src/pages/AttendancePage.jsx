@@ -18,16 +18,42 @@ export default function AttendancePage() {
   const [deleting, setDeleting] = useState(false) // Trạng thái xóa
   const [toast, setToast] = useState(null) // Thông báo
 
-  // -- STATE CHẤM CÔNG (Được bê từ StaffSubtasksPage sang) --
-  const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem('checkin_session_id'))
-  const [isWorking, setIsWorking] = useState(() => !!localStorage.getItem('checkin_session_id'))
-  const [sessionTimer, setSessionTimer] = useState(0)
-  const [sessionStartTime, setSessionStartTime] = useState(() => {
-    const stored = localStorage.getItem('checkin_start_time')
-    return stored ? Number(stored) : null
-  })
+  // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
+  const [currentUser, setCurrentUser] = useState(null)
 
-  // 1. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
+  // -- STATE CHẤM CÔNG --
+  // Chỉ khôi phục session nếu session đó thuộc về user đang đăng nhập
+  const [activeSessionId, setActiveSessionId] = useState(null)
+  const [isWorking, setIsWorking] = useState(false)
+  const [sessionTimer, setSessionTimer] = useState(0)
+  const [sessionStartTime, setSessionStartTime] = useState(null)
+
+  // 1. Load user đang đăng nhập + khôi phục session checkin nếu hợp lệ
+  useEffect(() => {
+    async function initUser() {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) return
+      setCurrentUser(authUser)
+
+      // Khôi phục session checkin chỉ khi session thuộc về user này
+      const storedSessionId = localStorage.getItem('checkin_session_id')
+      const storedUserId = localStorage.getItem('checkin_user_id')
+      const storedStartTime = localStorage.getItem('checkin_start_time')
+      if (storedSessionId && storedUserId === authUser.id && storedStartTime) {
+        setActiveSessionId(storedSessionId)
+        setIsWorking(true)
+        setSessionStartTime(Number(storedStartTime))
+      } else {
+        // Xóa session cũ không hợp lệ
+        localStorage.removeItem('checkin_session_id')
+        localStorage.removeItem('checkin_user_id')
+        localStorage.removeItem('checkin_start_time')
+      }
+    }
+    initUser()
+  }, [])
+
+  // 2. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
   useEffect(() => {
     async function fetchStaffs() {
       const { data } = await supabase.from('users').select('user_id, full_name').order('full_name')
@@ -137,6 +163,14 @@ export default function AttendancePage() {
     fetchAttendanceData()
   }, [filterDate, filterMonth, filterUser])
 
+  // Tự động ẩn Toast sau 2 giây
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
+
   // 4. Hàm xử lý checkbox
   const toggleSelectId = (id) => {
     setSelectedIds(prev => {
@@ -196,16 +230,17 @@ export default function AttendancePage() {
   }
 
   const handleCheckIn = async () => {
-    if (!filterUser || filterUser === 'all') {
-      setToast({ message: 'Vui lòng chọn một nhân sự cụ thể để Check-in!', type: 'warning' })
+    if (!currentUser) {
+      setToast({ message: 'Không xác định được tài khoản đang đăng nhập!', type: 'error' })
       return
     }
     try {
       const today = new Date().toISOString().split('T')[0]
+      // Dùng currentUser.id (user đang đăng nhập), KHÔNG dùng filterUser
       const { data, error } = await supabase
         .from('work_sessions')
         .insert({
-          user_id: filterUser,
+          user_id: currentUser.id,
           work_date: today,
           status: 'working'
         })
@@ -214,6 +249,7 @@ export default function AttendancePage() {
       if (error) throw error
       const startTime = Date.now()
       localStorage.setItem('checkin_session_id', data.session_id)
+      localStorage.setItem('checkin_user_id', currentUser.id)  // Lưu thêm user_id để validate
       localStorage.setItem('checkin_start_time', String(startTime))
       setActiveSessionId(data.session_id)
       setIsWorking(true)
@@ -239,6 +275,7 @@ export default function AttendancePage() {
         .eq('session_id', activeSessionId)
       if (error) throw error
       localStorage.removeItem('checkin_session_id')
+      localStorage.removeItem('checkin_user_id')
       localStorage.removeItem('checkin_start_time')
       setActiveSessionId(null)
       setIsWorking(false)
@@ -289,6 +326,7 @@ export default function AttendancePage() {
       // Nếu xóa đúng session đang làm việc thì reset state checkin
       if (idsArray.includes(activeSessionId)) {
         localStorage.removeItem('checkin_session_id')
+        localStorage.removeItem('checkin_user_id')
         localStorage.removeItem('checkin_start_time')
         setActiveSessionId(null)
         setIsWorking(false)
@@ -331,6 +369,7 @@ export default function AttendancePage() {
 
       if (isDeletingActive) {
         localStorage.removeItem('checkin_session_id')
+        localStorage.removeItem('checkin_user_id')
         localStorage.removeItem('checkin_start_time')
         setActiveSessionId(null)
         setIsWorking(false)
@@ -661,7 +700,7 @@ export default function AttendancePage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteSingle(row.id)}
+                          onClick={() => triggerDeleteSingle(row.id)}
                           disabled={deleting}
                           className="bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50"
                         >
