@@ -74,14 +74,8 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
 
-  // -- STATE CHẤM CÔNG --
-  const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem('checkin_session_id'))
-  const [isWorking, setIsWorking] = useState(() => !!localStorage.getItem('checkin_session_id'))
-  const [sessionTimer, setSessionTimer] = useState(0)
-  const [sessionStartTime, setSessionStartTime] = useState(() => {
-    const stored = localStorage.getItem('checkin_start_time')
-    return stored ? Number(stored) : null
-  })
+  // -- STATE CHẤM CÔNG (Đọc từ localStorage để gắn session_id khi hoàn thành subtask) --
+  const activeSessionId = localStorage.getItem('checkin_session_id')
 
   // -- RESPONSIVE LOGIC (JS) --
   const [isMobileScreen, setIsMobileScreen] = useState(window.innerWidth < 1024)
@@ -98,112 +92,6 @@ export default function StaffSubtasksPage() {
   useEffect(() => {
     fetchData()
   }, [])
-
-  // --- LOGIC CHẤM CÔNG: Timer dùng elapsed time thực (không bị throttle khi đổi tab) ---
-  useEffect(() => {
-    if (!isWorking || !sessionStartTime) return
-
-    // Tính ngay khi mount hoặc isWorking thay đổi
-    setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
-
-    const interval = setInterval(() => {
-      setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
-    }, 1000)
-
-    // Khi tab hiện lại sau khi bị ẩn, tính lại elapsed time ngay
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [isWorking, sessionStartTime])
-
-  // Cảnh báo khi đóng/rời trang trong lúc đang check-in
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (!isWorking) return
-      e.preventDefault()
-      e.returnValue = 'Bạn đang check-in. Nếu thoát, ca làm việc sẽ không được kết thúc đúng cách.'
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isWorking])
-
-  function formatTimer(seconds) {
-    const h = String(Math.floor(seconds / 3600)).padStart(2, '0')
-    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')
-    const s = String(seconds % 60).padStart(2, '0')
-    return `${h}:${m}:${s}`
-  }
-
-  async function handleCheckIn() {
-    // Lấy ID từ bộ lọc nhân sự trên giao diện
-    if (!selectedAssignee || selectedAssignee === 'all') {
-      setToast({ message: 'Vui lòng chọn một nhân sự cụ thể để Check-in!', type: 'error' })
-      return
-    }
-
-    try {
-      const today = new Date().toISOString().split('T')[0]
-
-      // Truyền selectedAssignee vào user_id (thay vì lấy user.id từ token)
-      const { data, error } = await supabase
-        .from('work_sessions')
-        .insert({
-          user_id: selectedAssignee,
-          work_date: today,
-          status: 'working'
-        })
-        .select('*')
-        .single()
-
-      if (error) throw error
-
-      const startTime = Date.now()
-      localStorage.setItem('checkin_session_id', data.session_id)
-      localStorage.setItem('checkin_start_time', String(startTime))
-      setActiveSessionId(data.session_id)
-      setIsWorking(true)
-      setSessionStartTime(startTime)
-      setSessionTimer(0)
-      setToast({ message: 'Đã Check-in thành công!', type: 'success' })
-    } catch (err) {
-      console.error(err)
-      setToast({ message: err.message || 'Lỗi check-in', type: 'error' })
-    }
-  }
-
-  async function handleCheckOut() {
-    if (!activeSessionId) return
-    try {
-      const { error } = await supabase
-        .from('work_sessions')
-        .update({
-          check_out_time: new Date().toISOString(),
-          status: 'completed'
-        })
-        .eq('session_id', activeSessionId)
-
-      if (error) throw error
-
-      localStorage.removeItem('checkin_session_id')
-      localStorage.removeItem('checkin_start_time')
-      setActiveSessionId(null)
-      setIsWorking(false)
-      setSessionStartTime(null)
-      setSessionTimer(0)
-      setToast({ message: 'Đã Check-out kết thúc ca', type: 'success' })
-    } catch (err) {
-      console.error(err)
-      setToast({ message: err.message || 'Lỗi check-out', type: 'error' })
-    }
-  }
 
   const handlePageChange = (groupKey, newPage) => {
     setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
@@ -419,49 +307,11 @@ export default function StaffSubtasksPage() {
             {/* ── COMPACT FILTER TOOLBAR ── */}
             {/* ── MOBILE TOOLBAR: 3 TẦNG TỐI ƯU (Chỉ hiện trên mobile) ── */}
             <div className="lg:hidden rounded-xl border border-[#e2e8f0] bg-white p-2 space-y-3 shadow-sm">
-              {/* Tầng 1: Check-in/Out & Timer */}
+              {/* Tầng 1: Reset bộ lọc */}
               <div className="flex items-center justify-between gap-1.5 px-0.5">
-                <button
-                  type="button"
-                  onClick={handleCheckIn}
-                  disabled={isWorking}
-                  className={`flex flex-col items-center justify-center gap-0.5 min-w-[75px] h-[42px] rounded-lg text-[10px] font-bold transition-all active:scale-95 ${isWorking
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-[#006591] text-white shadow-sm'
-                    }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">login</span>
-                  Check-in
-                </button>
-
-                <div className={`flex-1 flex flex-col items-center justify-center h-[42px] rounded-lg border border-slate-100 bg-slate-50/50 ${isWorking ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  <span className="text-[9px] font-bold uppercase tracking-wider mb-0.5 opaticy-70">Thời gian làm</span>
-                  <span className="font-mono text-[14px] font-bold tracking-widest leading-none">
-                    {formatTimer(sessionTimer)}
-                  </span>
+                <div className="flex-1 text-[11px] font-bold text-[#006591] bg-[#f2f3ff] h-9 flex items-center px-3 rounded-lg border border-[#dce4ff]">
+                  DANH SÁCH SUBTASK THEO NHÂN SỰ
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleCheckOut}
-                  disabled={!isWorking}
-                  className={`flex flex-col items-center justify-center gap-0.5 min-w-[75px] h-[42px] rounded-lg text-[10px] font-bold border transition-all active:scale-95 ${!isWorking
-                    ? 'bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-white border-red-200 text-red-600 shadow-sm'
-                    }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">logout</span>
-                  Check-out
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setSelectedAssignee('all'); setSelectedStatus('all'); setSelectedProjectIds([]); setDeadlineFilter('all'); }}
-                  className="flex items-center justify-center w-9 h-9 text-[#006591] hover:bg-[#f2f3ff] rounded-full transition-colors shrink-0"
-                  title="Đặt lại"
-                >
-                  <span className="material-symbols-outlined text-[22px]">restart_alt</span>
-                </button>
               </div>
 
               {/* Tầng 2: Nhân sự - Grid 3 cột (như Dashboard sếp thích) */}
@@ -515,63 +365,25 @@ export default function StaffSubtasksPage() {
 
             {/* ── DESKTOP TOOLBAR: GIỮ NGUYÊN BỐ CỤC CŨ (Chỉ hiện trên desktop) ── */}
             <div className="hidden lg:block rounded-xl border border-[#bec8d2]/15 bg-white px-3 py-2 space-y-2 shadow-sm">
-              {/* Row 1: Nhân sự cuộn ngang + Check-in cluster + Reset */}
-              <div className="flex items-center gap-3 min-h-[32px]">
-                <div className="flex-1 overflow-x-auto scrollbar-hide min-w-0">
-                  <div className="flex items-center gap-1.5 w-max">
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedAssignee('all'); setSubtaskPage(1); }}
-                      className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === 'all' ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'}`}
-                    >
-                      Tất cả ({subtasks.length})
-                    </button>
-                    {assigneeOptions.filter(p => p.count > 0).map(p => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => { setSelectedAssignee(p.id); setSubtaskPage(1); }}
-                        className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === p.id ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'}`}
-                      >
-                        {p.name} ({p.count})
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="shrink-0 h-6 w-px bg-[#e2e8f0]" />
-
-                <div className="shrink-0 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCheckIn}
-                    disabled={isWorking}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${isWorking ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[#006591] text-white hover:bg-[#00536f]'}`}
-                  >
-                    <span className="material-symbols-outlined text-[13px]">login</span>
-                    Check-in
-                  </button>
-                  <span className={`font-mono text-[12px] font-bold tracking-widest px-2 py-0.5 rounded ${isWorking ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-50'}`}>
-                    {formatTimer(sessionTimer)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCheckOut}
-                    disabled={!isWorking}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors ${!isWorking ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-red-400 text-red-600 hover:bg-red-50'}`}
-                  >
-                    <span className="material-symbols-outlined text-[13px]">logout</span>
-                    Check-out
-                  </button>
-                </div>
-
+              {/* Row 1: Danh sách nhân sự (Dàn đều, tự xuống dòng) */}
+              <div className="flex flex-wrap items-center gap-1.5 min-h-[32px] pb-1">
                 <button
                   type="button"
-                  onClick={() => { setSelectedAssignee('all'); setSelectedStatus('all'); setSelectedProjectIds([]); setDeadlineFilter('all'); }}
-                  className="shrink-0 text-[10.5px] font-semibold text-[#006591] hover:underline"
+                  onClick={() => { setSelectedAssignee('all'); }}
+                  className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === 'all' ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'}`}
                 >
-                  Đặt lại
+                  Tất cả ({subtasks.length})
                 </button>
+                {assigneeOptions.filter(p => p.count > 0).map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setSelectedAssignee(p.id); }}
+                    className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === p.id ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'}`}
+                  >
+                    {p.name} ({p.count})
+                  </button>
+                ))}
               </div>
 
               {/* Row 2: Dropdowns - Grid 3 cột thanh thoát */}

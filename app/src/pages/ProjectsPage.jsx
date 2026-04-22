@@ -624,8 +624,7 @@ function ModalTaskCard({
         <>
           <div className="flex min-w-0 w-full flex-wrap lg:flex-nowrap items-start gap-2 pb-0.5 sm:gap-3">
             {onTaskStatusChange ? (
-              <div className="mt-0.5 shrink-0 flex flex-col gap-0.5 w-[calc(50%-4px)] lg:w-auto lg:max-w-[9.5rem]">
-                <span className="text-[9px] font-bold uppercase tracking-wide text-[#64748b]">Trạng thái</span>
+              <div className="mt-0.5 shrink-0 flex flex-col gap-1 w-[calc(50%-4px)] lg:w-auto lg:max-w-[9.5rem]">
                 <select
                   aria-label="Trạng thái nhiệm vụ"
                   value={task.status || 'pending'}
@@ -639,43 +638,37 @@ function ModalTaskCard({
                     </option>
                   ))}
                 </select>
-                {task.status_updated_at ? (
-                  <span
-                    className="text-[8px] leading-tight text-[#6e7881] truncate"
-                    title={`Cập nhật trạng thái: ${formatDateTime(task.status_updated_at)}`}
-                  >
-                    Cập nhật: {formatDateTime(task.status_updated_at)}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#64748b]">
+                  <span className="tabular-nums" title={formatDeadlineDisplay(task.deadline)}>
+                    {formatDeadlineShort(task.deadline)}
                   </span>
-                ) : null}
+                  {subs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSubtasksModal(true)}
+                      className="hover:underline text-[#006591] font-semibold"
+                    >
+                      {subs.length} mục
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full border-2 border-[#eef1f6]" aria-hidden />
             )}
             <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
-              <p className="text-sm font-semibold leading-snug text-[#131b2e]">{task.name}</p>
-              {subtitleLine ? (
-                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[#64748b]">{subtitleLine}</p>
+              <p className="text-sm font-bold leading-snug text-[#131b2e]">{task.name}</p>
+              {task.description || displayBlocks.length > 0 ? (
+                <div className="mt-1.5 text-xs leading-relaxed text-[#475569] whitespace-pre-wrap">
+                  {task.description || displayBlocks[0]?.content}
+                </div>
               ) : null}
               {showFeatureLabel ? (
-                <p className="mt-1 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
+                <p className="mt-2 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
               ) : null}
             </div>
-            <div className="flex w-auto flex-1 lg:flex-none min-w-0 lg:shrink-0 flex-col items-end gap-1">
-              <div className="flex max-w-full flex-nowrap items-center justify-end gap-x-2 gap-y-1 text-[11px] text-[#475569] sm:gap-x-3">
-                <span className="shrink-0 tabular-nums text-[#334155]" title={formatDeadlineDisplay(task.deadline)}>
-                  {formatDeadlineShort(task.deadline)}
-                </span>
-                {subs.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowSubtasksModal(true)}
-                    className="shrink-0 font-semibold text-[#006591] hover:underline"
-                  >
-                    {subs.length} mục
-                  </button>
-                ) : (
-                  <span className="shrink-0 text-[#94a3b8]">0 mục</span>
-                )}
+            <div className="flex w-auto shrink-0 flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
                 {task.users?.full_name ? (
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#5b8fd8] to-[#3d6fb0] text-[11px] font-bold text-white shadow-sm"
@@ -696,12 +689,12 @@ function ModalTaskCard({
               className="mt-2 w-full min-w-0"
               title={
                 subProgress.total > 0
-                  ? `${subProgress.done}/${subProgress.total} tiểu mục hoàn thành. Chọn «Hoàn thành» trên tiểu mục → lưu thời điểm completed_at. Thời gian làm việc (phiên): Bắt đầu / Tạm dừng trong modal tiểu mục.`
-                  : 'Chưa có tiểu mục — thêm từ nút Tiểu mục.'
+                  ? `${subProgress.done}/${subProgress.total} hoàn thành.`
+                  : 'Chưa có tiểu mục.'
               }
             >
               <div className="mb-0.5 flex items-center justify-between gap-2 text-[9px] text-[#64748b]">
-                <span className="font-semibold uppercase tracking-wide">Tiến độ tiểu mục</span>
+                <span className="font-semibold uppercase tracking-wide">Tiến độ</span>
                 <span className="tabular-nums font-bold text-[#334155]">
                   {subProgress.total > 0 ? `${subProgress.done}/${subProgress.total} · ${subProgress.pct}%` : '—'}
                 </span>
@@ -715,134 +708,128 @@ function ModalTaskCard({
             </div>
           ) : null}
           {displayBlocks.length > 0 || canModify ? (
-            <>
-              <div className="mt-2 rounded-lg border border-[#e8edf4] bg-[#f8fafc] px-2 py-1.5 space-y-1.5 sm:space-y-0 sm:flex sm:flex-nowrap sm:items-center sm:justify-between sm:gap-2">
-                {/* Label: Nội dung chi tiết */}
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-[#e8edf4] pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTaskDetailModal(true)}
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#64748b] hover:bg-[#eef2f7]"
+              >
+                <span className="material-symbols-outlined text-[14px]">notes</span>
+                Chi tiết ({displayBlocks.length})
+              </button>
+              {canModify && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    title="Thêm tiểu mục"
+                    onClick={() => m.open('add_subtask', { taskId: task.task_id })}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#bec8d2]/40 bg-white px-2 text-[10px] font-semibold text-[#006591] shadow-sm hover:bg-[#eae8ff] transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                    Tiểu mục
+                  </button>
+                  <button
+                    type="button"
+                    title="Chỉnh sửa"
+                    onClick={() => {
+                      setShowTaskDetailModal(false)
+                      m.open('edit_task', { id: task.task_id, initial: taskFormInitial(task) })
+                    }}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#bec8d2]/40 bg-white px-2 text-[10px] font-semibold text-[#131b2e] shadow-sm hover:bg-[#f2f3ff] transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">edit</span>
+                    Sửa
+                  </button>
+                  <button
+                    type="button"
+                    title="Xóa"
+                    onClick={() => {
+                      setShowTaskDetailModal(false)
+                      deleteEntity('tasks', 'task_id', task.task_id)
+                    }}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#fecaca] bg-[#fff5f5] px-2 text-[10px] font-semibold text-[#b91c1c] shadow-sm hover:bg-[#ffe4e4] transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">delete</span>
+                    Xóa
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
+          {showTaskDetailModal ? (
+            <Modal
+              overlayClassName="fixed inset-0 z-[58] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
+              maxWidthClassName="max-w-[95vw] lg:max-w-[80vw] w-full"
+              bodyClassName="px-4 sm:px-5 lg:px-7 py-4 space-y-3 overflow-y-auto max-h-[min(85vh,720px)]"
+              title="Nội dung chi tiết"
+              subtitle={`${feature.name} · ${task.name}`}
+              onClose={() => setShowTaskDetailModal(false)}
+              footer={
                 <button
                   type="button"
-                  onClick={() => setShowTaskDetailModal(true)}
-                  className="inline-flex w-full sm:w-auto min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef2f7]"
+                  onClick={() => setShowTaskDetailModal(false)}
+                  className="px-6 py-2.5 rounded-xl text-sm font-medium text-white primary-gradient shadow-md hover:brightness-110 transition-all"
                 >
-                  <span className="material-symbols-outlined shrink-0 text-[16px] text-[#94a3b8]">notes</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-[#64748b]">
-                    Nội dung chi tiết ({displayBlocks.length})
-                  </span>
+                  Đóng
                 </button>
-                {/* Action Buttons */}
-                {canModify ? (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      title="Thêm tiểu mục"
-                      onClick={() => m.open('add_subtask', { taskId: task.task_id })}
-                      className="inline-flex items-center gap-0.5 rounded-lg border border-[#bec8d2]/40 bg-white px-2 py-1 text-[9px] font-semibold text-[#006591] shadow-sm hover:bg-[#eae8ff]"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">add_circle</span>
-                      Tiểu mục
-                    </button>
-                    <button
-                      type="button"
-                      title="Chỉnh sửa"
-                      onClick={() => {
-                        setShowTaskDetailModal(false)
-                        m.open('edit_task', { id: task.task_id, initial: taskFormInitial(task) })
-                      }}
-                      className="inline-flex items-center gap-0.5 rounded-lg border border-[#bec8d2]/40 bg-white px-2 py-1 text-[9px] font-semibold text-[#131b2e] shadow-sm hover:bg-[#f2f3ff]"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">edit</span>
-                      Sửa
-                    </button>
-                    <button
-                      type="button"
-                      title="Xóa"
-                      onClick={() => {
-                        setShowTaskDetailModal(false)
-                        deleteEntity('tasks', 'task_id', task.task_id)
-                      }}
-                      className="inline-flex items-center gap-0.5 rounded-lg border border-[#fecaca] bg-[#fff5f5] px-2 py-1 text-[9px] font-semibold text-[#b91c1c] shadow-sm hover:bg-[#ffe4e4]"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">delete</span>
-                      Xóa
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {showTaskDetailModal ? (
-                <Modal
-                  overlayClassName="fixed inset-0 z-[58] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
-                  maxWidthClassName="max-w-[95vw] lg:max-w-[80vw] w-full"
-                  bodyClassName="px-4 sm:px-5 lg:px-7 py-4 space-y-3 overflow-y-auto max-h-[min(85vh,720px)]"
-                  title="Nội dung chi tiết"
-                  subtitle={`${feature.name} · ${task.name}`}
-                  onClose={() => setShowTaskDetailModal(false)}
-                  footer={
-                    <button
-                      type="button"
-                      onClick={() => setShowTaskDetailModal(false)}
-                      className="px-6 py-2.5 rounded-xl text-sm font-medium text-white primary-gradient shadow-md hover:brightness-110 transition-all"
-                    >
-                      Đóng
-                    </button>
-                  }
-                >
-                  {displayBlocks.length === 0 ? (
-                    <p className="text-sm text-[#6e7881]">Chưa có nội dung chi tiết.</p>
-                  ) : (
-                    <div className={subModal.blockWrap}>
-                      {displayBlocks.map((b, i) => (
-                        <div key={i} className={subModal.blockInner}>
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              {b.content.trim() ? (
-                                <p className={`text-[#3e4850] whitespace-pre-wrap ${subModal.bodyText}`}>{b.content}</p>
-                              ) : (
-                                <p className={`text-[#6e7881] italic ${subModal.bodyText}`}>—</p>
-                              )}
-                            </div>
-                            {b.image_url.trim() ? (
-                              <button
-                                type="button"
-                                title="Nhấn để phóng to ảnh"
-                                onClick={() => setImageLightboxUrl(b.image_url)}
-                                className="shrink-0 rounded-lg overflow-hidden border-2 border-[#bec8d2]/35 bg-[#f9fafb] w-16 h-16 sm:w-[72px] sm:h-[72px] cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[#006591]/35 shadow-sm"
-                              >
-                                <img
-                                  src={b.image_url}
-                                  alt=""
-                                  className="w-full h-full object-cover pointer-events-none"
-                                  loading="lazy"
-                                  onError={e => {
-                                    e.currentTarget.style.display = 'none'
-                                  }}
-                                />
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const u = (b.image_url || '').trim()
-                                setPreviewShowIframe(
-                                  !!(u && isHttpUrl(u) && !shouldTryImageFirst(u) && !hostBlocksIframeEmbedding(u))
-                                )
-                                setBlockPreview({
-                                  content: b.content || '',
-                                  image_url: b.image_url || '',
-                                  lineIndex: i + 1,
-                                })
-                              }}
-                              className="shrink-0 inline-flex items-center gap-0.5 rounded-md bg-[#dae2fd] px-2 py-1 text-[10px] font-semibold text-[#006591] hover:bg-[#c9d4fc]"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-                              Xem link
-                            </button>
-                          </div>
+              }
+            >
+              {displayBlocks.length === 0 ? (
+                <p className="text-sm text-[#6e7881]">Chưa có nội dung chi tiết.</p>
+              ) : (
+                <div className={subModal.blockWrap}>
+                  {displayBlocks.map((b, i) => (
+                    <div key={i} className={subModal.blockInner}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          {b.content.trim() ? (
+                            <p className={`text-[#3e4850] whitespace-pre-wrap ${subModal.bodyText}`}>{b.content}</p>
+                          ) : (
+                            <p className={`text-[#6e7881] italic ${subModal.bodyText}`}>—</p>
+                          )}
                         </div>
-                      ))}
+                        {b.image_url.trim() ? (
+                          <button
+                            type="button"
+                            title="Nhấn để phóng to ảnh"
+                            onClick={() => setImageLightboxUrl(b.image_url)}
+                            className="shrink-0 rounded-lg overflow-hidden border-2 border-[#bec8d2]/35 bg-[#f9fafb] w-16 h-16 sm:w-[72px] sm:h-[72px] cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[#006591]/35 shadow-sm"
+                          >
+                            <img
+                              src={b.image_url}
+                              alt=""
+                              className="w-full h-full object-cover pointer-events-none"
+                              loading="lazy"
+                              onError={e => {
+                                e.currentTarget.style.display = 'none'
+                              }}
+                            />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const u = (b.image_url || '').trim()
+                            setPreviewShowIframe(
+                              !!(u && isHttpUrl(u) && !shouldTryImageFirst(u) && !hostBlocksIframeEmbedding(u))
+                            )
+                            setBlockPreview({
+                              content: b.content || '',
+                              image_url: b.image_url || '',
+                              lineIndex: i + 1,
+                            })
+                          }}
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded-md bg-[#dae2fd] px-2 py-1 text-[10px] font-semibold text-[#006591] hover:bg-[#c9d4fc]"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                          Xem link
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </Modal>
-              ) : null}
-            </>
+                  ))}
+                </div>
+              )}
+            </Modal>
           ) : null}
         </>
       ) : (
@@ -1049,8 +1036,8 @@ function ModalTaskCard({
       {showSubtasksModal && subs.length > 0 && (
         <Modal
           overlayClassName="fixed inset-0 z-[55] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-2 sm:p-3 lg:p-4"
-          maxWidthClassName="max-w-[95vw] lg:max-w-[95vw] w-full mx-auto"
-          bodyClassName="bg-[#f8fafc] px-3 sm:px-4 lg:px-6 py-3 sm:py-3.5 space-y-3 overflow-y-auto max-h-[min(82vh,640px)]"
+          maxWidthClassName="max-w-[95vw] lg:max-w-[98vw] w-full mx-auto"
+          bodyClassName="bg-[#f8fafc] px-3 sm:px-4 lg:px-6 py-3 sm:py-3.5 space-y-3 overflow-y-auto max-h-[min(82vh,640px)] lg:max-h-[92vh]"
           headerChildren={
             <div>
               <p className="mb-1 flex flex-wrap items-center gap-x-1 gap-y-0 text-[11px] leading-snug text-[#64748b]">
@@ -1297,7 +1284,7 @@ function ModalTaskCard({
                           </div>
 
                           {/* Bộ đếm (Timer) (Cột 6 Desktop) */}
-                          <div className="flex flex-col gap-1 min-w-0 justify-start w-full bg-[#f0f9ff]/40 lg:bg-transparent p-3 lg:p-0 rounded-lg border border-sky-100 lg:border-none">
+                          <div className="flex flex-col gap-1 min-w-0 lg:justify-end lg:self-stretch w-full bg-[#f0f9ff]/40 lg:bg-transparent p-3 lg:p-0 rounded-lg border border-sky-100 lg:border-none">
                             {onSubtaskWorkTimeSave ? (
                               <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
                                 <>
@@ -1312,7 +1299,7 @@ function ModalTaskCard({
                                       }}
                                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-[#e2e8f0] bg-white px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
                                     >
-                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px]">play_arrow</span>
+                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px] text-emerald-600">play_arrow</span>
                                       Bắt đầu
                                     </button>
                                   ) : (
@@ -1326,7 +1313,7 @@ function ModalTaskCard({
                                       }}
                                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
                                     >
-                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px]">pause</span>
+                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px] text-amber-600">pause</span>
                                       Tạm dừng
                                     </button>
                                   )}
@@ -1338,11 +1325,10 @@ function ModalTaskCard({
                                         await onSubtaskWorkTimeSave(st.subtask_id, [])
                                       }
                                     }}
-                                    className="inline-flex items-center justify-center gap-1 rounded-md border border-[#bec8d2]/40 bg-white px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
+                                    className="inline-flex h-8 w-8 lg:h-7 lg:w-7 items-center justify-center rounded-md border border-[#bec8d2]/40 bg-white text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
                                     title="Đặt lại phiên làm việc"
                                   >
-                                    <span className="material-symbols-outlined text-[16px] lg:text-[14px]">replay</span>
-                                    <span className="lg:hidden ml-1">Đặt lại</span>
+                                    <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none text-sky-600">replay</span>
                                   </button>
                                 </>
                               } />
@@ -1356,25 +1342,23 @@ function ModalTaskCard({
                         <div className="grid grid-cols-2 lg:flex lg:flex-col lg:items-end lg:justify-end lg:self-stretch gap-2 lg:gap-1.5 w-full pt-2 lg:pt-0 border-t border-slate-100 lg:border-none pl-6 lg:pl-0">
                           {canModify && (
                             <>
-                              <div className="flex items-center gap-1 col-span-1 lg:col-span-auto">
+                              <div className="flex items-center gap-1.5 col-span-1 lg:col-span-auto">
                                 <button
                                   type="button"
                                   onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
-                                  className="p-2.5 lg:p-1.5 rounded-md lg:rounded-lg border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                  className="h-8 w-8 lg:h-7 lg:w-7 rounded-md border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] transition-colors flex items-center justify-center shadow-sm"
                                   title="Sửa tiểu mục"
                                 >
-                                  <span className="material-symbols-outlined text-[18px] lg:text-[16px]">edit</span>
-                                  <span className="lg:hidden text-xs font-bold uppercase tracking-tight">Sửa</span>
+                                  <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none">edit</span>
                                 </button>
                                 {onDeleteSubtask ? (
                                   <button
                                     type="button"
                                     onClick={() => onDeleteSubtask(st.subtask_id)}
-                                    className="p-2.5 lg:px-2 lg:py-1 rounded-md lg:rounded-lg border border-[#fecaca] bg-[#fff5f5] text-[#b91c1c] hover:bg-[#ffe4e4] transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                    className="h-8 w-8 lg:h-7 lg:w-7 rounded-md border border-[#fecaca] bg-[#fff5f5] text-[#b91c1c] hover:bg-[#ffe4e4] transition-colors flex items-center justify-center shadow-sm"
                                     title="Xóa tiểu mục"
                                   >
-                                    <span className="material-symbols-outlined text-[18px] lg:text-[16px]">delete</span>
-                                    <span className="lg:hidden text-xs font-bold uppercase tracking-tight">Xóa</span>
+                                    <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none">delete</span>
                                   </button>
                                 ) : (
                                   <div className="lg:hidden" />
