@@ -266,19 +266,40 @@ export default function AttendancePage() {
     setDeleting(true)
     try {
       const idsArray = Array.from(selectedIds)
-      const { error: deleteError } = await supabase
+
+      // Kiểm tra xem có session nào đang hoạt động không để tránh xóa nhầm ca đang làm
+      if (idsArray.includes(activeSessionId)) {
+        if (!window.confirm('Trong danh sách chọn có ca làm việc đang hoạt động. Bạn có chắc muốn xóa và kết thúc ca này không?')) {
+          setDeleting(false)
+          return
+        }
+      }
+
+      const { error: deleteError, count } = await supabase
         .from('work_sessions')
-        .delete()
+        .delete({ count: 'exact' })
         .in('session_id', idsArray)
 
       if (deleteError) throw deleteError
 
-      // Xóa thành công: cập nhật state và làm mới dữ liệu
+      if (count === 0) {
+        throw new Error('Không có bản ghi nào bị xóa. Vui lòng kiểm tra quyền hạn của bạn.')
+      }
+
+      // Nếu xóa đúng session đang làm việc thì reset state checkin
+      if (idsArray.includes(activeSessionId)) {
+        localStorage.removeItem('checkin_session_id')
+        localStorage.removeItem('checkin_start_time')
+        setActiveSessionId(null)
+        setIsWorking(false)
+      }
+
+      // Xóa thành công: cập nhật state
       setAttendanceList(prev => prev.filter(row => !selectedIds.has(row.id)))
       setSelectedIds(new Set())
-      setToast({ message: `Đã xóa ${selectedIds.size} bản ghi thành công`, type: 'success' })
+      setToast({ message: `Đã xóa ${count} bản ghi thành công`, type: 'success' })
     } catch (err) {
-      console.error(err)
+      console.error('Lỗi khi xóa nhiều:', err)
       setToast({ message: err.message || 'Không thể xóa bản ghi', type: 'error' })
     } finally {
       setDeleting(false)
@@ -288,14 +309,32 @@ export default function AttendancePage() {
   // 7. Hàm xóa 1 bản ghi duy nhất
   const handleDeleteSingle = async (id) => {
     if (!window.confirm('Bạn có chắc muốn xóa bản ghi chấm công này?')) return
+
+    // Nếu xóa đúng session đang làm việc
+    const isDeletingActive = id === activeSessionId
+    if (isDeletingActive) {
+      if (!window.confirm('Đây là ca làm việc đang hoạt động. Xóa đồng nghĩa với việc hủy ca này. Tiếp tục?')) return
+    }
+
     setDeleting(true)
     try {
-      const { error: deleteError } = await supabase
+      const { error: deleteError, count } = await supabase
         .from('work_sessions')
-        .delete()
+        .delete({ count: 'exact' })
         .eq('session_id', id)
 
       if (deleteError) throw deleteError
+
+      if (count === 0) {
+        throw new Error('Không thể xóa bản ghi. Có thể bạn không có quyền hoặc bản ghi không tồn tại.')
+      }
+
+      if (isDeletingActive) {
+        localStorage.removeItem('checkin_session_id')
+        localStorage.removeItem('checkin_start_time')
+        setActiveSessionId(null)
+        setIsWorking(false)
+      }
 
       setAttendanceList(prev => prev.filter(row => row.id !== id))
       if (selectedIds.has(id)) {
@@ -305,7 +344,7 @@ export default function AttendancePage() {
       }
       setToast({ message: 'Đã xóa bản ghi thành công', type: 'success' })
     } catch (err) {
-      console.error(err)
+      console.error('Lỗi khi xóa đơn:', err)
       setToast({ message: err.message || 'Không thể xóa bản ghi', type: 'error' })
     } finally {
       setDeleting(false)
@@ -325,8 +364,8 @@ export default function AttendancePage() {
             {/* Toast Notification */}
             {toast && (
               <div className={`fixed top-4 right-4 px-5 py-3 rounded-2xl shadow-2xl text-white z-[100] animate-in fade-in slide-in-from-top-4 flex items-center gap-3 font-bold border border-white/20 ${toast.type === 'success' ? 'bg-emerald-500' :
-                  toast.type === 'error' ? 'bg-red-500' :
-                    'bg-amber-500'
+                toast.type === 'error' ? 'bg-red-500' :
+                  'bg-amber-500'
                 }`}>
                 <span className="material-symbols-outlined">
                   {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'warning'}
