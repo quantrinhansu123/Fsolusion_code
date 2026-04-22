@@ -350,8 +350,9 @@ export default function CustomerManagement() {
 
       {projectsModalCustomer && (
         <Modal
-          maxWidthClassName="max-w-7xl w-full"
-          bodyClassName="px-8 py-5 space-y-5 overflow-y-auto max-h-[80vh] min-h-[280px]"
+          maxWidthClassName="max-w-[95vw] lg:max-w-[95vw] w-full"
+          overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[#131b2e]/40 backdrop-blur-sm p-3 sm:p-4"
+          bodyClassName="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-5 overflow-y-auto max-h-[80vh] min-h-[280px]"
           title={`Dự án — ${projectsModalCustomer.name}`}
           subtitle="Danh sách đầy đủ các dự án thuộc khách hàng này"
           headerActions={

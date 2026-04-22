@@ -92,9 +92,9 @@ function ContentLinkDetailModal({ blockPreview, previewShowIframe, setPreviewSho
 
   return (
     <Modal
-      overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-4"
-      maxWidthClassName={url ? 'max-w-4xl w-full' : 'max-w-lg w-full'}
-      bodyClassName="px-6 py-4 space-y-4 overflow-y-auto max-h-[75vh]"
+      overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
+      maxWidthClassName={url ? 'max-w-[95vw] lg:max-w-[85vw] w-full' : 'max-w-[95vw] lg:max-w-[70vw] w-full'}
+      bodyClassName="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto max-h-[75vh]"
       title="Chi tiết nội dung & link"
       subtitle={subtitle}
       onClose={onClose}
@@ -770,8 +770,8 @@ function ModalTaskCard({
               {showTaskDetailModal ? (
                 <Modal
                   overlayClassName="fixed inset-0 z-[58] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
-                  maxWidthClassName="max-w-2xl w-full"
-                  bodyClassName="px-5 sm:px-7 py-4 space-y-3 overflow-y-auto max-h-[min(85vh,720px)]"
+                  maxWidthClassName="max-w-[95vw] lg:max-w-[80vw] w-full"
+                  bodyClassName="px-4 sm:px-5 lg:px-7 py-4 space-y-3 overflow-y-auto max-h-[min(85vh,720px)]"
                   title="Nội dung chi tiết"
                   subtitle={`${feature.name} · ${task.name}`}
                   onClose={() => setShowTaskDetailModal(false)}
@@ -1048,9 +1048,9 @@ function ModalTaskCard({
       )}
       {showSubtasksModal && subs.length > 0 && (
         <Modal
-          overlayClassName="fixed inset-0 z-[55] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
-          maxWidthClassName="max-w-[1250px] w-full mx-auto"
-          bodyClassName="bg-[#f8fafc] px-[18px] py-3.5 space-y-3 overflow-y-auto max-h-[min(82vh,640px)] sm:px-[18px]"
+          overlayClassName="fixed inset-0 z-[55] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-2 sm:p-3 lg:p-4"
+          maxWidthClassName="max-w-[95vw] lg:max-w-[95vw] w-full mx-auto"
+          bodyClassName="bg-[#f8fafc] px-3 sm:px-4 lg:px-6 py-3 sm:py-3.5 space-y-3 overflow-y-auto max-h-[min(82vh,640px)]"
           headerChildren={
             <div>
               <p className="mb-1 flex flex-wrap items-center gap-x-1 gap-y-0 text-[11px] leading-snug text-[#64748b]">
@@ -1554,9 +1554,9 @@ function AssignTeamModal({ allUsers, selectedIds, onToggle, onSave, onClose, sav
 
   return (
     <Modal
-      overlayClassName="fixed inset-0 z-[100] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-4"
-      maxWidthClassName="max-w-md w-full"
-      bodyClassName="px-6 py-4 space-y-3 overflow-y-auto max-h-[min(80vh,560px)]"
+      overlayClassName="fixed inset-0 z-[100] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
+      maxWidthClassName="max-w-[95vw] lg:max-w-md w-full"
+      bodyClassName="px-4 sm:px-6 py-4 space-y-3 overflow-y-auto max-h-[min(80vh,560px)]"
       title="Phân công nhân sự"
       subtitle="Chọn thành viên tham gia dự án (có thể chọn nhiều người)"
       onClose={onClose}

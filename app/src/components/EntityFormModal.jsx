@@ -170,6 +170,9 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
     <Modal
       title={title}
       subtitle={subtitle}
+      maxWidthClassName="max-w-[95vw] lg:max-w-[70vw]"
+      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[#131b2e]/40 backdrop-blur-sm p-3 sm:p-4"
+      bodyClassName="px-4 sm:px-6 py-5 sm:py-6 space-y-5 flex-grow overflow-y-auto max-h-[60vh]"
       onClose={onClose}
       footer={
         <>
