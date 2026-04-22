@@ -2531,7 +2531,11 @@ export default function ProjectsPage() {
                           return (
                             <li
                               key={p.project_id}
-                              className="group flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 pl-4 pr-3 last:border-b-0 hover:bg-[#faf8ff] transition-colors sm:pl-8 sm:pr-4"
+                              onClick={() => {
+                                setProjectsModalCustomerId(c.customer_id)
+                                setProjectTasksViewId(p.project_id)
+                              }}
+                              className="group flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 pl-4 pr-3 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors sm:pl-8 sm:pr-4"
                             >
                               {/* Cột 1: Tên & Deadline */}
                               <div className="flex-1 min-w-[140px] overflow-hidden flex flex-col justify-center sm:flex-row sm:items-center sm:gap-4 sm:justify-start">
@@ -2566,19 +2570,7 @@ export default function ProjectsPage() {
                                 </div>
 
                                 {/* Actions */}
-                                <div className="flex items-center gap-1 w-[26px] sm:w-[80px] justify-end relative shrink-0">
-                                  <button
-                                    type="button"
-                                    title="Mở bảng Kanban"
-                                    onClick={() => {
-                                      setProjectsModalCustomerId(c.customer_id)
-                                      setProjectTasksViewId(p.project_id)
-                                    }}
-                                    className="hidden sm:inline-flex items-center gap-0.5 rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-[#006591] hover:bg-slate-50 transition-colors shadow-sm"
-                                  >
-                                    Kanban
-                                  </button>
-
+                                <div className="flex items-center gap-1 w-[26px] sm:w-[80px] justify-end relative shrink-0" onClick={e => e.stopPropagation()}>
                                   {isMgr ? (
                                     <div className="relative" data-project-dd>
                                       <button
