@@ -75,11 +75,14 @@ export default function StaffSubtasksPage() {
   const [toast, setToast] = useState(null)
 
   // -- STATE CHẤM CÔNG --
-  const [activeSessionId, setActiveSessionId] = useState(null)
-  const [isWorking, setIsWorking] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem('checkin_session_id'))
+  const [isWorking, setIsWorking] = useState(() => !!localStorage.getItem('checkin_session_id'))
   const [sessionTimer, setSessionTimer] = useState(0)
-  const [sessionStartTime, setSessionStartTime] = useState(null)
-  
+  const [sessionStartTime, setSessionStartTime] = useState(() => {
+    const stored = localStorage.getItem('checkin_start_time')
+    return stored ? Number(stored) : null
+  })
+
   // -- RESPONSIVE LOGIC (JS) --
   const [isMobileScreen, setIsMobileScreen] = useState(window.innerWidth < 1024)
   useEffect(() => {
@@ -96,18 +99,41 @@ export default function StaffSubtasksPage() {
     fetchData()
   }, [])
 
-  // --- LOGIC CHẤM CÔNG ---
+  // --- LOGIC CHẤM CÔNG: Timer dùng elapsed time thực (không bị throttle khi đổi tab) ---
   useEffect(() => {
-    let interval = null
-    if (isWorking && sessionStartTime) {
-      interval = setInterval(() => {
+    if (!isWorking || !sessionStartTime) return
+
+    // Tính ngay khi mount hoặc isWorking thay đổi
+    setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
+
+    const interval = setInterval(() => {
+      setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
+    }, 1000)
+
+    // Khi tab hiện lại sau khi bị ẩn, tính lại elapsed time ngay
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
         setSessionTimer(Math.floor((Date.now() - sessionStartTime) / 1000))
-      }, 1000)
-    } else {
-      clearInterval(interval)
+      }
     }
-    return () => clearInterval(interval)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [isWorking, sessionStartTime])
+
+  // Cảnh báo khi đóng/rời trang trong lúc đang check-in
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!isWorking) return
+      e.preventDefault()
+      e.returnValue = 'Bạn đang check-in. Nếu thoát, ca làm việc sẽ không được kết thúc đúng cách.'
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isWorking])
 
   function formatTimer(seconds) {
     const h = String(Math.floor(seconds / 3600)).padStart(2, '0')
@@ -139,9 +165,12 @@ export default function StaffSubtasksPage() {
 
       if (error) throw error
 
+      const startTime = Date.now()
+      localStorage.setItem('checkin_session_id', data.session_id)
+      localStorage.setItem('checkin_start_time', String(startTime))
       setActiveSessionId(data.session_id)
       setIsWorking(true)
-      setSessionStartTime(Date.now())
+      setSessionStartTime(startTime)
       setSessionTimer(0)
       setToast({ message: 'Đã Check-in thành công!', type: 'success' })
     } catch (err) {
@@ -163,9 +192,12 @@ export default function StaffSubtasksPage() {
 
       if (error) throw error
 
+      localStorage.removeItem('checkin_session_id')
+      localStorage.removeItem('checkin_start_time')
       setActiveSessionId(null)
       setIsWorking(false)
       setSessionStartTime(null)
+      setSessionTimer(0)
       setToast({ message: 'Đã Check-out kết thúc ca', type: 'success' })
     } catch (err) {
       console.error(err)
