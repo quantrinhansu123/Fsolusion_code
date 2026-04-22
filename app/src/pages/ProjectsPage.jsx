@@ -1234,7 +1234,7 @@ function ModalTaskCard({
                           ) : (
                             <button 
                               type="button"
-                              onClick={() => m.open('edit_subtask', { id: st.subtask_id })}
+                              onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
                               className="w-14 h-14 lg:w-12 lg:h-12 bg-slate-50 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-300 hover:border-[#006591] hover:text-[#006591] transition-all group" 
                               title="Nhấn để đính kèm file"
                             >
@@ -1342,7 +1342,7 @@ function ModalTaskCard({
                             <>
                               <button
                                 type="button"
-                                onClick={() => m.open('edit_subtask', { id: st.subtask_id })}
+                                onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
                                 className="p-2.5 lg:p-1.5 rounded-md lg:rounded-lg border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] transition-colors flex items-center justify-center gap-1 shadow-sm"
                                 title="Sửa tiểu mục"
                               >
@@ -1701,8 +1701,8 @@ export default function ProjectsPage() {
     await fetchData()
   }
 
-  async function fetchData() {
-    setLoading(true)
+  async function fetchData(silent = false) {
+    if (!silent) setLoading(true)
     const { data, error } = await supabase
       .from('customers')
       .select(`
@@ -1719,7 +1719,7 @@ export default function ProjectsPage() {
 
     if (error) console.error('Error fetching data:', error)
     else setCustomers(data || [])
-    setLoading(false)
+    if (!silent) setLoading(false)
   }
 
   function formatSaveError(err) {
@@ -1791,7 +1791,7 @@ export default function ProjectsPage() {
           if (res?.error) throw res.error
 
           // ✅ Cập nhật dữ liệu ngầm cho toàn bộ trang
-          await fetchData()
+          await fetchData(true)
 
           // ✅ Reset form: Clear các field nhập liệu, Keep phân loại (Khách hàng & Trạng thái)
           m.set('name', '')
@@ -1813,7 +1813,7 @@ export default function ProjectsPage() {
         try {
           res = await supabase.from('projects').update(cleanData).eq('project_id', id)
           if (res?.error) throw res.error
-          await fetchData()
+          await fetchData(true)
           setToast({ message: 'Đã cập nhật dự án thành công!', type: 'success' })
         } finally {
           setSavingProject(false)
@@ -1826,7 +1826,7 @@ export default function ProjectsPage() {
         try {
           res = await supabase.from('features').update(cleanData).eq('feature_id', id)
           if (res?.error) throw res.error
-          await fetchData()
+          await fetchData(true)
           setToast({ message: 'Đã cập nhật tính năng thành công!', type: 'success' })
         } finally {
           setSavingFeature(false)
@@ -1845,7 +1845,7 @@ export default function ProjectsPage() {
           if (res?.error) throw res.error
 
           // ✅ Cập nhật dữ liệu ngầm cho trang
-          await fetchData()
+          await fetchData(true)
 
           // ✅ Reset form theo yêu cầu: Xóa Tên Task, Nội dung & Ảnh. Giữ Người phụ trách.
           m.set('name', '')
@@ -1868,7 +1868,7 @@ export default function ProjectsPage() {
           }
           res = await supabase.from('tasks').update(cleanData).eq('task_id', id)
           if (res?.error) throw res.error
-          await fetchData()
+          await fetchData(true)
           setToast({ message: 'Đã cập nhật nhiệm vụ thành công!', type: 'success' })
         } finally {
           setSavingTask(false)
@@ -1895,7 +1895,7 @@ export default function ProjectsPage() {
           if (res?.error) throw res.error
 
           // ✅ Cập nhật dữ liệu ngầm cho trang
-          await fetchData()
+          await fetchData(true)
 
           // ✅ Reset form theo yêu cầu: Xóa Tên, Nội dung & Ảnh. Giữ Người phụ trách.
           m.set('name', '')
@@ -1928,7 +1928,7 @@ export default function ProjectsPage() {
           }
           res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
           if (res?.error) throw res.error
-          await fetchData()
+          await fetchData(true)
           setToast({ message: 'Đã cập nhật tiểu mục thành công!', type: 'success' })
         } finally {
           setSavingSubtask(false)
@@ -1954,7 +1954,7 @@ export default function ProjectsPage() {
     const { error } = await supabase.from(table).delete().eq(column, id)
     if (error) setToast({ message: error.message, type: 'error' })
     else {
-      fetchData()
+      fetchData(true)
       setToast({ message: 'Đã xóa dữ liệu thành công', type: 'success' })
     }
   }
@@ -2048,7 +2048,7 @@ export default function ProjectsPage() {
     const { error } = await supabase.from('project_assignments').delete().match({ project_id: projectId, user_id: userId })
     if (error) setToast({ message: error.message, type: 'error' })
     else {
-      fetchData()
+      fetchData(true)
       setToast({ message: 'Đã gỡ nhân sự khỏi dự án', type: 'success' })
     }
   }
@@ -2084,7 +2084,7 @@ export default function ProjectsPage() {
         if (error) throw error
       }
       m.close()
-      await fetchData()
+      await fetchData(true)
       setToast({ message: 'Đã cập nhật phân công nhân sự', type: 'success' })
     } catch (err) {
       console.error(err)
@@ -2115,7 +2115,7 @@ export default function ProjectsPage() {
         return
       }
       features = [row]
-      await fetchData()
+      await fetchData(true)
     }
 
     const featureOptions = features.map(f => ({ value: f.feature_id, label: f.name }))
