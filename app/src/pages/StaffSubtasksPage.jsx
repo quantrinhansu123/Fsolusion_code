@@ -73,6 +73,7 @@ export default function StaffSubtasksPage() {
   const [updatingStatusId, setUpdatingStatusId] = useState(null)
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   // -- STATE CHẤM CÔNG: Chỉ dùng session nếu thuộc về user đang đăng nhập --
   const [activeSessionId, setActiveSessionId] = useState(null)
@@ -109,13 +110,11 @@ export default function StaffSubtasksPage() {
 
   const handlePageChange = (groupKey, newPage) => {
     setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
-    // Cuộn mượt lên đầu section của dự án đó
     const section = document.getElementById(`project-section-${groupKey}`)
     if (section) {
       section.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
-  // -------------------------
 
   async function fetchData() {
     setLoading(true)
@@ -135,10 +134,16 @@ export default function StaffSubtasksPage() {
             completed_at,
             assigned_to,
             work_time,
+            description,
+            image_url,
+            content_blocks,
             users:assigned_to(user_id, full_name),
             tasks!inner(
               task_id,
               name,
+              description,
+              image_url,
+              content_blocks,
               features!inner(
                 feature_id,
                 name,
@@ -223,14 +228,6 @@ export default function StaffSubtasksPage() {
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
   }, [filteredSubtasks])
-
-  function toggleProjectFilter(projectId) {
-    setSelectedProjectIds(prev => (
-      prev.includes(projectId)
-        ? prev.filter(id => id !== projectId)
-        : [...prev, projectId]
-    ))
-  }
 
   async function updateSubtaskStatus(subtaskId, status) {
     setUpdatingStatusId(subtaskId)
@@ -319,16 +316,13 @@ export default function StaffSubtasksPage() {
             </div>
 
             {/* ── COMPACT FILTER TOOLBAR ── */}
-            {/* ── MOBILE TOOLBAR: 3 TẦNG TỐI ƯU (Chỉ hiện trên mobile) ── */}
             <div className="lg:hidden rounded-xl border border-[#e2e8f0] bg-white p-2 space-y-3 shadow-sm">
-              {/* Tầng 1: Reset bộ lọc */}
               <div className="flex items-center justify-between gap-1.5 px-0.5">
                 <div className="flex-1 text-[11px] font-bold text-[#006591] bg-[#f2f3ff] h-9 flex items-center px-3 rounded-lg border border-[#dce4ff]">
                   DANH SÁCH SUBTASK THEO NHÂN SỰ
                 </div>
               </div>
 
-              {/* Tầng 2: Nhân sự - Grid 3 cột (như Dashboard sếp thích) */}
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
@@ -349,7 +343,6 @@ export default function StaffSubtasksPage() {
                 ))}
               </div>
 
-              {/* Tầng 3: Dropdowns lọc - Xếp chồng dọc */}
               <div className="flex flex-col gap-2">
                 <select
                   value={selectedStatus}
@@ -377,9 +370,7 @@ export default function StaffSubtasksPage() {
               </div>
             </div>
 
-            {/* ── DESKTOP TOOLBAR: GIỮ NGUYÊN BỐ CỤC CŨ (Chỉ hiện trên desktop) ── */}
             <div className="hidden lg:block rounded-xl border border-[#bec8d2]/15 bg-white px-3 py-2 space-y-2 shadow-sm">
-              {/* Row 1: Danh sách nhân sự (Dàn đều, tự xuống dòng) */}
               <div className="flex flex-wrap items-center gap-1.5 min-h-[32px] pb-1">
                 <button
                   type="button"
@@ -400,7 +391,6 @@ export default function StaffSubtasksPage() {
                 ))}
               </div>
 
-              {/* Row 2: Dropdowns - Grid 3 cột thanh thoát */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="relative">
                   <select
@@ -433,10 +423,8 @@ export default function StaffSubtasksPage() {
                     <span className="material-symbols-outlined text-[14px] text-[#94a3b8]">expand_more</span>
                   </button>
 
-                  {/* Popup dropdown — z-50 để không bị đè */}
                   {showProjectDropdown && (
                     <>
-                      {/* Backdrop trong suốt để click ngoài đóng */}
                       <div className="fixed inset-0 z-40" onClick={() => setShowProjectDropdown(false)} />
                       <div className="absolute left-0 top-full mt-1 z-50 w-full min-w-[200px] max-h-52 overflow-y-auto rounded-lg border border-[#e2e8f0] bg-white shadow-lg py-1">
                         {projectOptions.length === 0 ? (
@@ -478,7 +466,6 @@ export default function StaffSubtasksPage() {
               {subtasksByProject.map(group => {
                 const currentPage = groupPages[group.key] || 1
                 const totalPages = Math.ceil(group.items.length / PAGE_SIZE)
-                // Chỉ slice (cắt mảng) khi ở trên màn hình Mobile
                 const displayedItems = isMobileScreen
                   ? group.items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
                   : group.items
@@ -511,7 +498,6 @@ export default function StaffSubtasksPage() {
                             className="rounded-lg border border-slate-200 bg-[#fafafa] p-3 hover:bg-[#f2f3ff] transition-all shadow-sm"
                           >
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                              {/* CỘT TRÁI: THÔNG TIN (TIÊU ĐỀ + CHI TIẾT + METADATA) */}
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-baseline gap-2 min-w-0">
                                   <p className="text-[14px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[65%]">{st.name}</p>
@@ -521,56 +507,93 @@ export default function StaffSubtasksPage() {
                                   </p>
                                 </div>
 
-                                <div className="mt-1.5 flex flex-wrap items-center gap-4">
-                                  <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Hạn chót">
-                                    <span className="material-symbols-outlined text-[15px] text-slate-400">event</span>
-                                    <span>
-                                      {st.deadline ? new Date(st.deadline).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' }) : '—'}
-                                    </span>
+                                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-4">
+                                  <div className="flex flex-wrap items-center gap-4">
+                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Hạn chót">
+                                      <span className="material-symbols-outlined text-[15px] text-slate-400">event</span>
+                                      <span>
+                                        {st.deadline ? new Date(st.deadline).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' }) : '—'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Tổng thời gian">
+                                      <span className="material-symbols-outlined text-[15px] text-slate-400">schedule</span>
+                                      <span className="capitalize">{timeSummary}</span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Tổng thời gian">
-                                    <span className="material-symbols-outlined text-[15px] text-slate-400">schedule</span>
-                                    <span className="capitalize">{timeSummary}</span>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="relative">
+                                      <select
+                                        value={st.status || 'pending'}
+                                        onChange={e => updateSubtaskStatus(st.subtask_id, e.target.value)}
+                                        disabled={updatingStatusId === st.subtask_id}
+                                        className="w-[100px] appearance-none rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-[#131b2e] focus:border-[#006591] focus:outline-none disabled:opacity-55"
+                                      >
+                                        {STATUS_OPTIONS.map(o => (
+                                          <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>
+                                        ))}
+                                      </select>
+                                      <span className="material-symbols-outlined pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[12px] text-[#94a3b8]">expand_more</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        disabled={updatingWorkTimeId === st.subtask_id || running}
+                                        onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(sessions))}
+                                        className="flex h-7 w-7 items-center justify-center rounded bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-colors border border-[#1e8e3e]/20"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={updatingWorkTimeId === st.subtask_id || !running}
+                                        onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(sessions))}
+                                        className="flex h-7 w-7 items-center justify-center rounded bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-colors border border-[#b06000]/20"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">pause</span>
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              {/* CỘT PHẢI: THAO TÁC (DROPDOWN + BUTTONS) */}
-                              <div className="flex items-center gap-2 shrink-0">
-                                <div className="relative">
-                                  <select
-                                    value={st.status || 'pending'}
-                                    onChange={e => updateSubtaskStatus(st.subtask_id, e.target.value)}
-                                    disabled={updatingStatusId === st.subtask_id}
-                                    className="w-[115px] appearance-none rounded border border-slate-200 bg-white px-2 py-1.5 pr-7 text-[10.5px] font-bold text-[#131b2e] focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/10 disabled:opacity-55"
-                                  >
-                                    {STATUS_OPTIONS.map(o => (
-                                      <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>
-                                    ))}
-                                  </select>
-                                  <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[14px] text-[#94a3b8]">expand_more</span>
-                                </div>
+                                {(() => {
+                                  const displayBlocks = Array.isArray(st.content_blocks) && st.content_blocks.length > 0
+                                    ? st.content_blocks
+                                    : (st.description || st.image_url
+                                      ? [{ content: st.description, image_url: st.image_url }]
+                                      : (st.tasks?.content_blocks || [{ content: st.tasks?.description, image_url: st.tasks?.image_url }]))
 
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={updatingWorkTimeId === st.subtask_id || running}
-                                    onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(sessions))}
-                                    className="flex h-8 w-8 items-center justify-center rounded bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-[#1e8e3e]/20"
-                                    title="Bắt đầu"
-                                  >
-                                    <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={updatingWorkTimeId === st.subtask_id || !running}
-                                    onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(sessions))}
-                                    className="flex h-8 w-8 items-center justify-center rounded bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-[#b06000]/20"
-                                    title="Dừng/Tạm dừng"
-                                  >
-                                    <span className="material-symbols-outlined text-[18px]">pause</span>
-                                  </button>
-                                </div>
+                                  const validBlocks = displayBlocks.filter(b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim()))
+                                  if (validBlocks.length === 0) return null
+
+                                  return (
+                                    <div className="mt-3 space-y-2 border-t border-slate-100 pt-2">
+                                      {validBlocks.map((block, bIdx) => (
+                                        <div key={bIdx} className="flex gap-3 items-start group/block">
+                                          {block.image_url && block.image_url.trim() && (
+                                            <div
+                                              className="relative shrink-0 cursor-pointer"
+                                              onClick={() => setLightboxUrl(block.image_url)}
+                                            >
+                                              <img
+                                                src={block.image_url}
+                                                alt="Subtask attachment"
+                                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 shadow-sm group-hover/block:border-blue-400 transition-all"
+                                              />
+                                              <div className="absolute inset-0 bg-black/5 group-hover/block:bg-transparent rounded-lg transition-all" />
+                                            </div>
+                                          )}
+                                          {block.content && (
+                                            <p className="text-[11px] text-slate-500 leading-relaxed italic flex-1 py-0.5">
+                                              {block.content}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -578,7 +601,6 @@ export default function StaffSubtasksPage() {
                       })}
                     </div>
 
-                    {/* BỘ ĐIỀU KHIỂN PHÂN TRANG (Chỉ hiện trên Mobile khi cần) */}
                     {totalPages > 1 && isMobileScreen && (
                       <div className="mt-4 flex items-center justify-center gap-3 border-t border-slate-100 pt-3 lg:hidden">
                         <button
@@ -612,7 +634,6 @@ export default function StaffSubtasksPage() {
                   </section>
                 )
               })}
-
             </div>
 
             {filteredSubtasks.length === 0 && (
@@ -620,6 +641,25 @@ export default function StaffSubtasksPage() {
                 <p className="text-sm text-[#3e4850] italic">
                   Không có subtask nào khớp với bộ lọc hiện tại.
                 </p>
+              </div>
+            )}
+
+            {lightboxUrl && (
+              <div
+                className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300"
+                onClick={() => setLightboxUrl(null)}
+              >
+                <button
+                  className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors"
+                  onClick={() => setLightboxUrl(null)}
+                >
+                  <span className="material-symbols-outlined text-[32px]">close</span>
+                </button>
+                <img
+                  src={lightboxUrl}
+                  alt="Full size"
+                  className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
+                />
               </div>
             )}
           </div>
