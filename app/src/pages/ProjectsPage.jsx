@@ -1035,9 +1035,9 @@ function ModalTaskCard({
       )}
       {showSubtasksModal && subs.length > 0 && (
         <Modal
-          overlayClassName="fixed inset-0 z-[55] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-2 sm:p-3 lg:p-4"
-          maxWidthClassName="max-w-[95vw] lg:max-w-[98vw] w-full mx-auto"
-          bodyClassName="bg-[#f8fafc] px-3 sm:px-4 lg:px-6 py-3 sm:py-3.5 space-y-3 overflow-y-auto max-h-[min(82vh,640px)] lg:max-h-[92vh]"
+          overlayClassName="fixed inset-0 z-[55] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-1 lg:p-4"
+          maxWidthClassName="max-w-[98vw] w-full mx-auto"
+          bodyClassName="bg-[#f8fafc] px-3 sm:px-4 lg:px-6 py-3 sm:py-3.5 space-y-3 overflow-y-auto max-h-[96vh]"
           headerChildren={
             <div>
               <p className="mb-1 flex flex-wrap items-center gap-x-1 gap-y-0 text-[11px] leading-snug text-[#64748b]">
@@ -1129,9 +1129,7 @@ function ModalTaskCard({
                     const stSel = st.status || 'pending'
                     const selCls = SUBTASK_STATUS_SELECT_STYLES[stSel] || SUBTASK_STATUS_SELECT_STYLES.pending
 
-                    const firstMedia = subDisplayBlocks.find(b => b.image_url?.trim())
-                    const mediaUrl = firstMedia ? firstMedia.image_url.trim() : null
-                    const isMediaImg = mediaUrl ? (mediaUrl.startsWith('data:image/') || (isHttpUrl(mediaUrl) && shouldTryImageFirst(mediaUrl))) : false
+                    const mediaBlocks = subDisplayBlocks.filter(b => b.image_url?.trim())
 
                     const isSelected = selectedTaskIds.includes(st.subtask_id)
                     const isCompleted = stSel === 'completed'
@@ -1140,28 +1138,20 @@ function ModalTaskCard({
                     return (
                       <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
-                        {/* 1. Hàng đầu Mobile: Checkbox + Tên + Badge Trạng thái */}
+                        {/* 1. Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
-                          {/* Checkbox (Cột 1 Desktop) - Chọn item để giao việc */}
                           <div className="flex items-center justify-center pt-1 lg:h-full">
                             <input
                               type="checkbox"
                               className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
                               checked={isSelected}
                               onChange={(e) => {
-                                if (e.target.checked) {
-                                  // Thêm vào danh sách chọn
-                                  setSelectedTaskIds([...selectedTaskIds, st.subtask_id])
-                                } else {
-                                  // Bỏ khỏi danh sách chọn
-                                  setSelectedTaskIds(selectedTaskIds.filter(id => id !== st.subtask_id))
-                                }
+                                if (e.target.checked) setSelectedTaskIds([...selectedTaskIds, st.subtask_id])
+                                else setSelectedTaskIds(selectedTaskIds.filter(id => id !== st.subtask_id))
                               }}
-                              title="Chọn tiểu mục để giao việc"
                             />
                           </div>
 
-                          {/* Thông tin chính (Cột 2 Desktop) */}
                           <div className="flex flex-col lg:gap-1.5 gap-2 min-w-0 flex-1 lg:h-full">
                             <span className={`text-sm lg:text-sm font-bold lg:font-semibold leading-snug break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#131b2e]'}`}>
                               {st.name}
@@ -1169,7 +1159,6 @@ function ModalTaskCard({
                             <div className="flex flex-wrap items-center gap-2">
                               {onSubtaskStatusChange ? (
                                 <select
-                                  aria-label="Trạng thái tiểu mục"
                                   value={stSel}
                                   disabled={busy}
                                   onChange={e => onSubtaskStatusChange(st.subtask_id, e.target.value)}
@@ -1177,40 +1166,28 @@ function ModalTaskCard({
                                   style={{ backgroundPosition: 'right 6px center', backgroundSize: '10px' }}
                                 >
                                   {SUBTASK_STATUS_PILLS.filter(opt => opt.value !== 'completed').map(opt => (
-                                    <option key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </option>
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
                                   ))}
                                 </select>
-                              ) : (
-                                <StatusBadge status={st.status} />
-                              )}
-                              {/* Người gán (Chỉ hiện trên mobile ở đây) */}
+                              ) : <StatusBadge status={st.status} />}
                               <div className="lg:hidden text-[11px] text-slate-500 flex items-center gap-1 min-w-0 truncate">
                                 <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
-                                <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
                               </div>
                             </div>
-                            {/* Người gán (Desktop) */}
                             <div className="hidden lg:flex text-[11px] text-slate-500 mt-auto items-center gap-1 min-w-0 truncate">
                               <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
-                              <span className="shrink-0">- {formatIsoDateSlashShort(st.created_at)}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* 2. Ghi chú (Cột 3 Desktop) */}
+                        {/* 2. Ghi chú */}
                         <div className="flex flex-col min-w-0 w-full lg:h-full pl-6 lg:pl-0">
                           {subDisplayBlocks.filter(b => b.content?.trim()).length > 0 ? (
                             <div className="bg-slate-50 p-2.5 lg:p-1.5 rounded-md text-[13px] lg:text-[11px] whitespace-pre-wrap break-words w-full text-[#131b2e]">
                               <ul className="list-inside list-disc marker:text-[#006591] lg:space-y-0.5 space-y-1">
-                                {subDisplayBlocks.filter(b => b.content?.trim()).map((b, idx) => {
-                                  const lines = b.content.trim().split('\n').filter(l => l.trim())
-                                  return lines.map((line, lIndex) => {
-                                    const cleanLine = line.replace(/^-\s*/, '').replace(/^\d+\.\s*/, '')
-                                    return <li key={`${idx}-${lIndex}`} className="break-words max-w-full">{cleanLine}</li>
-                                  })
-                                })}
+                                {subDisplayBlocks.filter(b => b.content?.trim()).map((b, idx) => (
+                                  <li key={idx} className="break-words max-w-full">{b.content.trim()}</li>
+                                ))}
                               </ul>
                             </div>
                           ) : (
@@ -1220,163 +1197,121 @@ function ModalTaskCard({
                           )}
                         </div>
 
-                        {/* 3. Ảnh đính kèm (Cột 4 Desktop) */}
-                        <div className="flex lg:items-center lg:justify-center pt-1 min-w-0 w-auto pl-6 lg:pl-0 lg:w-full">
-                          {isMediaImg ? (
-                            <img
-                              src={mediaUrl}
-                              alt="Minh chứng"
-                              onClick={() => setImageLightboxUrl(mediaUrl)}
-                              className="w-14 h-14 lg:w-12 lg:h-12 object-cover rounded-lg shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
-                            />
-                          ) : mediaUrl ? (
-                            <a href={mediaUrl} target="_blank" rel="noreferrer" title="Mở file đính kèm" className="w-14 h-14 lg:w-12 lg:h-12 flex flex-col items-center justify-center rounded-lg shadow-sm border border-slate-200 bg-white cursor-pointer hover:bg-slate-50 transition-colors">
-                              <span className="material-symbols-outlined text-[24px] text-[#006591]">attach_file</span>
-                              <span className="lg:hidden text-[9px] font-bold text-slate-400 uppercase mt-0.5">Mở file</span>
-                            </a>
-                          ) : (
+                        {/* 3. Ảnh đính kèm (Hiển thị nhiều ảnh) */}
+                        <div className="flex flex-wrap lg:items-center lg:justify-center gap-1 pt-1 min-w-0 w-auto pl-6 lg:pl-0 lg:w-full">
+                          {mediaBlocks.map((b, bIdx) => {
+                            const url = b.image_url.trim()
+                            const isImg = url.startsWith('data:image/') || (isHttpUrl(url) && shouldTryImageFirst(url))
+                            return isImg ? (
+                              <img
+                                key={bIdx}
+                                src={url}
+                                alt=""
+                                onClick={() => setImageLightboxUrl(url)}
+                                className="w-14 h-14 lg:w-10 lg:h-10 object-cover rounded shadow-sm border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity"
+                              />
+                            ) : (
+                              <a key={bIdx} href={url} target="_blank" rel="noreferrer" className="w-14 h-14 lg:w-10 lg:h-10 flex flex-col items-center justify-center rounded shadow-sm border border-slate-200 bg-white hover:bg-slate-50">
+                                <span className="material-symbols-outlined text-[18px] text-[#006591]">attach_file</span>
+                              </a>
+                            )
+                          })}
+                          {mediaBlocks.length === 0 && (
                             <button
                               type="button"
                               onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
-                              className="w-14 h-14 lg:w-12 lg:h-12 bg-slate-50 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-300 hover:border-[#006591] hover:text-[#006591] transition-all group"
-                              title="Nhấn để đính kèm file"
+                              className="w-14 h-14 lg:w-10 lg:h-10 bg-slate-50 rounded border border-dashed border-slate-300 flex items-center justify-center text-slate-300 hover:border-[#006591] hover:text-[#006591]"
                             >
-                              <span className="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform">add_photo_alternate</span>
-                              <span className="lg:hidden text-[9px] font-bold text-slate-400 uppercase mt-0.5">Đính kèm</span>
+                              <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
                             </button>
                           )}
                         </div>
 
-                        {/* 4. Thống kê & Bộ đếm (Cột 5, 6 Desktop) — Grid 2 cột trên Mobile */}
-                        <div className="flex flex-col lg:contents w-full pl-6 lg:pl-0 gap-4">
-                          {/* Thống kê (Cột 5 Desktop) */}
-                          <div className="grid grid-cols-2 lg:flex lg:flex-col lg:gap-1 gap-3 min-w-0 bg-[#f8fafc] lg:bg-transparent p-3 lg:p-0 rounded-lg border border-slate-100 lg:border-none shadow-sm lg:shadow-none">
-                            {/* Khối 1 */}
-                            <div>
-                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">Giao: <span className="tabular-nums text-[#131b2e] text-[12px] lg:text-[11px] font-medium">{formatIsoTimeClock(st.created_at)}</span></div>
-                              <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                                ({formatIsoDateSlashShort(st.created_at)})
-                              </div>
-                            </div>
-                            {/* Khối 2 */}
-                            <div>
-                              <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
-                                Xong: <span className="tabular-nums text-[#131b2e] text-[12px] lg:text-[11px] font-medium">{st.completed_at ? formatIsoTimeClock(st.completed_at) : '—'}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-normal leading-tight">
-                                {st.completed_at ? `(${formatIsoDateSlashShort(st.completed_at)})` : '—'}
-                              </div>
-                            </div>
-                            {/* Khối 3 (Desktop Only) */}
-                            {st.completed_at && (
-                              <div className="hidden lg:block">
-                                <div className="text-[10px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide">
-                                  Giao {'->'} Xong: <span className="font-medium text-emerald-700 text-[12px] lg:text-[11px]">{formatGiaoDenHoanThanhCell(st)}</span>
-                                </div>
-                              </div>
-                            )}
-                            {/* Khối 4 Mobile Full row */}
-                            <div className="col-span-2 lg:col-span-1 border-t border-slate-100 pt-2 lg:border-none lg:pt-0">
-                              <div className="text-[10px] lg:text-[9px] uppercase text-slate-400 font-semibold mb-0.5 tracking-wide flex items-baseline gap-1">
-                                Tổng phiên: <div className="text-[12px] lg:text-[11px] font-medium text-[#131b2e]"><SubtaskLiveSessionTotal workTimeRaw={st.work_time} /></div>
-                              </div>
-                            </div>
+                        {/* 4. Thống kê thời gian */}
+                        <div className="flex flex-col lg:gap-1 gap-3 min-w-0 w-full pl-6 lg:pl-0">
+                          <div className="text-[10px] uppercase text-slate-400 font-semibold tracking-wide">
+                            Giao: <span className="text-[#131b2e]">{formatIsoTimeClock(st.created_at)} ({formatIsoDateSlashShort(st.created_at)})</span>
                           </div>
-
-                          {/* Bộ đếm (Timer) (Cột 6 Desktop) */}
-                          <div className="flex flex-col gap-1 min-w-0 lg:justify-end lg:self-stretch w-full bg-[#f0f9ff]/40 lg:bg-transparent p-3 lg:p-0 rounded-lg border border-sky-100 lg:border-none">
-                            {onSubtaskWorkTimeSave ? (
-                              <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
-                                <>
-                                  {!workRunning ? (
-                                    <button
-                                      type="button"
-                                      disabled={busy}
-                                      onClick={async () => {
-                                        const cur = normalizeSubtaskWorkTime(st.work_time)
-                                        if (subtaskHasOpenWorkSession(cur)) return
-                                        await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
-                                      }}
-                                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-[#e2e8f0] bg-white px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-[#131b2e] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
-                                    >
-                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px] text-emerald-600">play_arrow</span>
-                                      Bắt đầu
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={busy || !workRunning}
-                                      onClick={async () => {
-                                        const cur = normalizeSubtaskWorkTime(st.work_time)
-                                        if (!subtaskHasOpenWorkSession(cur)) return
-                                        await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
-                                      }}
-                                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-45 shadow-sm transition-colors"
-                                    >
-                                      <span className="material-symbols-outlined text-[16px] lg:text-[14px] text-amber-600">pause</span>
-                                      Tạm dừng
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    disabled={busy || (!st.work_time && !workRunning)}
-                                    onClick={async () => {
-                                      if (confirm('Bạn có chắc muốn đặt lại toàn bộ thời gian làm việc của tiểu mục này?')) {
-                                        await onSubtaskWorkTimeSave(st.subtask_id, [])
-                                      }
-                                    }}
-                                    className="inline-flex h-8 w-8 lg:h-7 lg:w-7 items-center justify-center rounded-md border border-[#bec8d2]/40 bg-white text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
-                                    title="Đặt lại phiên làm việc"
-                                  >
-                                    <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none text-sky-600">replay</span>
-                                  </button>
-                                </>
-                              } />
-                            ) : (
-                              <div className="text-[11px] text-slate-400 italic">Time tracking vô hiệu</div>
-                            )}
+                          <div className="text-[10px] uppercase text-slate-400 font-semibold tracking-wide">
+                            Xong: <span className="text-[#131b2e]">{st.completed_at ? `${formatIsoTimeClock(st.completed_at)} (${formatIsoDateSlashShort(st.completed_at)})` : '—'}</span>
+                          </div>
+                          <div className="text-[10px] uppercase text-[#006591] font-bold mt-1">
+                            Tổng: <SubtaskLiveSessionTotal workTimeRaw={st.work_time} />
                           </div>
                         </div>
 
-                        {/* 5. Thao tác (Cột 7 Desktop) */}
-                        <div className="grid grid-cols-2 lg:flex lg:flex-col lg:items-end lg:justify-end lg:self-stretch gap-2 lg:gap-1.5 w-full pt-2 lg:pt-0 border-t border-slate-100 lg:border-none pl-6 lg:pl-0">
-                          {canModify && (
-                            <>
-                              <div className="flex items-center gap-1.5 col-span-1 lg:col-span-auto">
+                        {/* 5. Bộ đếm (Timer) */}
+                        <div className="flex flex-col gap-1 w-full pl-6 lg:pl-0">
+                          <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
+                            <div className="flex items-center gap-1 w-full">
+                              {!workRunning ? (
                                 <button
                                   type="button"
-                                  onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
-                                  className="h-8 w-8 lg:h-7 lg:w-7 rounded-md border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] transition-colors flex items-center justify-center shadow-sm"
-                                  title="Sửa tiểu mục"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    const cur = normalizeSubtaskWorkTime(st.work_time)
+                                    if (subtaskHasOpenWorkSession(cur)) return
+                                    await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
+                                  }}
+                                  className="flex-1 h-8 rounded border border-slate-200 bg-white text-[10px] font-bold hover:bg-slate-50 flex items-center justify-center gap-1 shadow-sm"
                                 >
-                                  <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none">edit</span>
+                                  <span className="material-symbols-outlined text-[16px] text-slate-700">play_arrow</span> Bắt đầu
                                 </button>
-                                {onDeleteSubtask ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onDeleteSubtask(st.subtask_id)}
-                                    className="h-8 w-8 lg:h-7 lg:w-7 rounded-md border border-[#fecaca] bg-[#fff5f5] text-[#b91c1c] hover:bg-[#ffe4e4] transition-colors flex items-center justify-center shadow-sm"
-                                    title="Xóa tiểu mục"
-                                  >
-                                    <span className="material-symbols-outlined text-[18px] lg:text-[16px] leading-none">delete</span>
-                                  </button>
-                                ) : (
-                                  <div className="lg:hidden" />
-                                )}
-                              </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    const cur = normalizeSubtaskWorkTime(st.work_time)
+                                    if (!subtaskHasOpenWorkSession(cur)) return
+                                    await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
+                                  }}
+                                  className="flex-1 h-8 rounded border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-900 hover:bg-amber-100 flex items-center justify-center gap-1 shadow-sm"
+                                >
+                                  <span className="material-symbols-outlined text-[16px] text-amber-600">pause</span> Tạm dừng
+                                </button>
+                              )}
+                              
+                              <button
+                                type="button"
+                                disabled={busy || (!st.work_time && !workRunning)}
+                                onClick={async () => {
+                                  if (confirm('Đặt lại thời gian?')) await onSubtaskWorkTimeSave(st.subtask_id, [])
+                                }}
+                                className="w-8 h-8 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:bg-slate-50 shadow-sm"
+                              >
+                                <span className="material-symbols-outlined text-[20px]">replay</span>
+                              </button>
 
-                              {/* Nút Xong (Quick Action) - Đặt xuống dưới và căn lề với nút Bắt đầu */}
                               <button
                                 type="button"
                                 disabled={busy}
                                 onClick={() => onSubtaskStatusChange(st.subtask_id, 'completed')}
-                                className="hidden lg:flex h-7 items-center gap-0.5 rounded border border-emerald-200 bg-emerald-50 px-2 text-[9px] font-bold text-emerald-700 hover:bg-emerald-100 shadow-sm transition-all"
-                                title="Đánh dấu hoàn thành"
+                                className="flex-1 h-8 flex items-center justify-center gap-1 rounded border border-emerald-200 bg-emerald-50 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 shadow-sm"
                               >
-                                <span className="material-symbols-outlined text-[12px]">check_circle</span>
-                                Hoàn thành
+                                <span className="material-symbols-outlined text-[16px]">check_circle</span> Hoàn thành
                               </button>
-                            </>
+                            </div>
+                          } />
+                        </div>
+
+                        {/* 6. Thao tác (Sửa/Xóa xếp dọc) */}
+                        <div className="flex lg:flex-col items-center lg:items-center gap-2 w-full pl-6 lg:pl-0">
+                          <button
+                            type="button"
+                            onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
+                            className="h-9 w-9 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-sm"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">edit</span>
+                          </button>
+                          {onDeleteSubtask && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteSubtask(st.subtask_id)}
+                              className="h-9 w-9 rounded border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center shadow-sm"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">delete_outline</span>
+                            </button>
                           )}
                         </div>
                       </li>
