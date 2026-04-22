@@ -1839,6 +1839,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingProject(false)
         }
+        m.close()
         return // Dừng lại ở đây (Save & Stay) — Không chạy xuống m.close() bên dưới.
       } else if (type === 'edit_project') {
         setSavingProject(true)
@@ -1850,6 +1851,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingProject(false)
         }
+        m.close()
         return // Save & Stay
       } else if (type === 'add_feature') {
         res = await supabase.from('features').insert({ ...cleanData, project_id: projectId })
@@ -1863,6 +1865,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingFeature(false)
         }
+        m.close()
         return // Save & Stay
       } else if (type === 'add_task') {
         let fid = cleanData.feature_id ?? featureId
@@ -1887,6 +1890,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingTask(false)
         }
+        m.close()
         return // Dừng lại ở đây (Save & Stay)
       } else if (type === 'edit_task') {
         setSavingTask(true)
@@ -1905,6 +1909,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingTask(false)
         }
+        m.close()
         return // Save & Stay
       } else if (type === 'add_subtask') {
         if (!taskId) throw new Error('Thiếu liên kết nhiệm vụ — hãy đóng và mở lại form thêm tiểu mục.')
@@ -1937,6 +1942,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingSubtask(false)
         }
+        m.close()
         return // Dừng lại ở đây (Save & Stay)
       } else if (type === 'edit_subtask') {
         if (!id) throw new Error('Thiếu mã tiểu mục')
@@ -1965,6 +1971,7 @@ export default function ProjectsPage() {
         } finally {
           setSavingSubtask(false)
         }
+        m.close()
         return // Save & Stay
       } else {
         throw new Error(`Loại form không được hỗ trợ: ${String(type)}`)
@@ -2432,221 +2439,130 @@ export default function ProjectsPage() {
                     : 'Chưa có dự án nào.'}
                 </p>
               ) : null}
-              {paginatedCustomerProjects.map(({ customer: c, projects: projectsFiltered }) => {
-                const av = customerAvatarStyle(c.name)
-                const collapsed = !!collapsedCustomerIds[c.customer_id]
-                return (
-                  <div
-                    key={c.customer_id}
-                    className="rounded-xl border border-[#e2e8f0] bg-white shadow-sm"
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCollapsedCustomerIds(prev => ({ ...prev, [c.customer_id]: !prev[c.customer_id] }))
-                      }
-                      className="flex w-full items-center justify-between gap-2 px-3.5 py-3 text-left hover:bg-[#f8fafc] border-b border-[#e2e8f0]"
-                    >
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <div
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-medium"
-                          style={{ background: av.bg, color: av.fg }}
-                        >
-                          {(c.name || '?').charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-medium uppercase tracking-wider text-[#94a3b8]">Khách hàng</div>
-                          <div className="truncate text-[13px] font-medium text-[#131b2e]">{c.name}</div>
-                        </div>
+              {paginatedCustomerProjects.flatMap(({ customer: c, projects: projectsFiltered }) =>
+                projectsFiltered.map(p => {
+                  const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
+                  const dashKey = projectDashboardKey(p)
+                  const sm = DASH_STATUS_META[dashKey]
+                  const isMgr = userRole === 'admin' || userRole === 'manager'
+                  const assignments = p.project_assignments || []
+                  const memberChips = assignments.slice(0, 3).map((a, idx) => {
+                    const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
+                    const ini = userInitials(nm)
+                    return (
+                      <div
+                        key={a.user_id}
+                        className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
+                        style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
+                        title={nm}
+                      >
+                        {ini.slice(0, 2)}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <span className="rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-2 py-0.5 text-[11px] text-[#64748b]">
-                          {projectsFiltered.length} dự án
+                    )
+                  })
+
+                  return (
+                    <div
+                      key={p.project_id}
+                      onClick={() => {
+                        setProjectsModalCustomerId(c.customer_id)
+                        setProjectTasksViewId(p.project_id)
+                      }}
+                      className="rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
+                    >
+                      {/* ─── Hàng 1: Tên + Avatars + Badge + Menu ─── */}
+                      <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+                        <span className="flex-1 min-w-0 truncate text-[14px] font-bold text-[#131b2e]" title={p.name}>
+                          {p.name}
                         </span>
-                        {userRole === 'admin' && (
-                          <>
+
+                        {/* Avatars */}
+                        {memberChips.length > 0 && (
+                          <div className="flex items-center shrink-0">
+                            {memberChips}
+                          </div>
+                        )}
+
+                        {/* Status badge */}
+                        <div className="shrink-0">
+                          <StatusBadge status={p.status} />
+                        </div>
+
+                        {/* 3-dot menu */}
+                        {isMgr && (
+                          <div
+                            className="relative shrink-0"
+                            data-project-dd
+                            onClick={e => e.stopPropagation()}
+                          >
                             <button
                               type="button"
                               onClick={e => {
                                 e.stopPropagation()
-                                setProjectsModalCustomerId(c.customer_id)
-                                setProjectTasksViewId(null)
-                                m.open('add_project', { initial: { customer_id: c.customer_id } })
+                                setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
                               }}
-                              className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-[#64748b] hover:bg-[#f1f5f9]"
-                              title="Thêm dự án"
+                              className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
+                              aria-label="Thao tác dự án"
                             >
-                              <span className="material-symbols-outlined text-[18px]">add</span>
+                              <span className="material-symbols-outlined text-[18px]">more_horiz</span>
                             </button>
-                            <div onClick={e => e.stopPropagation()}>
-                              <ThreeDotMenu
-                                items={[
-                                  {
-                                    icon: 'edit',
-                                    label: 'Sửa khách hàng',
-                                    onClick: () => m.open('edit_customer', { id: c.customer_id, initial: c }),
-                                  },
-                                  {
-                                    icon: 'delete',
-                                    label: 'Xóa khách hàng',
-                                    onClick: () => deleteEntity('customers', 'customer_id', c.customer_id),
-                                    danger: true,
-                                  },
-                                ]}
-                              />
-                            </div>
-                          </>
+                            {openProjectMenuId === p.project_id && (
+                              <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(null) }}>
+                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">info</span>Chi tiết
+                                </button>
+                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                  onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
+                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
+                                </button>
+                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
+                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Kanban
+                                </button>
+                                <div className="my-1 h-px bg-[#e2e8f0]" />
+                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
+                                  onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
+                                  <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
-                        <span
-                          className="material-symbols-outlined text-[18px] text-[#64748b] transition-transform"
-                          style={{ transform: collapsed ? 'rotate(-90deg)' : undefined }}
-                        >
-                          expand_more
-                        </span>
                       </div>
-                    </button>
-                    {!collapsed && (
-                      <ul className="divide-y-0">
-                        {projectsFiltered.map(p => {
-                          const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
-                          const dashKey = projectDashboardKey(p)
-                          const sm = DASH_STATUS_META[dashKey]
-                          const isMgr = userRole === 'admin' || userRole === 'manager'
-                          const assignments = p.project_assignments || []
-                          const memberChips = assignments.slice(0, 3).map((a, idx) => {
-                            const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
-                            const ini = userInitials(nm)
-                            return (
-                              <div
-                                key={a.user_id}
-                                className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-[#f1f5f9] text-[8px] font-medium text-[#64748b]"
-                                style={{ marginLeft: idx ? -4 : 0, zIndex: 10 - idx }}
-                                title={nm}
-                              >
-                                {ini.slice(0, 2)}
-                              </div>
-                            )
-                          })
 
-                          return (
-                            <li
-                              key={p.project_id}
-                              onClick={() => {
-                                setProjectsModalCustomerId(c.customer_id)
-                                setProjectTasksViewId(p.project_id)
-                              }}
-                              className="group flex items-center justify-between gap-3 border-b border-slate-100 py-1.5 pl-4 pr-3 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors sm:pl-8 sm:pr-4"
-                            >
-                              {/* Cột 1: Tên & Deadline */}
-                              <div className="flex-1 min-w-[140px] overflow-hidden flex flex-col justify-center sm:flex-row sm:items-center sm:gap-4 sm:justify-start">
-                                <div className="truncate text-[12.5px] font-medium text-[#131b2e] sm:w-[55%]" title={p.name}>
-                                  {p.name}
-                                </div>
-                                <div className="mt-[2px] sm:mt-0 flex items-center gap-1 text-[11px] text-[#64748b] sm:w-[45%] shrink-0 truncate">
-                                  <span className="material-symbols-outlined text-[12px] opacity-70">event</span>
-                                  {formatDeadlineDisplay(p.deadline)}
-                                </div>
-                              </div>
+                      {/* ─── Hàng 2: Ngày | % text | Progress bar | % | Task count ─── */}
+                      <div className="flex items-center gap-3 px-4 pb-3 text-[11px] text-[#94a3b8]">
+                        {/* Deadline */}
+                        <div className="flex items-center gap-1 shrink-0 min-w-[90px]">
+                          <span className="material-symbols-outlined text-[12px]">schedule</span>
+                          <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
+                        </div>
 
-                              {/* Cột nhóm: Tiến độ & Thông tin phụ */}
-                              <div className="flex shrink-0 items-center justify-end gap-3 sm:gap-5 w-[160px] sm:w-auto">
-                                {/* Thành viên */}
-                                <div className="hidden sm:flex items-center w-[40px] justify-start">
-                                  {memberChips.length > 0 ? memberChips : <span className="text-[11px] text-slate-300">—</span>}
-                                </div>
+                        {/* % text */}
+                        <span className="tabular-nums text-[#94a3b8]">{pct}%</span>
 
-                                {/* Task count & Progress (4px thick) */}
-                                <div className="flex items-center gap-2 w-[75px] sm:w-[130px] justify-end" title={`${taskDone}/${taskTotal} task hoàn thành`}>
-                                  <span className="hidden sm:inline-block text-[11px] tabular-nums text-[#64748b]">{taskDone}/{taskTotal}</span>
-                                  <div className="flex-1 max-w-[50px] h-[4px] overflow-hidden rounded-[2px] bg-slate-100">
-                                    <div className="h-[4px] rounded-[2px]" style={{ width: `${pct}%`, background: sm.bar }} />
-                                  </div>
-                                  <span className="text-[10px] tabular-nums font-medium text-[#131b2e] min-w-[24px] text-right">{pct}%</span>
-                                </div>
+                        {/* Progress bar */}
+                        <div className="flex-1 h-[4px] overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${pct}%`, background: sm.bar }}
+                          />
+                        </div>
 
-                                {/* Status Badge */}
-                                <div className="hidden sm:flex items-center w-[80px] justify-center">
-                                  <StatusBadge status={p.status} />
-                                </div>
+                        {/* % right */}
+                        <span className="tabular-nums font-semibold text-[#475569]">{pct}%</span>
 
-                                {/* Actions */}
-                                <div className="flex items-center gap-1 w-[26px] sm:w-[80px] justify-end relative shrink-0" onClick={e => e.stopPropagation()}>
-                                  {isMgr ? (
-                                    <div className="relative" data-project-dd>
-                                      <button
-                                        type="button"
-                                        onClick={e => {
-                                          e.stopPropagation()
-                                          setOpenProjectMenuId(cur => (cur === p.project_id ? null : p.project_id))
-                                        }}
-                                        className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-[#64748b] hover:bg-[#f1f5f9]"
-                                        aria-label="Thao tác dự án"
-                                      >
-                                        <span className="material-symbols-outlined text-[18px]">more_vert</span>
-                                      </button>
-                                      {openProjectMenuId === p.project_id ? (
-                                        <div className="absolute right-0 top-8 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
-                                          <button
-                                            type="button"
-                                            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                            onClick={() => {
-                                              setOpenProjectMenuId(null)
-                                              setProjectsModalCustomerId(c.customer_id)
-                                              setProjectTasksViewId(null)
-                                            }}
-                                          >
-                                            <span className="material-symbols-outlined text-[16px] text-[#64748b]">info</span>
-                                            Chi tiết
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                            onClick={() => {
-                                              setOpenProjectMenuId(null)
-                                              m.open('edit_project', { id: p.project_id, ...p })
-                                            }}
-                                          >
-                                            <span className="material-symbols-outlined text-[16px] text-[#64748b]">edit</span>
-                                            Chỉnh sửa
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                            onClick={() => {
-                                              setOpenProjectMenuId(null)
-                                              setProjectsModalCustomerId(c.customer_id)
-                                              setProjectTasksViewId(p.project_id)
-                                            }}
-                                          >
-                                            <span className="material-symbols-outlined text-[16px] text-[#64748b]">view_kanban</span>
-                                            Kanban
-                                          </button>
-                                          <div className="my-1 h-px bg-[#e2e8f0]" />
-                                          <button
-                                            type="button"
-                                            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
-                                            onClick={() => {
-                                              setOpenProjectMenuId(null)
-                                              deleteEntity('projects', 'project_id', p.project_id)
-                                            }}
-                                          >
-                                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                                            Xoá dự án
-                                          </button>
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                )
-              })}
+                        {/* Task count */}
+                        <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+
+
+              {/* PHÂN TRANG MOBILE */}
 
               {/* PHÂN TRANG MOBILE */}
               {isMobileScreen && totalPagesMain > 1 && !projectTasksViewId && (
