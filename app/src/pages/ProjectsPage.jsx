@@ -1335,7 +1335,7 @@ function ModalTaskCard({
                                     disabled={busy || (!st.work_time && !workRunning)}
                                     onClick={async () => {
                                       if (confirm('Bạn có chắc muốn đặt lại toàn bộ thời gian làm việc của tiểu mục này?')) {
-                                        await onSubtaskWorkTimeSave(st.subtask_id, null)
+                                        await onSubtaskWorkTimeSave(st.subtask_id, [])
                                       }
                                     }}
                                     className="inline-flex items-center justify-center gap-1 rounded-md border border-[#bec8d2]/40 bg-white px-3 py-2 lg:px-2 lg:py-1 text-xs lg:text-[11px] font-bold text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-45 shadow-sm transition-colors"
@@ -2135,11 +2135,15 @@ export default function ProjectsPage() {
 
   async function saveSubtaskWorkTime(subtaskId, workTime) {
     setUpdatingSubtaskWorkTimeId(subtaskId)
+    // Đảm bảo không bao giờ gửi null lên DB (cột work_time có NOT NULL constraint)
+    const safeWorkTime = workTime == null ? [] : workTime
+    const isReset = !Array.isArray(workTime) || workTime.length === 0
     try {
-      const { error } = await supabase.from('subtasks').update({ work_time: workTime }).eq('subtask_id', subtaskId)
+      const { error } = await supabase.from('subtasks').update({ work_time: safeWorkTime }).eq('subtask_id', subtaskId)
       if (error) throw error
-      setToast({ message: 'Đã ghi nhận thời gian làm việc', type: 'success' })
-      setCustomers(prev => patchSubtaskInCustomersState(prev, subtaskId, { work_time: workTime }))
+      const msg = isReset ? 'Đã đặt lại thời gian làm việc' : 'Đã ghi nhận thời gian làm việc'
+      setToast({ message: msg, type: 'success' })
+      setCustomers(prev => patchSubtaskInCustomersState(prev, subtaskId, { work_time: safeWorkTime }))
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Không lưu được thời gian làm việc', type: 'error' })
