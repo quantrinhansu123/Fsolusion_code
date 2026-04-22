@@ -172,7 +172,7 @@ export default function DashboardPage() {
                 className="bg-white rounded-xl md:rounded-2xl p-2 md:p-6 shadow-[0_8px_30px_rgb(19,27,46,0.04)] border border-[#bec8d2]/10 hover:shadow-[0_8px_30_rgb(19,27,46,0.09)] transition-shadow duration-300 relative overflow-hidden group h-full flex flex-col justify-center"
               >
                 <div className={`absolute -right-4 -top-4 md:-right-6 md:-top-6 w-12 h-12 md:w-24 md:h-24 ${s.circleBg} rounded-full group-hover:scale-110 transition-transform duration-500`} />
-                
+
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between items-center text-center md:text-left relative z-10 gap-2">
                   <div className="flex flex-col items-center md:items-start">
                     <p className="text-[9px] md:text-xs uppercase tracking-wider text-[#3e4850] font-bold mb-1 md:mb-2 line-clamp-1">
@@ -232,14 +232,14 @@ export default function DashboardPage() {
               <div className="lg:hidden relative space-y-6 pl-6">
                 {/* Vertical Line */}
                 <div className="absolute left-[15px] top-2 bottom-2 w-px bg-[#bec8d2]/30" />
-                
+
                 {activities.map((a, i) => (
                   <div key={i} className="relative flex items-start gap-4">
                     {/* Timeline Dot/Icon */}
                     <div className={`absolute -left-[27px] w-6 h-6 rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor} z-10 border-4 border-[#f2f3ff] shadow-sm`}>
                       <span className="material-symbols-outlined text-[12px] icon-fill">{a.icon}</span>
                     </div>
-                    
+
                     <div className="bg-white/60 p-3 rounded-xl border border-white/50 shadow-sm flex-1">
                       <p className="text-xs font-bold text-[#131b2e] leading-tight mb-1">{a.title}</p>
                       <div className="flex items-center justify-between gap-2">
@@ -338,57 +338,54 @@ export default function DashboardPage() {
                       >
                         Trước
                       </button>
-                      
+
                       {/* Show first 2 pages */}
                       {[1, 2].filter(p => p <= totalPages).map(page => (
                         <button
                           key={page}
                           onClick={() => setCurrentPage(page)}
-                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                            currentPage === page
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                               ? 'bg-[#006591] text-white border border-[#006591]'
                               : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                          }`}
+                            }`}
                         >
                           {page}
                         </button>
                       ))}
-                      
+
                       {/* Ellipsis if there are more pages */}
                       {totalPages > 4 && (
                         <span className="px-2 py-2 text-xs md:text-sm text-[#3e4850]">...</span>
                       )}
-                      
+
                       {/* Show last 2 pages if more than 4 total pages */}
                       {totalPages > 4 && [totalPages - 1, totalPages].map(page => (
                         <button
                           key={page}
                           onClick={() => setCurrentPage(page)}
-                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                            currentPage === page
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                               ? 'bg-[#006591] text-white border border-[#006591]'
                               : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                          }`}
+                            }`}
                         >
                           {page}
                         </button>
                       ))}
-                      
+
                       {/* Show all pages if 4 or fewer */}
                       {totalPages <= 4 && Array.from({ length: totalPages - 2 }, (_, i) => 3 + i).map(page => (
                         <button
                           key={page}
                           onClick={() => setCurrentPage(page)}
-                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                            currentPage === page
+                          className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                               ? 'bg-[#006591] text-white border border-[#006591]'
                               : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                          }`}
+                            }`}
                         >
                           {page}
                         </button>
                       ))}
-                      
+
                       <button
                         onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                         disabled={currentPage === totalPages}

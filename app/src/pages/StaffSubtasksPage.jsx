@@ -658,8 +658,8 @@ export default function StaffSubtasksPage() {
                   : group.items
 
                 return (
-                  <section 
-                    key={group.key} 
+                  <section
+                    key={group.key}
                     id={`project-section-${group.key}`}
                     className="bg-white border border-[#bec8d2]/18 rounded-xl p-3 shadow-sm scroll-mt-24 transition-all"
                   >
@@ -694,7 +694,7 @@ export default function StaffSubtasksPage() {
                                     {featureName} · {taskName}
                                   </p>
                                 </div>
-                                
+
                                 <div className="mt-1.5 flex flex-wrap items-center gap-4">
                                   <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Hạn chót">
                                     <span className="material-symbols-outlined text-[15px] text-slate-400">event</span>
