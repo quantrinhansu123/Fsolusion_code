@@ -109,6 +109,61 @@ function DateTimeInput({ value, onChange }) {
   )
 }
 
+// SearchableSelect cho trường khách hàng với khả năng tìm kiếm
+function SearchableSelect({ value, options = [], onChange, placeholder = '-- Chọn --' }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+
+  const filtered = search.trim()
+    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options
+
+  const selectedLabel = options.find(o => o.value === value)?.label || ''
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        className={`${inputCls} cursor-pointer`}
+        placeholder={placeholder}
+        value={open ? search : selectedLabel}
+        onChange={e => setSearch(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+      />
+      <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#6e7881] pointer-events-none">
+        {open ? 'expand_less' : 'expand_more'}
+      </span>
+      
+      {open && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-2 rounded-xl border border-[#bec8d2]/30 bg-white shadow-lg max-h-72 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-[#6e7881] text-center">Không tìm thấy kết quả</div>
+          ) : (
+            <ul className="divide-y divide-[#bec8d2]/10">
+              {filtered.map(o => (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-2.5 text-sm text-[#131b2e] hover:bg-[#f2f3ff] transition-colors"
+                    onClick={() => {
+                      onChange(o.value)
+                      setSearch('')
+                      setOpen(false)
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Generic entity form (project / feature / task / subtask / customer)
 export function EntityFormModal({ title, subtitle, fields, data, onChange, onSave, onClose, saveLabel = 'Lưu', isLoading = false }) {
   return (
@@ -166,6 +221,18 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
                 </select>
                 <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#6e7881] pointer-events-none">expand_more</span>
               </div>
+            </FormField>
+          )
+        }
+        if (field.type === 'searchable_select') {
+          return (
+            <FormField key={field.name} label={field.label}>
+              <SearchableSelect
+                value={data[field.name] || ''}
+                options={field.options || []}
+                onChange={val => onChange(field.name, val)}
+                placeholder="-- Chọn --"
+              />
             </FormField>
           )
         }
@@ -391,7 +458,7 @@ export const CUSTOMER_FIELDS = [
 ]
 
 export const PROJECT_FIELDS = [
-  { name: 'customer_id', label: 'Khách hàng', type: 'select' },
+  { name: 'customer_id', label: 'Khách hàng', type: 'searchable_select' },
   { name: 'name',        label: 'Tên dự án', placeholder: 'VD: CRM System Revamp' },
   { name: 'description', label: 'Mô tả', type: 'textarea', placeholder: 'Mục tiêu và phạm vi dự án...' },
   {
