@@ -14,6 +14,9 @@ export default function AttendancePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showTasksId, setShowTasksId] = useState(null) // Quản lý xem task chi tiết trên Mobile
+  const [selectedIds, setSelectedIds] = useState(new Set()) // Lưu ID các bản ghi được chọn
+  const [deleting, setDeleting] = useState(false) // Trạng thái xóa
+  const [toast, setToast] = useState(null) // Thông báo
 
   // 1. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
   useEffect(() => {
@@ -125,6 +128,61 @@ export default function AttendancePage() {
     fetchAttendanceData()
   }, [filterDate, filterMonth, filterUser])
 
+  // 4. Hàm xử lý checkbox
+  const toggleSelectId = (id) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  // 5. Chọn/bỏ chọn tất cả
+  const toggleSelectAll = () => {
+    if (selectedIds.size === attendanceList.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(attendanceList.map(row => row.id)))
+    }
+  }
+
+  // 6. Hàm xóa các bản ghi chọn
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) {
+      setToast({ message: 'Vui lòng chọn ít nhất một bản ghi để xóa', type: 'warning' })
+      return
+    }
+
+    if (!window.confirm(`Bạn có chắc muốn xóa ${selectedIds.size} bản ghi này không?`)) {
+      return
+    }
+
+    setDeleting(true)
+    try {
+      const idsArray = Array.from(selectedIds)
+      const { error: deleteError } = await supabase
+        .from('work_sessions')
+        .delete()
+        .in('session_id', idsArray)
+
+      if (deleteError) throw deleteError
+
+      // Xóa thành công: cập nhật state và làm mới dữ liệu
+      setAttendanceList(prev => prev.filter(row => !selectedIds.has(row.id)))
+      setSelectedIds(new Set())
+      setToast({ message: `Đã xóa ${selectedIds.size} bản ghi thành công`, type: 'success' })
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Không thể xóa bản ghi', type: 'error' })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
       <Sidebar />
@@ -135,11 +193,29 @@ export default function AttendancePage() {
         <main className="flex-1 p-8">
           <div className="max-w-7xl mx-auto space-y-6 pb-20">
 
+            {/* Toast Notification */}
+            {toast && (
+              <div className={`fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white z-50 animate-in fade-in slide-in-from-top-2 ${
+                toast.type === 'success' ? 'bg-emerald-500' :
+                toast.type === 'error' ? 'bg-red-500' :
+                'bg-amber-500'
+              }`}>
+                {toast.message}
+              </div>
+            )}
+
             {/* 1. Khu vực Bộ lọc (Top Bar) */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <h2 className="text-xl font-bold text-slate-800">
-                Bảng Chấm Công
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-slate-800">
+                  Bảng Chấm Công
+                </h2>
+                {selectedIds.size > 0 && (
+                  <span className="bg-blue-50 border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg text-sm font-semibold">
+                    {selectedIds.size} chọn
+                  </span>
+                )}
+              </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
                 <input
@@ -174,6 +250,18 @@ export default function AttendancePage() {
                     </option>
                   ))}
                 </select>
+
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="h-9 px-4 bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white rounded-lg font-semibold text-sm shadow-md transition-colors flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                    Xóa ({selectedIds.size})
+                  </button>
+                )}
               </div>
             </div>
 
@@ -197,6 +285,14 @@ export default function AttendancePage() {
                 <table className="w-full text-left border-collapse min-w-[800px]">
                   <thead className="bg-slate-50 text-slate-500 text-[12px] uppercase whitespace-nowrap">
                     <tr>
+                      <th className="px-4 py-3 font-semibold border-b border-slate-200 w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.size > 0 && selectedIds.size === attendanceList.length}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 cursor-pointer"
+                        />
+                      </th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Người làm</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Ngày làm</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-in</th>
@@ -209,6 +305,14 @@ export default function AttendancePage() {
                   <tbody className="text-slate-700">
                     {!loading && attendanceList.map((row) => (
                       <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.id)}
+                            onChange={() => toggleSelectId(row.id)}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
@@ -272,10 +376,18 @@ export default function AttendancePage() {
               {/* VIEW MOBILE: Vertical Mini Cards */}
               <div className="lg:hidden p-4 space-y-3">
                 {!loading && attendanceList.map((row) => (
-                  <div key={row.id} className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm active:scale-[0.98] transition-transform">
+                  <div key={row.id} className={`bg-white rounded-xl border p-4 shadow-sm active:scale-[0.98] transition-all ${
+                    selectedIds.has(row.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-100'
+                  }`}>
                     <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-50">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[11px] uppercase shadow-sm">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelectId(row.id)}
+                          className="w-4 h-4 cursor-pointer mt-0.5 shrink-0"
+                        />
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[11px] uppercase shadow-sm shrink-0">
                           {row.user.avatar}
                         </div>
                         <div className="min-w-0">
