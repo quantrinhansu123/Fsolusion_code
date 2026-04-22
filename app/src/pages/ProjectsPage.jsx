@@ -1098,21 +1098,30 @@ function ModalTaskCard({
                 {/* HEADER BẢNG - Ẩn trên Mobile */}
                 <div className="hidden lg:grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
-                    <input
-                      type="checkbox"
-                      className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
-                      checked={false}
-                      onChange={async (e) => {
-                        if (e.target.checked && window.confirm('Đánh dấu hoàn thành toàn bộ nhóm tiểu mục này?')) {
-                          for (const st of group.items) {
-                            if (st.status !== 'completed') {
-                              await onSubtaskStatusChange(st.subtask_id, 'completed')
+                    {(() => {
+                      const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
+                      const someSelected = group.items.length > 0 && group.items.some(st => selectedTaskIds.includes(st.subtask_id)) && !allSelected
+                      
+                      return (
+                        <input
+                          type="checkbox"
+                          className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
+                          checked={allSelected || someSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              // Chọn tất cả items trong group
+                              const newIds = [...new Set([...selectedTaskIds, ...group.items.map(st => st.subtask_id)])]
+                              setSelectedTaskIds(newIds)
+                            } else {
+                              // Bỏ chọn tất cả items trong group
+                              const groupIds = new Set(group.items.map(st => st.subtask_id))
+                              setSelectedTaskIds(selectedTaskIds.filter(id => !groupIds.has(id)))
                             }
-                          }
-                        }
-                      }}
-                      title="Hoàn thành toàn bộ nhóm"
-                    />
+                          }}
+                          title="Chọn/Bỏ chọn tất cả tiểu mục trong nhóm này"
+                        />
+                      )
+                    })()}
                   </div>
                   <div>Tiểu mục & Trạng thái</div>
                   <div>Ghi chú & Hướng dẫn</div>
@@ -1142,22 +1151,26 @@ function ModalTaskCard({
 
                     {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */ }
                     return (
-                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
                         {/* 1. Hàng đầu Mobile: Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
-                          {/* Checkbox (Cột 1 Desktop) */}
+                          {/* Checkbox (Cột 1 Desktop) - Chọn item để giao việc */}
                           <div className="flex items-center justify-center pt-1 lg:h-full">
                             <input
                               type="checkbox"
-                              className="cursor-pointer w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                              checked={isCompleted}
+                              className="cursor-pointer w-4 h-4 rounded border-slate-300 text-[#006591] focus:ring-[#006591]"
+                              checked={isSelected}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  onSubtaskStatusChange(st.subtask_id, 'completed')
+                                  // Thêm vào danh sách chọn
+                                  setSelectedTaskIds([...selectedTaskIds, st.subtask_id])
+                                } else {
+                                  // Bỏ khỏi danh sách chọn
+                                  setSelectedTaskIds(selectedTaskIds.filter(id => id !== st.subtask_id))
                                 }
                               }}
-                              title="Đánh dấu hoàn thành"
+                              title="Chọn tiểu mục để giao việc"
                             />
                           </div>
 
@@ -1434,7 +1447,11 @@ function ModalTaskCard({
         <div className="fixed inset-0 z-[120] bg-slate-100/60 overflow-y-auto backdrop-blur-sm">
           {/* NÚT ĐÓNG BÁM DÍNH TRÊN CÙNG MÀN HÌNH */}
           <button
-            onClick={() => setShowPrintModal(false)}
+            onClick={() => {
+              setShowPrintModal(false)
+              // Reset selection sau khi close modal giao việc
+              setSelectedTaskIds([])
+            }}
             className="fixed top-6 right-8 z-[130] bg-white/95 hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-900 rounded-full w-12 h-12 flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
             title="Đóng chế độ xem trước"
           >
