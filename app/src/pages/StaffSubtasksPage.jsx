@@ -652,14 +652,14 @@ export default function StaffSubtasksPage() {
                     id={`project-section-${group.key}`}
                     className="bg-white border border-[#bec8d2]/18 rounded-xl p-3 shadow-sm scroll-mt-24 transition-all"
                   >
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-1.5">
                       <h3 className="text-sm font-bold text-[#131b2e]">{group.name}</h3>
-                      <span className="text-[11px] font-semibold px-2 py-1 rounded-md bg-[#f2f3ff] text-[#3e4850]">
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#f2f3ff] text-[#3e4850]">
                         {group.items.length} subtask
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 border border-[#e2e8f0] rounded-[10px] p-3 shadow-sm bg-slate-50/20">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 border border-[#e2e8f0] rounded-[10px] p-2 shadow-sm bg-slate-50/20">
                       {displayedItems.map((st, idx) => {
                         const sessions = normalizeSubtaskWorkTime(st.work_time)
                         const running = subtaskHasOpenWorkSession(sessions)
@@ -671,28 +671,28 @@ export default function StaffSubtasksPage() {
                         return (
                           <div
                             key={st.subtask_id}
-                            className="rounded-lg border border-slate-200 bg-[#fafafa] p-3 hover:bg-[#f2f3ff] transition-all shadow-sm"
+                            className="rounded-lg border border-slate-200 bg-[#fafafa] p-2 hover:bg-[#f2f3ff] transition-all shadow-sm"
                           >
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-baseline gap-2 min-w-0">
-                                  <p className="text-[14px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[65%]">{st.name}</p>
-                                  <p className="text-[11px] text-slate-500 font-medium truncate flex-1 min-w-0">
+                                  <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[65%]">{st.name}</p>
+                                  <p className="text-[10px] text-slate-500 font-medium truncate flex-1 min-w-0">
                                     {st.users?.full_name ? `${st.users.full_name.split(' ').slice(-2).join(' ')} · ` : ''}
                                     {featureName} · {taskName}
                                   </p>
                                 </div>
 
-                                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-4">
-                                  <div className="flex flex-wrap items-center gap-4">
-                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Hạn chót">
-                                      <span className="material-symbols-outlined text-[15px] text-slate-400">event</span>
+                                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-3">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-600 font-medium" title="Hạn chót">
+                                      <span className="material-symbols-outlined text-[14px] text-slate-400">event</span>
                                       <span>
                                         {st.deadline ? new Date(st.deadline).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' }) : '—'}
                                       </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium" title="Tổng thời gian">
-                                      <span className="material-symbols-outlined text-[15px] text-slate-400">schedule</span>
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-600 font-medium" title="Tổng thời gian">
+                                      <span className="material-symbols-outlined text-[14px] text-slate-400">schedule</span>
                                       <span className="capitalize">{timeSummary}</span>
                                     </div>
                                   </div>
@@ -744,7 +744,7 @@ export default function StaffSubtasksPage() {
                                   if (validBlocks.length === 0) return null
 
                                   return (
-                                    <div className="mt-3 space-y-2 border-t border-slate-100 pt-2">
+                                    <div className="mt-1.5 space-y-1.5 border-t border-slate-100 pt-1.5">
                                       {validBlocks.map((block, bIdx) => (
                                         <div key={bIdx} className="flex gap-3 items-start group/block">
                                           {(() => {
@@ -785,14 +785,14 @@ export default function StaffSubtasksPage() {
                                 })()}
 
                                 {/* ── EVALUATION ROW ── */}
-                                <div className="mt-3 -mx-3 -mb-3 bg-gray-50/80 px-3 py-1.5 border-t border-slate-100 flex items-center gap-3 rounded-b-lg">
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá:</span>
+                                <div className="mt-2 -mx-2 -mb-2 bg-gray-50/80 px-2 py-1 border-t border-slate-100 flex items-center gap-2 rounded-b-lg">
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá:</span>
                                     <div className="relative">
                                       <select
                                         value={st.evaluation_rating || 'none'}
                                         onChange={(e) => updateSubtaskEvaluation(st.subtask_id, 'evaluation_rating', e.target.value)}
-                                        className={`appearance-none rounded px-2 py-0.5 text-[10px] font-bold border transition-all cursor-pointer focus:outline-none ${
+                                        className={`appearance-none rounded px-1.5 py-0.5 text-[9px] font-bold border transition-all cursor-pointer focus:outline-none ${
                                           EVALUATION_OPTIONS.find(o => o.value === (st.evaluation_rating || 'none'))?.color || EVALUATION_OPTIONS[0].color
                                         }`}
                                       >
@@ -817,7 +817,7 @@ export default function StaffSubtasksPage() {
                                           e.target.blur()
                                         }
                                       }}
-                                      className="w-full bg-transparent border-none focus:ring-0 text-[10px] text-slate-600 placeholder:text-slate-400 p-0 h-5"
+                                      className="w-full bg-transparent border-none focus:ring-0 text-[9px] text-slate-600 placeholder:text-slate-400 p-0 h-4"
                                     />
                                   </div>
                                 </div>
