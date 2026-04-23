@@ -592,16 +592,16 @@ function ModalTaskCard({
   const showFeatureLabel = feature.name && String(feature.name).trim() !== 'Chung'
   const c = compact
     ? {
-      wrap: 'rounded border border-[#bec8d2]/40 bg-white p-1 shadow-sm flex flex-col gap-0.5 hover:border-[#006591]/45 transition-colors',
-      feat: 'text-[7px] font-semibold normal-case tracking-normal text-[#006591]/90',
-      title: 'text-[11px] font-bold leading-snug',
-      blockWrap: 'space-y-0.5',
-      blockInner: 'rounded border border-[#bec8d2]/12 bg-[#faf8ff]/40 p-0.5 space-y-0.5',
-      bodyText: 'text-[8px] leading-tight',
-      imgWrap: 'max-h-9',
-      imgH: 'h-6',
-      meta: 'text-[8px] gap-0.5',
-      icon: 'text-[10px]',
+      wrap: 'rounded-xl border border-[#bec8d2]/40 bg-white p-4 shadow-sm flex flex-col gap-3 hover:border-[#006591]/45 transition-colors',
+      feat: 'text-[10px] font-semibold normal-case tracking-normal text-[#006591]/90',
+      title: 'text-sm font-bold leading-snug',
+      blockWrap: 'space-y-1',
+      blockInner: 'rounded border border-[#bec8d2]/12 bg-[#faf8ff]/40 p-1.5 space-y-1',
+      bodyText: 'text-xs leading-tight',
+      imgWrap: 'max-h-16',
+      imgH: 'h-12',
+      meta: 'text-xs gap-1.5',
+      icon: 'text-[12px]',
     }
     : {
       wrap: 'rounded-lg border border-[#bec8d2]/30 bg-white p-2.5 shadow-sm flex flex-col gap-1.5 hover:border-[#006591]/40 transition-colors',
@@ -1126,9 +1126,9 @@ function ModalTaskCard({
                     const workSessions = normalizeSubtaskWorkTime(st.work_time)
                     const workRunning = subtaskHasOpenWorkSession(workSessions)
                     const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
-                      b => (b.content && b.content.trim()) || 
-                           (b.image_url && b.image_url.trim()) || 
-                           (Array.isArray(b.image_urls) && b.image_urls.length > 0)
+                      b => (b.content && b.content.trim()) ||
+                        (b.image_url && b.image_url.trim()) ||
+                        (Array.isArray(b.image_urls) && b.image_urls.length > 0)
                     )
                     const busy =
                       updatingSubtaskWorkTimeId === st.subtask_id || updatingSubtaskId === st.subtask_id
@@ -1403,11 +1403,11 @@ function ModalTaskCard({
                 {subs.filter(st => selectedTaskIds.includes(st.subtask_id)).map((st) => {
                   const isCompleted = st.status === 'completed'
                   const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
-                    b => (b.content && b.content.trim()) || 
-                         (b.image_url && b.image_url.trim()) ||
-                         (Array.isArray(b.image_urls) && b.image_urls.length > 0)
+                    b => (b.content && b.content.trim()) ||
+                      (b.image_url && b.image_url.trim()) ||
+                      (Array.isArray(b.image_urls) && b.image_urls.length > 0)
                   )
-                  
+
                   // Gom tất cả ảnh từ tất cả các khối
                   const allMedia = subDisplayBlocks.flatMap(b => {
                     const urls = []
@@ -1681,7 +1681,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!projectsModalCustomer || !projectTasksViewId || loadingKanban) return
     const proj = projectsModalCustomer.projects.find(p => p.project_id === projectTasksViewId)
-    
+
     // Trigger if features is strictly undefined (never fetched) or it's a skeleton (missing names)
     const isNotFetched = proj && proj.features === undefined
     const isSkeleton = proj?.features && proj.features.length > 0 && proj.features[0].name === undefined
@@ -1811,7 +1811,7 @@ export default function ProjectsPage() {
           const feat = t.features
           const pid = feat?.project_id
           if (!pid) return
-          
+
           if (!progressMap[pid]) progressMap[pid] = { total: 0, done: 0 }
           progressMap[pid].total++
           if (t.status === 'completed') progressMap[pid].done++
@@ -2427,8 +2427,8 @@ export default function ProjectsPage() {
               : 'Theo dõi tiến độ và quản lý phân công công việc'
           }
         />
-        <main className="flex-1 px-3 py-4 sm:px-8 sm:py-8">
-          <div className="mx-auto w-full max-w-5xl space-y-5 pb-20">
+        <main className="flex-1 px-3 py-4">
+          <div className="w-full space-y-5 pb-20">
             <div className={`grid gap-2.5 sm:gap-3 ${userRole === 'admin' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'}`}>
               <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
@@ -2694,13 +2694,13 @@ export default function ProjectsPage() {
         <Modal
           maxWidthClassName={
             projectTasksViewId && projectInTasksView
-              ? 'w-[min(112rem,calc(100vw-1rem))]'
+              ? 'w-[98vw] max-w-none h-[95vh]'
               : 'w-[min(96rem,calc(100vw-1rem))]'
           }
           bodyClassName={
             projectTasksViewId && projectInTasksView
-              ? 'px-6 sm:px-10 py-5 overflow-y-auto max-h-[88vh] min-h-[280px]'
-              : 'px-6 py-4 overflow-y-auto max-h-[82vh] min-h-[200px]'
+              ? 'px-3 py-4 flex flex-col h-[78vh] overflow-hidden'
+              : 'px-4 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-5 overflow-y-auto max-h-[80vh]'
           }
           title={
             projectTasksViewId && projectInTasksView
@@ -2771,21 +2771,21 @@ export default function ProjectsPage() {
               </div>
             ) : (
               taskKanbanGrouped && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full h-full items-stretch">
                   {KANBAN_COLUMNS.map(col => (
                     <div
                       key={col.key}
-                      className={`flex flex-col min-h-[140px] rounded-xl border border-[#bec8d2]/25 bg-[#f4f6fc]/90 border-t-[3px] ${col.topBar} shadow-sm`}
+                      className={`flex flex-col h-full rounded-xl border border-[#bec8d2]/25 bg-[#f4f6fc]/90 border-t-[3px] ${col.topBar} shadow-sm overflow-hidden`}
                     >
-                      <div className="flex items-center justify-between gap-2 px-2.5 py-2.5 border-b border-[#e8ecf0] bg-white rounded-t-[10px]">
+                      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
                         <div className="flex min-w-0 items-center gap-2">
-                          <p className="text-sm font-bold tracking-tight text-[#131b2e]">{col.title}</p>
-                          <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
+                          <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                          <span className="shrink-0 rounded-full bg-[#eef1f6] px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-[#475569]">
                             {taskKanbanGrouped[col.key].length}
                           </span>
                         </div>
                       </div>
-                      <div className="flex-1 p-1 space-y-1 overflow-y-auto max-h-[min(62vh,480px)]">
+                      <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
                         {taskKanbanGrouped[col.key].map(({ feature, task }) => (
                           <ModalTaskCard
                             key={task.task_id}

@@ -167,8 +167,8 @@ export default function CustomerManagement() {
       <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Quản lý khách hàng" />
 
-        <main className="flex-1 p-8">
-          <div className="max-w-6xl mx-auto space-y-6">
+        <main className="flex-1 px-6 md:px-10 py-8">
+          <div className="w-full space-y-6">
             <div className="flex flex-row items-center justify-between gap-3 lg:items-end lg:gap-0">
               <div className="min-w-0">
                 <h2 className="text-xl lg:text-3xl font-bold tracking-tight text-[#131b2e] lg:mb-1 truncate">

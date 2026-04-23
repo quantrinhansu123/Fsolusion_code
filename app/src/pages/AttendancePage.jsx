@@ -144,14 +144,14 @@ export default function AttendancePage() {
         if (!session.total_hours && session.check_in_time && session.check_out_time) {
           const start = new Date(session.check_in_time)
           let end = new Date(session.check_out_time)
-          
+
           let diffMs = end - start
           if (diffMs < 0) {
             // Hỗ trợ tính ca đêm xuyên ngày ở client
             end.setDate(end.getDate() + 1)
             diffMs = end - start
           }
-          
+
           const diffHrs = (diffMs / (1000 * 60 * 60)).toFixed(2)
           displayHours = `${diffHrs}h`
         }
@@ -426,7 +426,7 @@ export default function AttendancePage() {
     if (!editingRecord) return
 
     const { id, in_date, in_h, in_m, out_date, out_h, out_m } = editingRecord
-    
+
     setIsUpdating(true)
     try {
       const createISO = (dateStr, h, m) => {
@@ -739,10 +739,10 @@ export default function AttendancePage() {
                               onClick={() => {
                                 const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
                                 const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
-                                
+
                                 // Format date YYYY-MM-DD for input
                                 const getD = (d) => d ? d.toISOString().split('T')[0] : ''
-                                
+
                                 setEditingRecord({
                                   ...row,
                                   in_date: getD(dIn),
@@ -756,7 +756,7 @@ export default function AttendancePage() {
                               className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
                             >
                               <span className="material-symbols-outlined text-[16px]">edit</span>
-                              SỬA
+
                             </button>
                             <button
                               type="button"
@@ -920,7 +920,7 @@ export default function AttendancePage() {
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{editingRecord.user.name}</p>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setEditingRecord(null)}
                       className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 transition-colors"
                     >
@@ -939,24 +939,24 @@ export default function AttendancePage() {
                         <input
                           type="date"
                           value={editingRecord.in_date}
-                          onChange={e => setEditingRecord({...editingRecord, in_date: e.target.value})}
+                          onChange={e => setEditingRecord({ ...editingRecord, in_date: e.target.value })}
                           className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-medium text-[13px]"
                           required
                         />
                         <div className="flex flex-1 gap-1">
-                          <select 
-                            value={editingRecord.in_h} 
-                            onChange={e => setEditingRecord({...editingRecord, in_h: e.target.value})}
+                          <select
+                            value={editingRecord.in_h}
+                            onChange={e => setEditingRecord({ ...editingRecord, in_h: e.target.value })}
                             className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
                           >
-                            {Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
                           </select>
-                          <select 
-                            value={editingRecord.in_m} 
-                            onChange={e => setEditingRecord({...editingRecord, in_m: e.target.value})}
+                          <select
+                            value={editingRecord.in_m}
+                            onChange={e => setEditingRecord({ ...editingRecord, in_m: e.target.value })}
                             className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
                           >
-                            {Array.from({length: 60}, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
                           </select>
                         </div>
                       </div>
@@ -972,25 +972,25 @@ export default function AttendancePage() {
                         <input
                           type="date"
                           value={editingRecord.out_date}
-                          onChange={e => setEditingRecord({...editingRecord, out_date: e.target.value})}
+                          onChange={e => setEditingRecord({ ...editingRecord, out_date: e.target.value })}
                           className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-medium text-[13px]"
                         />
                         <div className="flex flex-1 gap-1">
-                          <select 
-                            value={editingRecord.out_h} 
-                            onChange={e => setEditingRecord({...editingRecord, out_h: e.target.value})}
+                          <select
+                            value={editingRecord.out_h}
+                            onChange={e => setEditingRecord({ ...editingRecord, out_h: e.target.value })}
                             className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
                           >
                             <option value="">Giờ</option>
-                            {Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
                           </select>
-                          <select 
-                            value={editingRecord.out_m} 
-                            onChange={e => setEditingRecord({...editingRecord, out_m: e.target.value})}
+                          <select
+                            value={editingRecord.out_m}
+                            onChange={e => setEditingRecord({ ...editingRecord, out_m: e.target.value })}
                             className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
                           >
                             <option value="">Phút</option>
-                            {Array.from({length: 60}, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
                           </select>
                         </div>
                       </div>

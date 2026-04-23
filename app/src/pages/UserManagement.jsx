@@ -161,8 +161,8 @@ export default function UserManagement() {
       <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Quản lý tài khoản" />
 
-        <main className="flex-1 p-8">
-          <div className="max-w-6xl mx-auto space-y-6">
+        <main className="flex-1 px-6 md:px-10 py-8">
+          <div className="w-full space-y-6">
             <div className="flex justify-between items-end">
               <div>
                 <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[#131b2e] mb-1">Nhân sự</h2>

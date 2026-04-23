@@ -34,7 +34,7 @@ export default function Modal({
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className={`bg-white w-full ${maxWidthClassName} max-h-[90vh] rounded-[20px] shadow-[0_32px_64px_rgba(19,27,46,0.14)] border border-[#bec8d2]/20 overflow-hidden flex flex-col`}
+        className={`bg-white w-full ${maxWidthClassName} max-h-[98vh] rounded-[20px] shadow-[0_32px_64px_rgba(19,27,46,0.14)] border border-[#bec8d2]/20 overflow-hidden flex flex-col`}
       >
         {/* Header */}
         <div className="px-[18px] pt-3 pb-3 sm:px-6 flex flex-col-reverse lg:flex-row lg:justify-between lg:items-start gap-2 border-b border-[#e2e8f0]">

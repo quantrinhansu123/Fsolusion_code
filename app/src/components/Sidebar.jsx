@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
+// Helper functions for permissions
+const isAdminOrManager = (role) => role === 'admin' || role === 'manager'
+const canManageUsers = (role) => role === 'admin' || role === 'manager'
+const canViewCustomers = (role) => role === 'admin' || role === 'manager'
 
 export default function Sidebar() {
   const navigate = useNavigate()
@@ -95,19 +99,21 @@ export default function Sidebar() {
             Chấm Công
           </NavLink>
 
-          {(role === 'admin' || role === 'manager') && (
+          {isAdminOrManager(role) && (
             <NavLink to="/progress" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
               <span className="material-symbols-outlined">bar_chart</span>
               Báo cáo tiến độ
             </NavLink>
           )}
 
-          {role === 'admin' && (
+          {canManageUsers(role) && (
             <>
-              <NavLink to="/customers" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
-                <span className="material-symbols-outlined">groups</span>
-                Danh sách khách hàng
-              </NavLink>
+              {canViewCustomers(role) && (
+                <NavLink to="/customers" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                  <span className="material-symbols-outlined">groups</span>
+                  Danh sách khách hàng
+                </NavLink>
+              )}
               <NavLink to="/users" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">manage_accounts</span>
                 Quản lý tài khoản
