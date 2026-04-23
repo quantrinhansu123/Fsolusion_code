@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
+import { useAuth } from '../utils/AuthContext'
 
 export default function ProgressReportPage() {
   const [reportData, setReportData] = useState([])
@@ -9,49 +11,53 @@ export default function ProgressReportPage() {
   const [user, setUser] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
 
+  const { user: authUser, loading: authLoading } = useAuth()
+  const [hasFetched, setHasFetched] = useState(false)
+
+  const location = useLocation()
+  const isActive = location.pathname === '/progress'
+
   useEffect(() => {
-    fetchProfileAndData()
-  }, [])
+    if (isActive && !authLoading && authUser) {
+      fetchReportData(!hasFetched)
+      setHasFetched(true)
+    }
+  }, [isActive, authLoading, authUser])
 
-  async function fetchProfileAndData() {
-    setLoading(true)
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (!authUser) return
-
-    const { data: profile } = await supabase.from('users').select('*').eq('user_id', authUser.id).single()
-    setUser(profile)
-
-    // Fetch projects with tasks
-    let query = supabase
-      .from('projects')
-      .select(`
-        *,
-        customers(name),
-        project_assignments(user_id),
-        features(
-          *,
-          tasks(
-            *,
-            users:assigned_to(full_name),
-            subtasks(*)
+  async function fetchReportData(showSpinner = true) {
+    if (showSpinner) setLoading(true)
+    try {
+      // Fetch projects with tasks only (no subtasks needed for this report)
+      let query = supabase
+        .from('projects')
+        .select(`
+          project_id, name, status,
+          customers(name),
+          project_assignments(user_id),
+          features(
+            feature_id, name,
+            tasks(
+              task_id, name, status, assigned_to,
+              users:assigned_to(full_name)
+            )
           )
-        )
-      `)
+        `)
 
-    const { data, error } = await query
-    if (error) {
-      console.error('Error fetching report data:', error)
-    } else {
-      // Filter for managers
-      let filtered = data
-      if (profile.role === 'manager') {
-        filtered = data.filter(p =>
-          p.project_assignments.some(a => a.user_id === authUser.id)
+      const { data, error } = await query
+      if (error) throw error
+
+      let filtered = data || []
+      if (authUser?.role === 'manager') {
+        filtered = filtered.filter(p =>
+          p.project_assignments?.some(a => a.user_id === authUser.id)
         )
       }
-      setReportData(filtered || [])
+      setReportData(filtered)
+    } catch (err) {
+      console.error('Error fetching report data:', err)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const calculateProgress = (project) => {

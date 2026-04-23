@@ -208,10 +208,13 @@ function collectTasksFromProject(project) {
 }
 
 /** Đếm task hoàn thành / tổng trong toàn dự án (Kanban) */
-function countTasksInProject(project) {
-  let total = 0
-  let done = 0
-  for (const f of project.features || []) {
+const countTasksInProject = (p) => {
+    if (p._progress) return { ...p._progress, pct: p._progress.total === 0 ? 0 : Math.round((p._progress.done / p._progress.total) * 100) }
+    
+    // Fallback if _progress is missing (legacy/other parts)
+    let total = 0
+    let done = 0
+  for (const f of p.features || []) {
     for (const t of f.tasks || []) {
       total++
       if ((t.status || '') === 'completed') done++
@@ -1089,7 +1092,7 @@ function ModalTaskCard({
                     {(() => {
                       const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
                       const someSelected = group.items.length > 0 && group.items.some(st => selectedTaskIds.includes(st.subtask_id)) && !allSelected
-                      
+
                       return (
                         <input
                           type="checkbox"
@@ -1272,7 +1275,7 @@ function ModalTaskCard({
                                   <span className="material-symbols-outlined text-[16px] text-amber-600">pause</span> Tạm dừng
                                 </button>
                               )}
-                              
+
                               <button
                                 type="button"
                                 disabled={busy || (!st.work_time && !workRunning)}
@@ -1647,10 +1650,11 @@ export default function ProjectsPage() {
       setProjectTasksViewId(null)
       return
     }
-    
+
     // Check if we need to load full details
     const proj = projectsModalCustomer.projects.find(p => p.project_id === projectTasksViewId)
-    if (proj && proj.features && proj.features.length > 0 && proj.features[0].name === undefined) {
+    // Trigger if features is missing or it's just a skeleton (doesn't have name)
+    if (proj && (!proj.features || (proj.features.length > 0 && proj.features[0].name === undefined))) {
       fetchProjectDetails(projectTasksViewId)
     }
   }, [projectsModalCustomer, projectTasksViewId])
@@ -1713,24 +1717,55 @@ export default function ProjectsPage() {
         setAllUsers(usersData || [])
       }
     }
-    await fetchData()
+    await fetchData(showSpinner)
   }
 
   async function fetchData(silent = true) {
     if (!silent) setLoading(true)
-    const { data, error } = await supabase
-      .from('customers')
-      .select(`
-        customer_id, name, created_at, updated_at,
-        projects (
-          project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
-          project_assignments(user_id, users(full_name))
-        )
-      `)
+    try {
+      const { data: custData, error: custErr } = await supabase
+        .from('customers')
+        .select(`
+          customer_id, name, created_at, updated_at,
+          projects (
+            project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
+            project_assignments(user_id, users(full_name))
+          )
+        `)
 
-    if (error) console.error('Error fetching data:', error)
-    else setCustomers(data || [])
-    if (!silent) setLoading(false)
+      if (custErr) throw custErr
+
+      // Fetch progress counts in a separate FLAT query (much faster than nested select)
+      const { data: subData } = await supabase
+        .from('subtasks')
+        .select('status, tasks!inner(features!inner(project_id))')
+
+      const progressMap = {}
+      if (subData) {
+        subData.forEach(st => {
+          const pid = st.tasks?.features?.project_id
+          if (!pid) return
+          if (!progressMap[pid]) progressMap[pid] = { total: 0, done: 0 }
+          progressMap[pid].total++
+          if (st.status === 'completed') progressMap[pid].done++
+        })
+      }
+
+      // Merge progress into the projects
+      const finalData = (custData || []).map(c => ({
+        ...c,
+        projects: c.projects?.map(p => ({
+          ...p,
+          _progress: progressMap[p.project_id] || { total: 0, done: 0 }
+        }))
+      }))
+
+      setCustomers(finalData)
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      if (!silent) setLoading(false)
+    }
   }
 
   function formatSaveError(err) {
