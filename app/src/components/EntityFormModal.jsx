@@ -242,8 +242,13 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
         if (field.type === 'content_image_pairs') {
           const key = field.name
           let blocks = Array.isArray(data[key]) && data[key].length > 0
-            ? data[key]
-            : [{ content: '', image_url: '' }]
+            ? data[key].map(b => ({
+                ...b,
+                image_urls: Array.isArray(b.image_urls) 
+                  ? b.image_urls 
+                  : (b.image_url ? [b.image_url] : [])
+              }))
+            : [{ content: '', image_urls: [] }]
           const setBlocks = next => onChange(key, next)
           const updateRow = (i, patch) => {
             setBlocks(blocks.map((b, j) => (j === i ? { ...b, ...patch } : b)))
@@ -252,7 +257,26 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
             if (blocks.length <= 1) return
             setBlocks(blocks.filter((_, j) => j !== i))
           }
-          const addRow = () => setBlocks([...blocks, { content: '', image_url: '' }])
+          const addRow = (initialData = { content: '', image_urls: [] }) => setBlocks([...blocks, initialData])
+
+          const handleFiles = async (files, currentIndex) => {
+            if (!files || files.length === 0) return
+            const fileList = Array.from(files).filter(f => f.type.startsWith('image/'))
+            if (fileList.length === 0) return
+
+            const newUrls = []
+            for (const file of fileList) {
+              const url = await imageFileToDataUrl(file)
+              if (url) newUrls.push(url)
+            }
+            
+            const currentBlock = blocks[currentIndex]
+            const existingUrls = Array.isArray(currentBlock.image_urls) ? currentBlock.image_urls : []
+            
+            updateRow(currentIndex, { 
+              image_urls: [...existingUrls, ...newUrls] 
+            })
+          }
           return (
             <FormField key={key} label={field.label}>
               <div className="space-y-3">
@@ -265,8 +289,7 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
                       if (!file) return
                       ev.preventDefault()
                       ev.stopPropagation()
-                      const url = await imageFileToDataUrl(file)
-                      if (url) updateRow(i, { image_url: url })
+                      handleFiles([file], i)
                     }}
                     onDragOver={ev => {
                       ev.preventDefault()
@@ -275,12 +298,17 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
                     onDrop={async ev => {
                       ev.preventDefault()
                       ev.stopPropagation()
-                      const file = getImageFromDataTransfer(ev.dataTransfer)
-                      if (!file) return
-                      const url = await imageFileToDataUrl(file)
-                      if (url) updateRow(i, { image_url: url })
+                      handleFiles(ev.dataTransfer.files, i)
                     }}
                   >
+                    <input
+                      type="file"
+                      id={`file-input-${i}`}
+                      className="hidden"
+                      accept="image/*"
+                      multiple
+                      onChange={e => handleFiles(e.target.files, i)}
+                    />
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
                         Dòng {i + 1}
@@ -301,81 +329,111 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
                           Nội dung
                         </span>
                         <textarea
-                          rows={3}
-                          className={`${inputCls} resize-y min-h-[64px]`}
+                          rows={4}
+                          className={`${inputCls} resize-y min-h-[96px]`}
                           placeholder={field.placeholderContent || 'Nhập nội dung...'}
                           value={block.content}
                           onChange={e => updateRow(i, { content: e.target.value })}
                         />
                       </div>
-                      <div className="space-y-1.5 w-full lg:w-[min(280px,36%)] lg:max-w-[280px] shrink-0">
+                      <div className="space-y-1.5 w-full lg:w-[min(340px,45%)] shrink-0">
                         <span className="block text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
                           Ảnh
                         </span>
+                        
                         <div
                           tabIndex={0}
-                          className="w-full rounded-xl border border-dashed border-[#bec8d2]/70 bg-white px-2 py-2 min-h-[112px] flex flex-col focus:outline-none focus:ring-2 focus:ring-[#006591]/25 text-sm text-[#131b2e]"
+                          className="w-full rounded-xl border border-dashed border-[#bec8d2]/70 bg-white p-2 min-h-[120px] flex flex-col focus:outline-none focus:ring-2 focus:ring-[#006591]/25 text-sm text-[#131b2e] cursor-pointer hover:bg-slate-50 transition-colors"
+                          onClick={() => document.getElementById(`file-input-${i}`)?.click()}
                         >
-                          {block.image_url ? (
-                            <div className="relative rounded-lg overflow-hidden bg-[#f0f0f5] flex-1 flex items-center justify-center min-h-[96px]">
-                              <img
-                                src={block.image_url}
-                                alt=""
-                                className="max-h-44 w-full object-contain"
-                                onError={e => {
-                                  e.currentTarget.style.display = 'none'
-                                }}
-                              />
-                              <button
-                                type="button"
-                                title="Xóa ảnh"
-                                className="absolute top-1.5 right-1.5 rounded-full bg-[#131b2e]/75 text-white p-1 hover:bg-[#131b2e] shadow-sm"
-                                onClick={() => updateRow(i, { image_url: '' })}
-                              >
-                                <span className="material-symbols-outlined text-[18px] leading-none block">close</span>
-                              </button>
+                          {/* GALLERY VIEW INSIDE THE BOX */}
+                          {(block.image_urls || []).length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {(block.image_urls || []).map((url, imgIdx) => (
+                                <div key={imgIdx} className="group relative w-20 h-20 rounded-lg overflow-hidden bg-[#f0f0f5] border border-[#bec8d2]/20">
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                  <button
+                                    type="button"
+                                    title="Xóa ảnh"
+                                    className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-[#131b2e]/80 text-white flex items-center justify-center hover:bg-[#131b2e] transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const nextUrls = block.image_urls.filter((_, k) => k !== imgIdx)
+                                      updateRow(i, { image_urls: nextUrls })
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                  </button>
+                                </div>
+                              ))}
+                              {/* Small 'Add' placeholder inside the list */}
+                              <div className="w-20 h-20 rounded-lg border border-dashed border-[#bec8d2]/50 flex flex-col items-center justify-center text-[#6e7881] hover:bg-white transition-colors">
+                                <span className="material-symbols-outlined text-[20px]">add</span>
+                                <span className="text-[8px] font-bold uppercase">Thêm</span>
+                              </div>
                             </div>
                           ) : (
-                            <div className="flex flex-1 flex-col items-center justify-center gap-1 py-5 text-center text-[11px] text-[#6e7881] pointer-events-none select-none">
-                              <span className="material-symbols-outlined text-3xl text-[#bec8d2]">content_paste</span>
+                            /* EMPTY STATE: LARGE INSTRUCTIONS */
+                            <div className="flex flex-1 flex-col items-center justify-center gap-1 py-6 text-center text-[11px] text-[#6e7881] select-none pointer-events-none">
+                              <span className="material-symbols-outlined text-3xl text-[#bec8d2]">add_photo_alternate</span>
                               <span>
-                                <strong className="text-[#131b2e]">Ctrl+V</strong> hoặc kéo thả ảnh vào dòng này
+                                <strong className="text-[#131b2e]">Click để chọn</strong>, kéo thả hoặc <strong className="text-[#131b2e]">Ctrl+V</strong>
                               </span>
-                              <span className="text-[10px] text-[#9aa3ab]">Ảnh hiện ngay và lưu kèm nhiệm vụ</span>
+                              <span className="text-[10px] text-[#9aa3ab]">Có thể chọn nhiều ảnh cùng lúc</span>
                             </div>
                           )}
                         </div>
-                        {!block.image_url?.startsWith('data:') && (
+
+                        {/* URL INPUT FOR APPENDING */}
+                        <div className="flex gap-2">
                           <input
                             type="url"
-                            className={`${inputCls} text-xs py-2.5`}
-                            placeholder="Hoặc nhập link ảnh https://..."
-                            value={block.image_url || ''}
-                            onChange={e => updateRow(i, { image_url: e.target.value })}
+                            className={`${inputCls} text-[10px] py-1.5 flex-1`}
+                            placeholder="Hoặc dán link ảnh https://..."
+                            id={`url-input-${i}`}
+                            onClick={e => e.stopPropagation()}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                const val = e.target.value.trim()
+                                if (val) {
+                                  updateRow(i, { image_urls: [...(block.image_urls || []), val] })
+                                  e.target.value = ''
+                                }
+                              }
+                            }}
                           />
-                        )}
-                        {block.image_url?.startsWith('data:') && (
-                          <p className="text-[10px] text-[#3e4850] leading-snug">
-                            Ảnh đã nhúng (JPEG).{' '}
-                            <button
-                              type="button"
-                              className="font-semibold text-[#006591] hover:underline"
-                              onClick={() => updateRow(i, { image_url: '' })}
-                            >
-                              Xóa để dùng link
-                            </button>
-                          </p>
-                        )}
+                          <button
+                            type="button"
+                            className="px-2 py-1 rounded-lg bg-[#dae2fd] text-[#006591] text-[9px] font-bold uppercase shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const input = document.getElementById(`url-input-${i}`)
+                              const val = input.value.trim()
+                              if (val) {
+                                updateRow(i, { image_urls: [...(block.image_urls || []), val] })
+                                input.value = ''
+                              }
+                            }}
+                          >
+                            Thêm
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 ))}
                 <button
                   type="button"
-                  onClick={addRow}
+                  onClick={() => addRow()}
                   className="w-full text-sm font-semibold text-[#006591] border border-dashed border-[#006591]/45 rounded-xl px-4 py-2.5 hover:bg-[#f2f3ff] transition-colors"
                 >
-                  + Thêm dòng (nội dung + link ảnh)
+                  + Thêm dòng nội dung mới
                 </button>
               </div>
             </FormField>

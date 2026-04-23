@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
@@ -209,11 +209,11 @@ function collectTasksFromProject(project) {
 
 /** Đếm task hoàn thành / tổng trong toàn dự án (Kanban) */
 const countTasksInProject = (p) => {
-    if (p._progress) return { ...p._progress, pct: p._progress.total === 0 ? 0 : Math.round((p._progress.done / p._progress.total) * 100) }
-    
-    // Fallback if _progress is missing (legacy/other parts)
-    let total = 0
-    let done = 0
+  if (p._progress) return { ...p._progress, pct: p._progress.total === 0 ? 0 : Math.round((p._progress.done / p._progress.total) * 100) }
+
+  // Fallback if _progress is missing (legacy/other parts)
+  let total = 0
+  let done = 0
   for (const f of p.features || []) {
     for (const t of f.tasks || []) {
       total++
@@ -1126,14 +1126,23 @@ function ModalTaskCard({
                     const workSessions = normalizeSubtaskWorkTime(st.work_time)
                     const workRunning = subtaskHasOpenWorkSession(workSessions)
                     const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
-                      b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim())
+                      b => (b.content && b.content.trim()) || 
+                           (b.image_url && b.image_url.trim()) || 
+                           (Array.isArray(b.image_urls) && b.image_urls.length > 0)
                     )
                     const busy =
                       updatingSubtaskWorkTimeId === st.subtask_id || updatingSubtaskId === st.subtask_id
                     const stSel = st.status || 'pending'
                     const selCls = SUBTASK_STATUS_SELECT_STYLES[stSel] || SUBTASK_STATUS_SELECT_STYLES.pending
 
-                    const mediaBlocks = subDisplayBlocks.filter(b => b.image_url?.trim())
+                    const allMedia = subDisplayBlocks.flatMap(b => {
+                      const urls = []
+                      if (b.image_url?.trim()) urls.push(b.image_url.trim())
+                      if (Array.isArray(b.image_urls)) {
+                        b.image_urls.forEach(u => u?.trim() && !urls.includes(u.trim()) && urls.push(u.trim()))
+                      }
+                      return urls
+                    })
 
                     const isSelected = selectedTaskIds.includes(st.subtask_id)
                     const isCompleted = stSel === 'completed'
@@ -1201,10 +1210,8 @@ function ModalTaskCard({
                           )}
                         </div>
 
-                        {/* 3. Ảnh đính kèm (Hiển thị nhiều ảnh) */}
                         <div className="flex flex-wrap lg:items-center lg:justify-center gap-1 pt-1 min-w-0 w-auto pl-6 lg:pl-0 lg:w-full">
-                          {mediaBlocks.map((b, bIdx) => {
-                            const url = b.image_url.trim()
+                          {allMedia.map((url, bIdx) => {
                             const isImg = url.startsWith('data:image/') || (isHttpUrl(url) && shouldTryImageFirst(url))
                             return isImg ? (
                               <img
@@ -1220,7 +1227,7 @@ function ModalTaskCard({
                               </a>
                             )
                           })}
-                          {mediaBlocks.length === 0 && (
+                          {allMedia.length === 0 && (
                             <button
                               type="button"
                               onClick={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
@@ -1565,6 +1572,13 @@ function AssignTeamModal({ allUsers, selectedIds, onToggle, onSave, onClose, sav
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const [customers, setCustomers] = useState([])
+  const customersRef = useRef([])
+  const [fadingTaskIds, setFadingTaskIds] = useState(new Set())
+
+  useEffect(() => {
+    customersRef.current = customers
+  }, [customers])
+
   const [projectsModalCustomerId, setProjectsModalCustomerId] = useState(null)
   const [projectTasksViewId, setProjectTasksViewId] = useState(null)
   const [modalProjectPage, setModalProjectPage] = useState(1)
@@ -1644,46 +1658,63 @@ export default function ProjectsPage() {
   const [loadingKanban, setLoadingKanban] = useState(false)
 
   useEffect(() => {
-    if (!projectsModalCustomer || !projectTasksViewId) return
-    const exists = projectsModalCustomer.projects?.some(p => p.project_id === projectTasksViewId)
-    if (!exists) {
-      setProjectTasksViewId(null)
-      return
-    }
-
-    // Check if we need to load full details
+    if (!projectsModalCustomer || !projectTasksViewId || loadingKanban) return
     const proj = projectsModalCustomer.projects.find(p => p.project_id === projectTasksViewId)
-    // Trigger if features is missing or it's just a skeleton (doesn't have name)
-    if (proj && (!proj.features || (proj.features.length > 0 && proj.features[0].name === undefined))) {
+    
+    // Trigger if features is strictly undefined (never fetched) or it's a skeleton (missing names)
+    const isNotFetched = proj && proj.features === undefined
+    const isSkeleton = proj?.features && proj.features.length > 0 && proj.features[0].name === undefined
+
+    if (isNotFetched || isSkeleton) {
       fetchProjectDetails(projectTasksViewId)
     }
-  }, [projectsModalCustomer, projectTasksViewId])
+  }, [projectsModalCustomer, projectTasksViewId, loadingKanban])
 
   async function fetchProjectDetails(projectId) {
+    if (loadingKanban) return
     setLoadingKanban(true)
-    const { data, error } = await supabase
-      .from('features')
-      .select(`
-        *,
-        tasks (*, users:assigned_to(full_name),
-          subtasks (*, users:assigned_to(full_name))
-        )
-      `)
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true })
+    try {
+      const { data, error } = await supabase
+        .from('features')
+        .select(`
+          *,
+          tasks (*, users:assigned_to(full_name),
+            subtasks (*, users:assigned_to(full_name))
+          )
+        `)
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true })
 
-    if (!error && data) {
+      if (error) throw error
+
       setCustomers(prev => prev.map(c => ({
         ...c,
         projects: c.projects?.map(p => {
           if (p.project_id === projectId) {
-            return { ...p, features: data }
+            return { ...p, features: data || [] }
           }
           return p
         })
       })))
+    } catch (err) {
+      console.error('Error fetching project details:', err)
+      setToast({
+        message: `Lỗi tải dữ liệu: ${err.message || 'Không rõ nguyên nhân'}`,
+        type: 'error'
+      })
+      // Đánh dấu là [] để tránh useEffect trigger fetch liên tục khi lỗi
+      setCustomers(prev => prev.map(c => ({
+        ...c,
+        projects: c.projects?.map(p => {
+          if (p.project_id === projectId) {
+            return { ...p, features: [] }
+          }
+          return p
+        })
+      })))
+    } finally {
+      setLoadingKanban(false)
     }
-    setLoadingKanban(false)
   }
 
 
@@ -1691,11 +1722,11 @@ export default function ProjectsPage() {
   const isActive = location.pathname === '/projects'
 
   useEffect(() => {
-    if (isActive) {
-      init(!hasFetched) // showSpinner = true if not fetched yet
+    if (isActive && !hasFetched) {
+      init(true)
       setHasFetched(true)
     }
-  }, [isActive])
+  }, [isActive, hasFetched])
 
   useEffect(() => {
     const onDoc = e => {
@@ -1707,51 +1738,65 @@ export default function ProjectsPage() {
 
   async function init(showSpinner = true) {
     if (showSpinner) setLoading(true)
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (authUser) {
-      const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
-      setUserRole(profile?.role || 'employee')
-
-      if (profile?.role !== 'employee') {
-        const { data: usersData } = await supabase.from('users').select('user_id, full_name, role')
-        setAllUsers(usersData || [])
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (authUser) {
+        // Run profile + allUsers in parallel to avoid sequential round-trips
+        const [{ data: profile }, { data: usersData }] = await Promise.all([
+          supabase.from('users').select('role').eq('user_id', authUser.id).single(),
+          supabase.from('users').select('user_id, full_name, role'),
+        ])
+        setUserRole(profile?.role || 'employee')
+        if (profile?.role !== 'employee') {
+          setAllUsers(usersData || [])
+        }
       }
+      await fetchData(true) // always silent — init manages its own loading state
+    } finally {
+      // FIX: init sets loading=true, so init must always reset it
+      if (showSpinner) setLoading(false)
     }
-    await fetchData(showSpinner)
   }
 
   async function fetchData(silent = true) {
     if (!silent) setLoading(true)
     try {
-      const { data: custData, error: custErr } = await supabase
-        .from('customers')
-        .select(`
-          customer_id, name, created_at, updated_at,
-          projects (
-            project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
-            project_assignments(user_id, users(full_name))
-          )
-        `)
+      const [
+        { data: custData, error: custErr },
+        { data: taskData, error: taskErr },
+      ] = await Promise.all([
+        supabase
+          .from('customers')
+          .select(`
+            customer_id, name, created_at, updated_at,
+            projects (
+              project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
+              project_assignments(user_id, users(full_name))
+            )
+          `),
+        // Đếm theo Nhiệm vụ (Task) để khớp với số thẻ trong Kanban
+        supabase
+          .from('tasks')
+          .select('status, features!inner(project_id)'),
+      ])
 
       if (custErr) throw custErr
-
-      // Fetch progress counts in a separate FLAT query (much faster than nested select)
-      const { data: subData } = await supabase
-        .from('subtasks')
-        .select('status, tasks!inner(features!inner(project_id))')
+      if (taskErr) console.warn('Task fetch error:', taskErr)
 
       const progressMap = {}
-      if (subData) {
-        subData.forEach(st => {
-          const pid = st.tasks?.features?.project_id
+      if (taskData) {
+        taskData.forEach(t => {
+          // PostgREST return object for single relationship: t.features.project_id
+          const feat = t.features
+          const pid = feat?.project_id
           if (!pid) return
+          
           if (!progressMap[pid]) progressMap[pid] = { total: 0, done: 0 }
           progressMap[pid].total++
-          if (st.status === 'completed') progressMap[pid].done++
+          if (t.status === 'completed') progressMap[pid].done++
         })
       }
 
-      // Merge progress into the projects
       const finalData = (custData || []).map(c => ({
         ...c,
         projects: c.projects?.map(p => ({
@@ -2225,7 +2270,7 @@ export default function ProjectsPage() {
     }
 
     const featureOptions = features.map(f => ({ value: f.feature_id, label: f.name }))
-    const emptyBlocks = { content_blocks: [{ content: '', image_url: '' }] }
+    const emptyBlocks = { content_blocks: [{ content: '', image_urls: [] }] }
     if (features.length === 1) {
       m.open('add_task', { featureId: features[0].feature_id, initial: emptyBlocks })
     } else {
@@ -2564,12 +2609,15 @@ export default function ProjectsPage() {
                         <div className="flex-1 h-[4px] overflow-hidden rounded-full bg-slate-100">
                           <div
                             className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, background: sm.bar }}
+                            style={{
+                              width: `${pct}%`,
+                              background: pct === 100 ? '#10b981' : sm.bar
+                            }}
                           />
                         </div>
 
                         {/* % right */}
-                        <span className="tabular-nums font-semibold text-[#475569]">{pct}%</span>
+                        <span className={`tabular-nums font-semibold ${pct === 100 ? 'text-emerald-600' : 'text-[#475569]'}`}>{pct}%</span>
 
                         {/* Task count */}
                         <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>

@@ -110,71 +110,85 @@ export default function StaffSubtasksPage() {
   const isActive = location.pathname === '/staff-subtasks'
 
   useEffect(() => {
-    if (isActive) {
-      fetchData(!hasFetched) // showSpinner = true if not fetched yet
+    if (isActive && !hasFetched) {
+      init()
       setHasFetched(true)
     }
-  }, [isActive])
+  }, [isActive, hasFetched])
 
-  const handlePageChange = (groupKey, newPage) => {
-    setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
-    const section = document.getElementById(`project-section-${groupKey}`)
-    if (section) {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // Chạy fetchData silent khi filter thay đổi (không hiện spinner chặn màn hình)
+  useEffect(() => {
+    if (hasFetched) {
+      fetchData(true)
     }
-  }
+  }, [selectedStatus, selectedAssignee, deadlineFilter, selectedProjectIds])
 
-  async function fetchData(showSpinner = true) {
-    if (showSpinner) setLoading(true)
+  async function init() {
+    setLoading(true)
     try {
-      const [{ data: usersData, error: usersErr }, { data: subtasksData, error: subtasksErr }] = await Promise.all([
+      // 1. Lấy Auth User & 2. Lấy danh sách nhân sự & 3. Lấy Subtasks - CHẠY SONG SONG
+      const [
+        { data: { user: authUser } },
+        { data: usersData },
+      ] = await Promise.all([
+        supabase.auth.getUser(),
         supabase
           .from('users')
           .select('user_id, full_name')
           .order('full_name', { ascending: true }),
-        supabase
-          .from('subtasks')
-          .select(`
-            subtask_id,
-            name,
-            status,
-            deadline,
-            completed_at,
-            assigned_to,
-            work_time,
-            description,
-            image_url,
-            content_blocks,
-            users:assigned_to(user_id, full_name),
-            tasks!inner(
-              task_id,
-              name,
-              description,
-              image_url,
-              content_blocks,
-              features!inner(
-                feature_id,
-                name,
-                projects!inner(
-                  project_id,
-                  name
-                )
-              )
-            )
-          `)
-          .not('assigned_to', 'is', null)
-          .order('updated_at', { ascending: false }),
       ])
 
-      if (usersErr) throw usersErr
-      if (subtasksErr) throw subtasksErr
+      if (authUser) {
+        const storedSessionId = localStorage.getItem('checkin_session_id')
+        const storedUserId = localStorage.getItem('checkin_user_id')
+        if (storedSessionId && storedUserId === authUser.id) {
+          setActiveSessionId(storedSessionId)
+        }
+      }
+
       setStaffUsers(usersData || [])
+      await fetchData(true) // Lấy dữ liệu subtasks
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function fetchData(silent = false) {
+    if (!silent) setLoading(true)
+    try {
+      // Fetch subtasks with server-side filtering
+      let query = supabase
+        .from('subtasks')
+        .select(`
+          subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
+          description, image_url, content_blocks,
+          users:assigned_to(user_id, full_name),
+          tasks!inner(
+            task_id, name, description, image_url, content_blocks,
+            features!inner(
+              feature_id, name,
+              projects!inner(
+                project_id, name
+              )
+            )
+          )
+        `)
+        .not('assigned_to', 'is', null)
+      
+      if (selectedStatus !== 'all') query = query.eq('status', selectedStatus)
+      if (selectedAssignee !== 'all') query = query.eq('assigned_to', selectedAssignee)
+
+      const { data: subtasksData, error: subtasksErr } = await query
+        .order('updated_at', { ascending: false })
+        .limit(150) // Tăng limit lên một chút để filter client tốt hơn
+
+      if (subtasksErr) throw subtasksErr
       setSubtasks(subtasksData || [])
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Không tải được danh sách subtask', type: 'error' })
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 

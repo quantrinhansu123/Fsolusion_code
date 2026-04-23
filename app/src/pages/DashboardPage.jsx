@@ -35,11 +35,11 @@ export default function DashboardPage() {
   const isActive = location.pathname === '/dashboard'
 
   useEffect(() => {
-    if (isActive) {
-      fetchDashboardData(!hasFetched) // showSpinner = true if not fetched yet
+    if (isActive && !hasFetched) {
+      fetchDashboardData(true)
       setHasFetched(true)
     }
-  }, [isActive])
+  }, [isActive, hasFetched])
 
   async function fetchDashboardData(showSpinner = true) {
     if (showSpinner) setLoading(true)
@@ -142,7 +142,7 @@ export default function DashboardPage() {
       <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Dashboard" />
 
-        <div className="p-10 space-y-10 max-w-7xl mx-auto w-full">
+        <div className="p-6 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
           {/* Heading */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
@@ -155,7 +155,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Stat cards */}
-          <div className="grid grid-cols-3 md:grid-cols-3 gap-2 md:gap-6">
+          <div className="grid grid-cols-3 md:grid-cols-3 gap-3 md:gap-4">
             {stats.map(s => (
               <div
                 key={s.label}
@@ -191,7 +191,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Recent activity */}
-          <div className="bg-[#f2f3ff] rounded-2xl p-6">
+          <div className="bg-[#f2f3ff] rounded-2xl p-4 md:p-5">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-[#131b2e]">Hoạt động gần đây</h3>
               <button className="text-sm font-semibold text-[#006591] hover:text-[#0ea5e9] transition-colors flex items-center gap-1">
@@ -247,7 +247,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-6 border border-[#bec8d2]/15 shadow-sm">
+          <div className="bg-white rounded-2xl p-4 md:p-5 border border-[#bec8d2]/15 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
               <div>
                 <h3 className="text-lg font-bold text-[#131b2e]">Task theo nhân sự</h3>
@@ -364,8 +364,8 @@ export default function DashboardPage() {
                           key={page}
                           onClick={() => setCurrentPage(page)}
                           className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
-                              ? 'bg-[#006591] text-white border border-[#006591]'
-                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                            ? 'bg-[#006591] text-white border border-[#006591]'
+                            : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
                             }`}
                         >
                           {page}
@@ -383,8 +383,8 @@ export default function DashboardPage() {
                           key={page}
                           onClick={() => setCurrentPage(page)}
                           className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
-                              ? 'bg-[#006591] text-white border border-[#006591]'
-                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                            ? 'bg-[#006591] text-white border border-[#006591]'
+                            : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
                             }`}
                         >
                           {page}
@@ -397,8 +397,8 @@ export default function DashboardPage() {
                           key={page}
                           onClick={() => setCurrentPage(page)}
                           className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
-                              ? 'bg-[#006591] text-white border border-[#006591]'
-                              : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
+                            ? 'bg-[#006591] text-white border border-[#006591]'
+                            : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
                             }`}
                         >
                           {page}

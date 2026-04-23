@@ -74,6 +74,9 @@ export default function AttendancePage() {
       // - Join work_sessions với users (Lấy Avatar, Fullname)
       // - Join work_sessions với subtasks (Lấy Tên task đã làm)
       // - LIMIT 100 & OFFSET phân trang để tối ưu performance
+      const from = (currentPage - 1) * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+
       let query = supabase
         .from('work_sessions')
         .select(`
@@ -86,8 +89,7 @@ export default function AttendancePage() {
           subtasks (name, status)
         `, { count: 'exact' })
         .order('check_in_time', { ascending: false })
-        .offset((currentPage - 1) * PAGE_SIZE)
-        .limit(PAGE_SIZE)
+        .range(from, to)
 
       // Xử lý bộ lọc
       if (filterDate) {
@@ -110,7 +112,7 @@ export default function AttendancePage() {
       const { data, error: fetchError, count } = await query
 
       if (fetchError) throw fetchError
-      
+
       setTotalRecords(count || 0)
 
       // Trả về JSON, transform map dữ liệu ra giao diện
