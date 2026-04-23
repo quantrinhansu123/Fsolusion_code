@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
@@ -76,6 +76,7 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const isInitialMount = useRef(true)
 
   // -- STATE CHẤM CÔNG: Chỉ dùng session nếu thuộc về user đang đăng nhập --
   const [activeSessionId, setActiveSessionId] = useState(null)
@@ -118,25 +119,93 @@ export default function StaffSubtasksPage() {
 
   // Chạy fetchData silent khi filter thay đổi (không hiện spinner chặn màn hình)
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
     if (hasFetched) {
       fetchData(true)
     }
-  }, [selectedStatus, selectedAssignee, deadlineFilter, selectedProjectIds])
+  }, [selectedStatus, deadlineFilter, selectedProjectIds])
 
   async function init() {
     setLoading(true)
     try {
-      // 1. Lấy Auth User & 2. Lấy danh sách nhân sự & 3. Lấy Subtasks - CHẠY SONG SONG
+      // 0. Chuẩn bị filter server-side
+      let taskIdsFilter = null
+      if (selectedProjectIds.length > 0) {
+        const { data: tasksInProjects } = await supabase
+          .from('tasks')
+          .select('task_id, features!inner(project_id)')
+          .in('features.project_id', selectedProjectIds)
+        taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
+      }
+
+      // 1. Auth User, 2. Danh sách nhân sự, 3. Danh sách subtasks (Query 1) - CHẠY SONG SONG
+      let subtasksQuery = supabase
+        .from('subtasks')
+        .select('subtask_id, name, status, deadline, completed_at, assigned_to, work_time, description, image_url, content_blocks, task_id, users:assigned_to(user_id, full_name)')
+        .not('assigned_to', 'is', null)
+      
+      // Áp dụng filters nặng lên server (Giữ assignee ở client để ko mất list nhân sự)
+      if (selectedStatus !== 'all') subtasksQuery = subtasksQuery.eq('status', selectedStatus)
+      if (taskIdsFilter) subtasksQuery = subtasksQuery.in('task_id', taskIdsFilter)
+      
+      // Deadline filters
+      const now = new Date().toISOString()
+      if (deadlineFilter === 'overdue') subtasksQuery = subtasksQuery.lt('deadline', now)
+      if (deadlineFilter === 'no_deadline') subtasksQuery = subtasksQuery.is('deadline', null)
+      if (deadlineFilter === 'today') {
+        const start = new Date(); start.setHours(0,0,0,0)
+        const end = new Date(); end.setHours(23,59,59,999)
+        subtasksQuery = subtasksQuery.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
+      }
+      if (deadlineFilter === 'week') {
+        const start = new Date().toISOString()
+        const end = new Date(); end.setDate(end.getDate() + 7)
+        subtasksQuery = subtasksQuery.gte('deadline', start).lte('deadline', end.toISOString())
+      }
+
       const [
         { data: { user: authUser } },
         { data: usersData },
+        { data: subtasksData, error: subtasksErr }
       ] = await Promise.all([
         supabase.auth.getUser(),
         supabase
           .from('users')
           .select('user_id, full_name')
           .order('full_name', { ascending: true }),
+        subtasksQuery
+          .order('updated_at', { ascending: false })
+          .limit(150)
       ])
+
+      if (subtasksErr) throw subtasksErr
+
+      // Query 2: Lấy thông tin Tasks/Features/Projects cho các task_id vừa lấy được
+      const subtasksList = subtasksData || []
+      const taskIds = [...new Set(subtasksList.map(st => st.task_id).filter(Boolean))]
+      
+      let finalSubtasks = subtasksList
+      if (taskIds.length > 0) {
+        const { data: tasksData } = await supabase
+          .from('tasks')
+          .select(`
+            task_id, name, description, image_url, content_blocks,
+            features(
+              feature_id, name,
+              projects(project_id, name)
+            )
+          `)
+          .in('task_id', taskIds)
+
+        const taskMap = new Map((tasksData || []).map(t => [t.task_id, t]))
+        finalSubtasks = subtasksList.map(st => ({
+          ...st,
+          tasks: taskMap.get(st.task_id) || null
+        }))
+      }
 
       if (authUser) {
         const storedSessionId = localStorage.getItem('checkin_session_id')
@@ -147,7 +216,10 @@ export default function StaffSubtasksPage() {
       }
 
       setStaffUsers(usersData || [])
-      await fetchData(true) // Lấy dữ liệu subtasks
+      setSubtasks(finalSubtasks)
+    } catch (err) {
+      console.error('Init error:', err)
+      setToast({ message: err.message || 'Không khởi tạo được dữ liệu', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -156,34 +228,84 @@ export default function StaffSubtasksPage() {
   async function fetchData(silent = false) {
     if (!silent) setLoading(true)
     try {
-      // Fetch subtasks with server-side filtering
+      // 0. Lọc Task IDs theo Project (nếu có chọn Project)
+      let taskIdsFilter = null
+      if (selectedProjectIds.length > 0) {
+        const { data: tasksInProjects } = await supabase
+          .from('tasks')
+          .select('task_id, features!inner(project_id)')
+          .in('features.project_id', selectedProjectIds)
+        taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
+        
+        // Nếu không có task nào thuộc project đó, trả về rỗng luôn
+        if (taskIdsFilter.length === 0) {
+          setSubtasks([])
+          return
+        }
+      }
+
+      // Query 1: Lấy subtasks tối giản
       let query = supabase
         .from('subtasks')
         .select(`
           subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
-          description, image_url, content_blocks,
-          users:assigned_to(user_id, full_name),
-          tasks!inner(
-            task_id, name, description, image_url, content_blocks,
-            features!inner(
-              feature_id, name,
-              projects!inner(
-                project_id, name
-              )
-            )
-          )
+          description, image_url, content_blocks, task_id,
+          users:assigned_to(user_id, full_name)
         `)
         .not('assigned_to', 'is', null)
       
+      // Lọc nặng lên server (Assignee lọc ở client để giữ thanh filter)
       if (selectedStatus !== 'all') query = query.eq('status', selectedStatus)
-      if (selectedAssignee !== 'all') query = query.eq('assigned_to', selectedAssignee)
+      if (taskIdsFilter) query = query.in('task_id', taskIdsFilter)
+      
+      // Deadline filters server-side
+      const now = new Date().toISOString()
+      if (deadlineFilter === 'overdue') query = query.lt('deadline', now)
+      if (deadlineFilter === 'no_deadline') query = query.is('deadline', null)
+      if (deadlineFilter === 'today') {
+        const start = new Date(); start.setHours(0,0,0,0)
+        const end = new Date(); end.setHours(23,59,59,999)
+        query = query.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
+      }
+      if (deadlineFilter === 'week') {
+        const start = new Date().toISOString()
+        const end = new Date(); end.setDate(end.getDate() + 7)
+        query = query.gte('deadline', start).lte('deadline', end.toISOString())
+      }
 
       const { data: subtasksData, error: subtasksErr } = await query
         .order('updated_at', { ascending: false })
-        .limit(150) // Tăng limit lên một chút để filter client tốt hơn
+        .limit(150)
 
       if (subtasksErr) throw subtasksErr
-      setSubtasks(subtasksData || [])
+      
+      // Query 2: Lấy metadata (Tasks -> Features -> Projects)
+      const subtasksList = subtasksData || []
+      const taskIds = [...new Set(subtasksList.map(st => st.task_id).filter(Boolean))]
+      
+      let finalSubtasks = subtasksList
+      if (taskIds.length > 0) {
+        const { data: tasksData, error: tasksErr } = await supabase
+          .from('tasks')
+          .select(`
+            task_id, name, description, image_url, content_blocks,
+            features(
+              feature_id, name,
+              projects(project_id, name)
+            )
+          `)
+          .in('task_id', taskIds)
+        
+        if (tasksErr) throw tasksErr
+
+        const taskMap = new Map((tasksData || []).map(t => [t.task_id, t]))
+        finalSubtasks = subtasksList.map(st => ({
+          ...st,
+          tasks: taskMap.get(st.task_id) || null
+        }))
+      }
+
+      setSubtasks(finalSubtasks)
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Không tải được danh sách subtask', type: 'error' })
