@@ -1403,11 +1403,20 @@ function ModalTaskCard({
                 {subs.filter(st => selectedTaskIds.includes(st.subtask_id)).map((st) => {
                   const isCompleted = st.status === 'completed'
                   const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
-                    b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim())
+                    b => (b.content && b.content.trim()) || 
+                         (b.image_url && b.image_url.trim()) ||
+                         (Array.isArray(b.image_urls) && b.image_urls.length > 0)
                   )
-                  const firstMedia = subDisplayBlocks.find(b => b.image_url?.trim())
-                  const mediaUrl = firstMedia ? firstMedia.image_url.trim() : null
-                  const isMediaImg = mediaUrl ? (mediaUrl.startsWith('data:image/') || (isHttpUrl(mediaUrl) && shouldTryImageFirst(mediaUrl))) : false
+                  
+                  // Gom tất cả ảnh từ tất cả các khối
+                  const allMedia = subDisplayBlocks.flatMap(b => {
+                    const urls = []
+                    if (b.image_url?.trim()) urls.push(b.image_url.trim())
+                    if (Array.isArray(b.image_urls)) {
+                      b.image_urls.forEach(u => u?.trim() && !urls.includes(u.trim()) && urls.push(u.trim()))
+                    }
+                    return urls
+                  })
 
                   return (
                     <div key={st.subtask_id} className="bg-white rounded-[20px] shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100 p-7 flex flex-col lg:flex-row gap-8 items-stretch">
@@ -1462,21 +1471,33 @@ function ModalTaskCard({
                         </div>
                       </div>
 
-                      {/* CỘT 3: HÌNH ẢNH MINH HỌA */}
-                      <div className="w-full lg:w-[240px] shrink-0 flex flex-col justify-center items-center">
-                        {isMediaImg && mediaUrl ? (
-                          <>
-                            <div className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center">
-                              <img src={mediaUrl} alt="Preview" className="w-full h-full object-cover" />
-                            </div>
-                            <div className="mt-2.5 text-[10px] text-slate-400 italic text-center w-full truncate px-2">
-                              {userInitials(st.users?.full_name)} {st.users?.full_name ? st.users.full_name.split(' ').slice(-2).join(' ') : 'Chưa gán'} — Preview
-                            </div>
-                          </>
+                      {/* CỘT 3: HÌNH ẢNH MINH HỌA (GALLERY) */}
+                      <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-3">
+                        {allMedia.length > 0 ? (
+                          <div className={`grid gap-2 ${allMedia.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                            {allMedia.map((url, mIdx) => {
+                              const isImg = url.startsWith('data:image/') || (isHttpUrl(url) && shouldTryImageFirst(url))
+                              return isImg ? (
+                                <div key={mIdx} className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center">
+                                  <img src={url} alt="Preview" className="w-full h-full object-cover" />
+                                </div>
+                              ) : (
+                                <div key={mIdx} className="w-full rounded-[12px] bg-white border border-slate-200 aspect-[4/3] flex flex-col items-center justify-center gap-1 text-[#006591]">
+                                  <span className="material-symbols-outlined text-[20px]">attach_file</span>
+                                  <span className="text-[8px] font-bold uppercase truncate px-1 w-full text-center">{url}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
                         ) : (
                           <div className="w-full rounded-[12px] bg-slate-50 border border-slate-100 aspect-[4/3] flex flex-col items-center justify-center gap-2 text-slate-300">
                             <span className="material-symbols-outlined text-[32px]">image</span>
                             <span className="text-[9px] uppercase font-bold tracking-wider">No preview available</span>
+                          </div>
+                        )}
+                        {allMedia.length > 0 && (
+                          <div className="text-[10px] text-slate-400 italic text-center w-full truncate px-2">
+                            {userInitials(st.users?.full_name)} {st.users?.full_name ? st.users.full_name.split(' ').slice(-2).join(' ') : 'Chưa gán'} — {allMedia.length} ảnh
                           </div>
                         )}
                       </div>
