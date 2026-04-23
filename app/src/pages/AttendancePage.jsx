@@ -20,6 +20,8 @@ export default function AttendancePage() {
   const [currentPage, setCurrentPage] = useState(1) // Phân trang
   const [totalRecords, setTotalRecords] = useState(0) // Tổng số bản ghi
   const PAGE_SIZE = 100 // Lấy 100 bản ghi trên trang
+  const [editingRecord, setEditingRecord] = useState(null) // Bản ghi đang sửa
+  const [isUpdating, setIsUpdating] = useState(false)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -154,6 +156,8 @@ export default function AttendancePage() {
           work_date: dateFormat(session.work_date),
           check_in: timeFormat(session.check_in_time),
           check_out: timeFormat(session.check_out_time),
+          check_in_raw: session.check_in_time, // Giữ lại raw để sửa
+          check_out_raw: session.check_out_time,
           total_hours: displayHours,
           tasks: completedTasksArray
         }
@@ -407,6 +411,66 @@ export default function AttendancePage() {
       setDeleting(false)
     }
   }
+  // 8. Hàm lưu bản ghi sau khi sửa
+  const handleSaveEdit = async (e) => {
+    e.preventDefault()
+    if (!editingRecord) return
+
+    const { id, check_in_time, check_out_time, work_date } = editingRecord
+    
+    setIsUpdating(true)
+    try {
+      // 1. Chuẩn bị ngày làm việc chuẩn (YYYY-MM-DD)
+      let dbDate = work_date
+      if (work_date.includes('/')) {
+        const [d, m, y] = work_date.split('/')
+        dbDate = `${y}-${m}-${d}`
+      }
+
+      // 2. Ghép ngày và giờ thành ISO string
+      const createISO = (dateStr, timeStr) => {
+        if (!timeStr) return null
+        const [y, m, d] = dateStr.split('-')
+        const [hh, mm] = timeStr.split(':')
+        const dateObj = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(hh), parseInt(mm))
+        return dateObj.toISOString()
+      }
+
+      const finalCheckIn = createISO(dbDate, check_in_time)
+      const finalCheckOut = check_out_time ? createISO(dbDate, check_out_time) : null
+
+      // 3. Kiểm tra logic thời gian
+      let total_hours = null
+      if (finalCheckIn && finalCheckOut) {
+        const diffMs = new Date(finalCheckOut) - new Date(finalCheckIn)
+        if (diffMs < 0) {
+          throw new Error('Lỗi: Giờ ra phải sau Giờ vào! (Hiện tại đang bị âm)')
+        }
+        total_hours = parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2))
+      }
+
+      const { error: updateError } = await supabase
+        .from('work_sessions')
+        .update({
+          work_date: dbDate,
+          check_in_time: finalCheckIn,
+          check_out_time: finalCheckOut,
+          total_hours
+        })
+        .eq('session_id', id)
+
+      if (updateError) throw updateError
+
+      setToast({ message: 'Cập nhật bản ghi thành công', type: 'success' })
+      setEditingRecord(null)
+      fetchAttendanceData()
+    } catch (err) {
+      console.error('Lỗi khi sửa:', err)
+      setToast({ message: err.message || 'Không thể cập nhật bản ghi', type: 'error' })
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
@@ -453,23 +517,23 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              {/* Cụm trung tâm: CHECK-IN/OUT & TIMER (Tối ưu thẩm mỹ) */}
-              <div className="flex items-center gap-1 bg-slate-100/80 p-1.5 rounded-[18px] border border-slate-200/50 shadow-inner mx-auto xl:mx-0">
+              {/* Cụm trung tâm: CHECK-IN/OUT & TIMER (Gọn gàng hơn) */}
+              <div className="flex items-center gap-2 mx-auto xl:mx-0">
                 <button
                   type="button"
                   onClick={handleCheckIn}
                   disabled={isWorking}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-[12px] font-bold transition-all active:scale-95 ${isWorking
-                    ? 'bg-transparent text-slate-400 cursor-not-allowed opacity-50'
-                    : 'bg-white text-blue-700 shadow-sm hover:shadow-md hover:translate-y-[-1px]'
+                  className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${isWorking
+                    ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
+                    : 'bg-white border-blue-100 text-blue-700 shadow-sm hover:shadow-md hover:border-blue-200'
                     }`}
                 >
                   <span className="material-symbols-outlined text-[18px]">login</span>
                   Check-in
                 </button>
 
-                <div className={`flex flex-col items-center justify-center px-6 min-w-[110px] h-[40px] rounded-[14px] border border-white/50 bg-white/40 shadow-sm ${isWorking ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  <span className="font-mono text-[16px] font-black tracking-widest leading-none">
+                <div className={`flex items-center justify-center px-3 min-w-[90px] h-9 rounded-xl border border-slate-200/60 bg-white/50 shadow-inner ${isWorking ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  <span className="font-mono text-[14px] font-bold tracking-wider leading-none">
                     {formatTimer(sessionTimer)}
                   </span>
                 </div>
@@ -478,16 +542,16 @@ export default function AttendancePage() {
                   type="button"
                   onClick={handleCheckOut}
                   disabled={!isWorking}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-[14px] text-[12px] font-bold border transition-all active:scale-95 ${!isWorking
-                    ? 'bg-transparent border-transparent text-slate-400 cursor-not-allowed opacity-50'
-                    : 'bg-red-50 border-red-100 text-red-600 shadow-sm hover:bg-red-100 hover:translate-y-[-1px]'
+                  className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${!isWorking
+                    ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
+                    : 'bg-white border-red-100 text-red-600 shadow-sm hover:shadow-md hover:border-red-200'
                     }`}
                 >
                   <span className="material-symbols-outlined text-[18px]">logout</span>
                   Check-out
                 </button>
 
-                <div className="w-px h-6 bg-slate-200/60 mx-1" />
+                <div className="w-px h-5 bg-slate-200 mx-1" />
 
                 <button
                   type="button"
@@ -669,15 +733,32 @@ export default function AttendancePage() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSingle(row.id)}
-                            disabled={deleting}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                            title="Xóa bản ghi này"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
+                          <div className="flex justify-end items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Trích xuất giờ chuẩn 24h (HH:mm)
+                                const getTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''
+                                setEditingRecord({
+                                  ...row,
+                                  check_in_time: getTime(row.check_in_raw),
+                                  check_out_time: getTime(row.check_out_raw)
+                                })
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">edit</span>
+                              SỬA
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSingle(row.id)}
+                              disabled={deleting}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -716,15 +797,25 @@ export default function AttendancePage() {
                           <span className="material-symbols-outlined text-[14px]">list_alt</span>
                           TASK ĐÃ LÀM
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDeleteSingle(row.id)}
-                          disabled={deleting}
-                          className="bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                          <span className="material-symbols-outlined text-[14px]">delete</span>
-                          XÓA DÒNG
-                        </button>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditingRecord(row)}
+                            className="flex-1 bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-blue-100 flex items-center justify-center gap-1 active:scale-95 transition-all"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">edit</span>
+                            SỬA
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSingle(row.id)}
+                            disabled={deleting}
+                            className="flex-1 bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">delete</span>
+                            XÓA
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -807,6 +898,95 @@ export default function AttendancePage() {
               </div>
             )}
 
+            {/* MODAL SỬA BẢN GHI */}
+            {editingRecord && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
+                        <span className="material-symbols-outlined text-white text-[20px]">edit_calendar</span>
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800">Sửa Chấm Công</h3>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{editingRecord.user.name}</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setEditingRecord(null)}
+                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">close</span>
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Ngày làm việc</label>
+                      <div className="relative">
+                        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">event</span>
+                        <input
+                          type="date"
+                          value={editingRecord.work_date.split('/').reverse().join('-')}
+                          onChange={e => setEditingRecord({
+                            ...editingRecord, 
+                            work_date: e.target.value.split('-').reverse().join('/')
+                          })}
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Giờ vào</label>
+                        <input
+                          type="time"
+                          value={editingRecord.check_in_time || ''}
+                          onChange={e => setEditingRecord({...editingRecord, check_in_time: e.target.value})}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold text-[14px]"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Giờ ra</label>
+                        <input
+                          type="time"
+                          value={editingRecord.check_out_time || ''}
+                          onChange={e => setEditingRecord({...editingRecord, check_out_time: e.target.value})}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold text-[14px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setEditingRecord(null)}
+                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all active:scale-95"
+                      >
+                        HỦY
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isUpdating}
+                        className="flex-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        {isUpdating ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[18px]">save</span>
+                            LƯU THAY ĐỔI
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       </div>
