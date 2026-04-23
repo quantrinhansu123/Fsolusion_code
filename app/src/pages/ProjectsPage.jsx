@@ -2020,6 +2020,10 @@ export default function ProjectsPage() {
 
           // ✅ Cập nhật dữ liệu ngầm cho trang
           await fetchData(true)
+          // ✅ Tải lại chi tiết nhiệm vụ để hiện tiểu mục mới ngay lập tức
+          if (projectTasksViewId) {
+            await fetchProjectDetails(projectTasksViewId)
+          }
 
           // ✅ Reset form theo yêu cầu: Xóa Tên, Nội dung & Ảnh. Giữ Người phụ trách.
           m.set('name', '')
@@ -2054,6 +2058,10 @@ export default function ProjectsPage() {
           res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
+          // ✅ Tải lại chi tiết nhiệm vụ để cập nhật ngay lập tức
+          if (projectTasksViewId) {
+            await fetchProjectDetails(projectTasksViewId)
+          }
           setToast({ message: 'Đã cập nhật tiểu mục thành công!', type: 'success' })
         } finally {
           setSavingSubtask(false)

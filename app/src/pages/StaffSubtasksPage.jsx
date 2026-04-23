@@ -118,11 +118,16 @@ export default function StaffSubtasksPage() {
   const isActive = location.pathname === '/staff-subtasks'
 
   useEffect(() => {
-    if (isActive && !hasFetched) {
-      init()
-      setHasFetched(true)
+    if (isActive) {
+      if (!hasFetched) {
+        init()
+        setHasFetched(true)
+      } else {
+        // Mỗi khi quay lại trang, tải lại dữ liệu ngầm để cập nhật subtask mới từ trang Dự án
+        fetchData(true)
+      }
     }
-  }, [isActive, hasFetched])
+  }, [isActive])
 
   // Chạy fetchData silent khi filter thay đổi (không hiện spinner chặn màn hình)
   useEffect(() => {
