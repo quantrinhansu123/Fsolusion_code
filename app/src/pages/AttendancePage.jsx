@@ -130,7 +130,7 @@ export default function AttendancePage() {
         // Hàm tiện ích format Time & Date
         const timeFormat = (isoString) => {
           if (!isoString) return '-'
-          return new Date(isoString).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          return new Date(isoString).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
         }
 
         const dateFormat = (dateString) => {
@@ -142,7 +142,16 @@ export default function AttendancePage() {
         // Tính tổng thời gian nếu Database chưa Update tự động (Giúp UI mượt hơn)
         let displayHours = session.total_hours ? `${session.total_hours}h` : '-'
         if (!session.total_hours && session.check_in_time && session.check_out_time) {
-          const diffMs = new Date(session.check_out_time) - new Date(session.check_in_time)
+          const start = new Date(session.check_in_time)
+          let end = new Date(session.check_out_time)
+          
+          let diffMs = end - start
+          if (diffMs < 0) {
+            // Hỗ trợ tính ca đêm xuyên ngày ở client
+            end.setDate(end.getDate() + 1)
+            diffMs = end - start
+          }
+          
           const diffHrs = (diffMs / (1000 * 60 * 60)).toFixed(2)
           displayHours = `${diffHrs}h`
         }
@@ -416,35 +425,26 @@ export default function AttendancePage() {
     e.preventDefault()
     if (!editingRecord) return
 
-    const { id, check_in_time, check_out_time, work_date } = editingRecord
+    const { id, in_date, in_h, in_m, out_date, out_h, out_m } = editingRecord
     
     setIsUpdating(true)
     try {
-      // 1. Chuẩn bị ngày làm việc chuẩn (YYYY-MM-DD)
-      let dbDate = work_date
-      if (work_date.includes('/')) {
-        const [d, m, y] = work_date.split('/')
-        dbDate = `${y}-${m}-${d}`
-      }
-
-      // 2. Ghép ngày và giờ thành ISO string
-      const createISO = (dateStr, timeStr) => {
-        if (!timeStr) return null
-        const [y, m, d] = dateStr.split('-')
-        const [hh, mm] = timeStr.split(':')
-        const dateObj = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(hh), parseInt(mm))
+      const createISO = (dateStr, h, m) => {
+        if (!dateStr || !h || !m) return null
+        const [year, mon, day] = dateStr.split('-')
+        const dateObj = new Date(parseInt(year), parseInt(mon) - 1, parseInt(day), parseInt(h), parseInt(m))
         return dateObj.toISOString()
       }
 
-      const finalCheckIn = createISO(dbDate, check_in_time)
-      const finalCheckOut = check_out_time ? createISO(dbDate, check_out_time) : null
+      const finalCheckIn = createISO(in_date, in_h, in_m)
+      const finalCheckOut = (out_date && out_h && out_m) ? createISO(out_date, out_h, out_m) : null
 
-      // 3. Kiểm tra logic thời gian
+      // Tính toán total_hours
       let total_hours = null
       if (finalCheckIn && finalCheckOut) {
         const diffMs = new Date(finalCheckOut) - new Date(finalCheckIn)
         if (diffMs < 0) {
-          throw new Error('Lỗi: Giờ ra phải sau Giờ vào! (Hiện tại đang bị âm)')
+          throw new Error('Lỗi: Giờ ra không thể trước Giờ vào!')
         }
         total_hours = parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2))
       }
@@ -452,7 +452,7 @@ export default function AttendancePage() {
       const { error: updateError } = await supabase
         .from('work_sessions')
         .update({
-          work_date: dbDate,
+          work_date: in_date, // Lấy ngày vào làm ngày của bản ghi
           check_in_time: finalCheckIn,
           check_out_time: finalCheckOut,
           total_hours
@@ -737,12 +737,20 @@ export default function AttendancePage() {
                             <button
                               type="button"
                               onClick={() => {
-                                // Trích xuất giờ chuẩn 24h (HH:mm)
-                                const getTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''
+                                const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+                                
+                                // Format date YYYY-MM-DD for input
+                                const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+                                
                                 setEditingRecord({
                                   ...row,
-                                  check_in_time: getTime(row.check_in_raw),
-                                  check_out_time: getTime(row.check_out_raw)
+                                  in_date: getD(dIn),
+                                  in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                  in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                  out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
+                                  out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                  out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
                                 })
                               }}
                               className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
@@ -921,42 +929,70 @@ export default function AttendancePage() {
                   </div>
 
                   <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Ngày làm việc</label>
-                      <div className="relative">
-                        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">event</span>
+                    {/* KHỐI CHECK-IN */}
+                    <div className="p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50 space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="material-symbols-outlined text-blue-600 text-[16px]">login</span>
+                        <label className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">VÀO LÀM</label>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <input
                           type="date"
-                          value={editingRecord.work_date.split('/').reverse().join('-')}
-                          onChange={e => setEditingRecord({
-                            ...editingRecord, 
-                            work_date: e.target.value.split('-').reverse().join('/')
-                          })}
-                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
+                          value={editingRecord.in_date}
+                          onChange={e => setEditingRecord({...editingRecord, in_date: e.target.value})}
+                          className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-medium text-[13px]"
                           required
                         />
+                        <div className="flex flex-1 gap-1">
+                          <select 
+                            value={editingRecord.in_h} 
+                            onChange={e => setEditingRecord({...editingRecord, in_h: e.target.value})}
+                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                          >
+                            {Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                          </select>
+                          <select 
+                            value={editingRecord.in_m} 
+                            onChange={e => setEditingRecord({...editingRecord, in_m: e.target.value})}
+                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                          >
+                            {Array.from({length: 60}, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                          </select>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Giờ vào</label>
-                        <input
-                          type="time"
-                          value={editingRecord.check_in_time || ''}
-                          onChange={e => setEditingRecord({...editingRecord, check_in_time: e.target.value})}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold text-[14px]"
-                          required
-                        />
+                    {/* KHỐI CHECK-OUT */}
+                    <div className="p-4 bg-red-50/30 rounded-2xl border border-red-100/50 space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="material-symbols-outlined text-red-600 text-[16px]">logout</span>
+                        <label className="text-[10px] font-bold text-red-700 uppercase tracking-wider">RA VỀ</label>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Giờ ra</label>
+                      <div className="flex items-center gap-2">
                         <input
-                          type="time"
-                          value={editingRecord.check_out_time || ''}
-                          onChange={e => setEditingRecord({...editingRecord, check_out_time: e.target.value})}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold text-[14px]"
+                          type="date"
+                          value={editingRecord.out_date}
+                          onChange={e => setEditingRecord({...editingRecord, out_date: e.target.value})}
+                          className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-medium text-[13px]"
                         />
+                        <div className="flex flex-1 gap-1">
+                          <select 
+                            value={editingRecord.out_h} 
+                            onChange={e => setEditingRecord({...editingRecord, out_h: e.target.value})}
+                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                          >
+                            <option value="">Giờ</option>
+                            {Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                          </select>
+                          <select 
+                            value={editingRecord.out_m} 
+                            onChange={e => setEditingRecord({...editingRecord, out_m: e.target.value})}
+                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                          >
+                            <option value="">Phút</option>
+                            {Array.from({length: 60}, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                          </select>
+                        </div>
                       </div>
                     </div>
 
