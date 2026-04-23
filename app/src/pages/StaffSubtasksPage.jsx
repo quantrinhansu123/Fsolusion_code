@@ -19,6 +19,13 @@ const STATUS_OPTIONS = [
   { value: 'overdue', label: 'Trễ hẹn' },
 ]
 
+const EVALUATION_OPTIONS = [
+  { value: 'none', label: 'Chưa đánh giá', color: 'text-slate-400 bg-slate-50 border-slate-200' },
+  { value: 'good', label: 'Tốt', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  { value: 'fair', label: 'Khá', color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  { value: 'bad', label: 'Tệ', color: 'text-rose-600 bg-rose-50 border-rose-200' },
+]
+
 const DEADLINE_FILTER_OPTIONS = [
   { value: 'all', label: 'Tất cả deadline' },
   { value: 'overdue', label: 'Đã quá hạn' },
@@ -144,7 +151,7 @@ export default function StaffSubtasksPage() {
       // 1. Auth User, 2. Danh sách nhân sự, 3. Danh sách subtasks (Query 1) - CHẠY SONG SONG
       let subtasksQuery = supabase
         .from('subtasks')
-        .select('subtask_id, name, status, deadline, completed_at, assigned_to, work_time, description, image_url, content_blocks, task_id, users:assigned_to(user_id, full_name)')
+        .select('subtask_id, name, status, deadline, completed_at, assigned_to, work_time, description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note, users:assigned_to(user_id, full_name)')
         .not('assigned_to', 'is', null)
       
       // Áp dụng filters nặng lên server (Giữ assignee ở client để ko mất list nhân sự)
@@ -249,7 +256,7 @@ export default function StaffSubtasksPage() {
         .from('subtasks')
         .select(`
           subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
-          description, image_url, content_blocks, task_id,
+          description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
           users:assigned_to(user_id, full_name)
         `)
         .not('assigned_to', 'is', null)
@@ -422,6 +429,26 @@ export default function StaffSubtasksPage() {
       setToast({ message: err.message || 'Không lưu được thời gian làm việc', type: 'error' })
     } finally {
       setUpdatingWorkTimeId(null)
+    }
+  }
+
+  async function updateSubtaskEvaluation(subtaskId, field, value) {
+    // Optimistic UI update
+    setSubtasks(prev => prev.map(st => (
+      st.subtask_id === subtaskId ? { ...st, [field]: value } : st
+    )))
+
+    try {
+      const { error } = await supabase
+        .from('subtasks')
+        .update({ [field]: value })
+        .eq('subtask_id', subtaskId)
+      
+      if (error) throw error
+    } catch (err) {
+      console.error('Update evaluation error:', err)
+      setToast({ message: 'Không thể lưu nhận xét: ' + err.message, type: 'error' })
+      // Revert if error? (Optional, usually for evaluation we just let it be and user might retry)
     }
   }
 
@@ -715,21 +742,34 @@ export default function StaffSubtasksPage() {
                                     <div className="mt-3 space-y-2 border-t border-slate-100 pt-2">
                                       {validBlocks.map((block, bIdx) => (
                                         <div key={bIdx} className="flex gap-3 items-start group/block">
-                                          {block.image_url && block.image_url.trim() && (
-                                            <div
-                                              className="relative shrink-0 cursor-pointer"
-                                              onClick={() => setLightboxUrl(block.image_url)}
-                                            >
-                                              <img
-                                                src={block.image_url}
-                                                alt="Subtask attachment"
-                                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 shadow-sm group-hover/block:border-blue-400 transition-all"
-                                              />
-                                              <div className="absolute inset-0 bg-black/5 group-hover/block:bg-transparent rounded-lg transition-all" />
-                                            </div>
-                                          )}
+                                          {(() => {
+                                            const urls = []
+                                            if (block.image_url?.trim()) urls.push(block.image_url.trim())
+                                            if (Array.isArray(block.image_urls)) {
+                                              block.image_urls.forEach(u => u?.trim() && !urls.includes(u.trim()) && urls.push(u.trim()))
+                                            }
+                                            if (urls.length === 0) return null
+                                            return (
+                                              <div className="flex flex-col gap-1 shrink-0">
+                                                {urls.map((url, uIdx) => (
+                                                  <div
+                                                    key={uIdx}
+                                                    className="relative cursor-pointer group/img"
+                                                    onClick={() => setLightboxUrl(url)}
+                                                  >
+                                                    <img
+                                                      src={url}
+                                                      alt="Subtask attachment"
+                                                      className="w-12 h-12 object-cover rounded-lg border border-slate-200 shadow-sm group-hover/img:border-blue-400 transition-all"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/5 group-hover/img:bg-transparent rounded-lg transition-all" />
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )
+                                          })()}
                                           {block.content && (
-                                            <p className="text-[11px] text-slate-500 leading-relaxed italic flex-1 py-0.5">
+                                            <p className="text-[11px] text-slate-500 leading-relaxed italic flex-1 py-0.5 whitespace-pre-wrap">
                                               {block.content}
                                             </p>
                                           )}
@@ -738,6 +778,44 @@ export default function StaffSubtasksPage() {
                                     </div>
                                   )
                                 })()}
+
+                                {/* ── EVALUATION ROW ── */}
+                                <div className="mt-3 -mx-3 -mb-3 bg-gray-50/80 px-3 py-1.5 border-t border-slate-100 flex items-center gap-3 rounded-b-lg">
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá:</span>
+                                    <div className="relative">
+                                      <select
+                                        value={st.evaluation_rating || 'none'}
+                                        onChange={(e) => updateSubtaskEvaluation(st.subtask_id, 'evaluation_rating', e.target.value)}
+                                        className={`appearance-none rounded px-2 py-0.5 text-[10px] font-bold border transition-all cursor-pointer focus:outline-none ${
+                                          EVALUATION_OPTIONS.find(o => o.value === (st.evaluation_rating || 'none'))?.color || EVALUATION_OPTIONS[0].color
+                                        }`}
+                                      >
+                                        {EVALUATION_OPTIONS.map(o => (
+                                          <option key={o.value} value={o.value}>{o.label}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1">
+                                    <input
+                                      type="text"
+                                      placeholder="Ghi chú đánh giá..."
+                                      defaultValue={st.evaluation_note || ''}
+                                      onBlur={(e) => {
+                                        if (e.target.value !== (st.evaluation_note || '')) {
+                                          updateSubtaskEvaluation(st.subtask_id, 'evaluation_note', e.target.value)
+                                        }
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.target.blur()
+                                        }
+                                      }}
+                                      className="w-full bg-transparent border-none focus:ring-0 text-[10px] text-slate-600 placeholder:text-slate-400 p-0 h-5"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>

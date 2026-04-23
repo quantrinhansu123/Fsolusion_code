@@ -1478,13 +1478,20 @@ function ModalTaskCard({
                             {allMedia.map((url, mIdx) => {
                               const isImg = url.startsWith('data:image/') || (isHttpUrl(url) && shouldTryImageFirst(url))
                               return isImg ? (
-                                <div key={mIdx} className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center">
+                                <div
+                                  key={mIdx}
+                                  className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center cursor-zoom-in group hover:opacity-90 transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setImageLightboxUrl(url);
+                                  }}
+                                >
                                   <img src={url} alt="Preview" className="w-full h-full object-cover" />
                                 </div>
                               ) : (
                                 <div key={mIdx} className="w-full rounded-[12px] bg-white border border-slate-200 aspect-[4/3] flex flex-col items-center justify-center gap-1 text-[#006591]">
                                   <span className="material-symbols-outlined text-[20px]">attach_file</span>
-                                  <span className="text-[8px] font-bold uppercase truncate px-1 w-full text-center">{url}</span>
+                                  <span className="text-[8px] font-bold uppercase truncate px-2 w-full text-center">Link tài liệu</span>
                                 </div>
                               )
                             })}
@@ -1791,7 +1798,7 @@ export default function ProjectsPage() {
           .select(`
             customer_id, name, created_at, updated_at,
             projects (
-              project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
+              project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at, documents,
               project_assignments(user_id, users(full_name))
             )
           `),
@@ -2838,6 +2845,37 @@ export default function ProjectsPage() {
                             </span>
                             <span>Hạn: {formatDeadlineDisplay(p.deadline)}</span>
                           </div>
+
+                          {/* HIỂN THỊ TÀI LIỆU DỰ ÁN */}
+                          {(() => {
+                            const docs = Array.isArray(p.documents) ? p.documents : [];
+                            const validDocs = docs.filter(d => d.link?.trim());
+                            if (validDocs.length === 0) return null;
+                            return (
+                              <div className="pt-2 flex items-center gap-3">
+                                <div className="flex items-center gap-1 shrink-0 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                  <span className="material-symbols-outlined text-[14px]">description</span>
+                                  Tài liệu:
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {validDocs.map((doc, idx) => (
+                                    <a
+                                      key={idx}
+                                      href={doc.link.startsWith('http') ? doc.link : `https://${doc.link}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-white border border-slate-200 text-[#006591] hover:bg-[#dae2fd] hover:border-[#006591]/30 transition-all shadow-sm group"
+                                    >
+                                      <span className="material-symbols-outlined text-[13px] text-[#64748b] group-hover:text-[#006591]">link</span>
+                                      <span className="text-[10px] font-bold truncate max-w-[150px]">
+                                        {doc.name?.trim() || `Link ${idx + 1}`}
+                                      </span>
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <StatusBadge status={p.status} />
@@ -2952,6 +2990,34 @@ export default function ProjectsPage() {
                             </span>
                           )}
                         </div>
+
+                        {/* MOBILE: HIỂN THỊ TÀI LIỆU */}
+                        {(() => {
+                          const docs = Array.isArray(p.documents) ? p.documents : [];
+                          const validDocs = docs.filter(d => d.link?.trim());
+                          if (validDocs.length === 0) return null;
+                          return (
+                            <div className="pt-1 flex items-center gap-2">
+                              <div className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter shrink-0">TÀI LIỆU:</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {validDocs.map((doc, idx) => (
+                                  <a
+                                    key={idx}
+                                    href={doc.link.startsWith('http') ? doc.link : `https://${doc.link}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-100 text-[#006591] shadow-sm active:scale-95"
+                                  >
+                                    <span className="material-symbols-outlined text-[10px]">link</span>
+                                    <span className="text-[9px] font-bold truncate max-w-[80px]">
+                                      {doc.name?.trim() || 'Link'}
+                                    </span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         <button
                           type="button"

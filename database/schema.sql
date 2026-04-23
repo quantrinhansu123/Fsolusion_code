@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS subtasks (
                                 CHECK (status IN ('pending', 'in_progress', 'completed', 'overdue')),
     completed_at  TIMESTAMPTZ,
     work_time     JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    evaluation_rating TEXT,
+    evaluation_note   TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

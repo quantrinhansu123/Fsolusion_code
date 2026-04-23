@@ -136,23 +136,32 @@ function SearchableSelect({ value, options = [], onChange, placeholder = '-- Ch�
       </span>
       
       {open && (
-        <div className="absolute top-full left-0 right-0 z-50 mt-2 rounded-xl border border-[#bec8d2]/30 bg-white shadow-lg max-h-72 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-[60] mt-1.5 rounded-xl border border-[#bec8d2]/30 bg-white shadow-xl max-h-60 overflow-y-auto py-1 animate-in fade-in slide-in-from-top-1 duration-200">
           {filtered.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-[#6e7881] text-center">Không tìm thấy kết quả</div>
+            <div className="px-4 py-6 text-center text-sm text-slate-400 italic">
+              Không tìm thấy khách hàng...
+            </div>
           ) : (
-            <ul className="divide-y divide-[#bec8d2]/10">
+            <ul>
               {filtered.map(o => (
                 <li key={o.value}>
                   <button
                     type="button"
-                    className="w-full text-left px-4 py-2.5 text-sm text-[#131b2e] hover:bg-[#f2f3ff] transition-colors"
-                    onClick={() => {
-                      onChange(o.value)
-                      setSearch('')
-                      setOpen(false)
+                    onMouseDown={(e) => {
+                      // Dùng onMouseDown để chạy trước onBlur của input
+                      e.preventDefault();
+                      onChange(o.value);
+                      setSearch('');
+                      setOpen(false);
                     }}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between group ${
+                      value === o.value ? 'bg-[#f2f3ff] text-[#006591] font-bold' : 'text-[#131b2e] hover:bg-slate-50'
+                    }`}
                   >
-                    {o.label}
+                    <span className="truncate">{o.label}</span>
+                    {value === o.value && (
+                      <span className="material-symbols-outlined text-[18px] text-[#006591]">check</span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -439,6 +448,62 @@ export function EntityFormModal({ title, subtitle, fields, data, onChange, onSav
             </FormField>
           )
         }
+        if (field.type === 'dynamic_pairs') {
+          const key = field.name
+          const items = Array.isArray(data[key]) ? data[key] : []
+          const setItems = next => onChange(key, next)
+          const updateItem = (i, patch) => {
+            setItems(items.map((it, j) => (j === i ? { ...it, ...patch } : it)))
+          }
+          const removeItem = i => setItems(items.filter((_, j) => j !== i))
+          const addItem = () => setItems([...items, { name: '', link: '' }])
+
+          return (
+            <FormField key={key} label={field.label}>
+              <div className="space-y-3">
+                {items.map((item, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-5">
+                      <input
+                        type="text"
+                        className={`${inputCls} !py-2 !text-xs`}
+                        placeholder="Tên tài liệu (VD: Quy trình SEO)"
+                        value={item.name || ''}
+                        onChange={e => updateItem(i, { name: e.target.value })}
+                      />
+                    </div>
+                    <div className="col-span-6">
+                      <input
+                        type="text"
+                        className={`${inputCls} !py-2 !text-xs`}
+                        placeholder="Link..."
+                        value={item.link || ''}
+                        onChange={e => updateItem(i, { link: e.target.value })}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => removeItem(i)}
+                        className="text-[#ba1a1a] hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-[#006591]/40 text-[#006591] text-xs font-bold hover:bg-[#f2f3ff] transition-all"
+                >
+                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  Thêm tài liệu
+                </button>
+              </div>
+            </FormField>
+          )
+        }
         if (field.type === 'grid') {
           const gridCols = field.gridCols ?? 'grid-cols-1 sm:grid-cols-2'
           return (
@@ -528,6 +593,7 @@ export const PROJECT_FIELDS = [
       { name: 'deadline',    label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
     ]
   },
+  { name: 'documents',   label: 'Tài liệu', type: 'dynamic_pairs' },
   { name: 'status', label: 'Trạng thái', type: 'select' },
 ]
 
