@@ -17,6 +17,9 @@ export default function AttendancePage() {
   const [selectedIds, setSelectedIds] = useState(new Set()) // Lưu ID các bản ghi được chọn
   const [deleting, setDeleting] = useState(false) // Trạng thái xóa
   const [toast, setToast] = useState(null) // Thông báo
+  const [currentPage, setCurrentPage] = useState(1) // Phân trang
+  const [totalRecords, setTotalRecords] = useState(0) // Tổng số bản ghi
+  const PAGE_SIZE = 100 // Lấy 100 bản ghi trên trang
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -62,7 +65,7 @@ export default function AttendancePage() {
     fetchStaffs()
   }, [])
 
-  // 2. Hàm chính: Lấy dữ liệu chấm công từ Supabase
+  // 2. Hàm chính: Lấy dữ liệu chấm công từ Supabase (có LIMIT & OFFSET để tối ưu)
   const fetchAttendanceData = async () => {
     setLoading(true)
     setError(null)
@@ -70,6 +73,7 @@ export default function AttendancePage() {
       // Logic Query (PostgreSQL lồng ghép API Supabase): 
       // - Join work_sessions với users (Lấy Avatar, Fullname)
       // - Join work_sessions với subtasks (Lấy Tên task đã làm)
+      // - LIMIT 100 & OFFSET phân trang để tối ưu performance
       let query = supabase
         .from('work_sessions')
         .select(`
@@ -80,8 +84,10 @@ export default function AttendancePage() {
           total_hours,
           users:user_id (user_id, full_name, avatar_url),
           subtasks (name, status)
-        `)
+        `, { count: 'exact' })
         .order('check_in_time', { ascending: false })
+        .offset((currentPage - 1) * PAGE_SIZE)
+        .limit(PAGE_SIZE)
 
       // Xử lý bộ lọc
       if (filterDate) {
@@ -101,9 +107,11 @@ export default function AttendancePage() {
       }
 
       // Execute API Call
-      const { data, error: fetchError } = await query
+      const { data, error: fetchError, count } = await query
 
       if (fetchError) throw fetchError
+      
+      setTotalRecords(count || 0)
 
       // Trả về JSON, transform map dữ liệu ra giao diện
       const formattedData = data.map(session => {
@@ -158,10 +166,18 @@ export default function AttendancePage() {
     }
   }
 
-  // 3. Tự động gọi hàm API mỗi khi State Bộ lọc thay đổi
+  // 3. Tự động gọi hàm API mỗi khi State Bộ lọc thay đổi (reset về trang 1)
   useEffect(() => {
+    setCurrentPage(1) // Reset về trang 1 khi filter thay đổi
     fetchAttendanceData()
   }, [filterDate, filterMonth, filterUser])
+
+  // Gọi lại khi page thay đổi
+  useEffect(() => {
+    if (currentPage > 1) {
+      fetchAttendanceData()
+    }
+  }, [currentPage])
 
   // Tự động ẩn Toast sau 2 giây
   useEffect(() => {
@@ -754,6 +770,40 @@ export default function AttendancePage() {
                 </div>
               )}
             </div>
+
+            {/* Phân trang */}
+            {!loading && totalRecords > PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-6 pb-4">
+                <div className="text-sm text-slate-600">
+                  Hiển thị <span className="font-bold">{(currentPage - 1) * PAGE_SIZE + 1}</span>
+                  {' '}đến{' '}
+                  <span className="font-bold">{Math.min(currentPage * PAGE_SIZE, totalRecords)}</span>
+                  {' '}của{' '}
+                  <span className="font-bold">{totalRecords}</span> bản ghi
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1 || loading}
+                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
+                  >
+                    Trước
+                  </button>
+                  <span className="text-sm text-slate-600 px-3">
+                    Trang <span className="font-bold">{currentPage}</span> / <span className="font-bold">{Math.ceil(totalRecords / PAGE_SIZE)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    disabled={currentPage >= Math.ceil(totalRecords / PAGE_SIZE) || loading}
+                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            )}
 
           </div>
         </main>
