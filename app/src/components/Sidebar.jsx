@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
+import { useAuth } from '../utils/AuthContext'
 
 export default function Sidebar() {
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, loading } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
-
-  useEffect(() => {
-    fetchProfile()
-  }, [])
 
   useEffect(() => {
     function handleOpenSidebar() {
@@ -19,21 +16,14 @@ export default function Sidebar() {
     return () => window.removeEventListener('open-mobile-sidebar', handleOpenSidebar)
   }, [])
 
-  async function fetchProfile() {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (authUser) {
-      const { data: profile } = await supabase.from('users').select('*').eq('user_id', authUser.id).single()
-      setUser({ ...authUser, ...profile })
-    }
-  }
-
-  const role = user?.role || 'employee'
-  const name = user?.full_name || 'User'
+  const role = user?.role || (loading ? 'loading' : 'employee')
+  const name = user?.full_name || user?.email?.split('@')[0] || 'User'
 
   const ROLE_NAMES = {
     admin: 'Quản trị viên',
     manager: 'Quản lý',
-    employee: 'Nhân viên'
+    employee: 'Nhân viên',
+    loading: 'Đang tải...'
   }
 
   const linkBase = 'flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-[13px]'

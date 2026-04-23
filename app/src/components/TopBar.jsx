@@ -1,29 +1,17 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../utils/supabase'
+import { useAuth } from '../utils/AuthContext'
 
 export default function TopBar({ title, subtitle }) {
-  const [user, setUser] = useState(null)
+  const { user, loading } = useAuth()
 
-  useEffect(() => {
-    fetchProfile()
-  }, [])
-
-  async function fetchProfile() {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (authUser) {
-      const { data: profile } = await supabase.from('users').select('*').eq('user_id', authUser.id).single()
-      setUser({ ...authUser, ...profile })
-    }
-  }
-
-  const role = user?.role || 'employee'
-  const name = user?.full_name || 'User'
+  const role = user?.role || (loading ? 'loading' : 'employee')
+  const name = user?.full_name || user?.email?.split('@')[0] || 'User'
   const initial = name.charAt(0).toUpperCase()
 
   const ROLE_NAMES = {
     admin: 'Quản trị viên',
     manager: 'Quản lý',
-    employee: 'Nhân viên'
+    employee: 'Nhân viên',
+    loading: 'Đang tải...'
   }
 
   function openMobileSidebar() {

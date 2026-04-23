@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import StatusBadge from '../components/StatusBadge'
@@ -1585,6 +1586,7 @@ export default function ProjectsPage() {
   const [userRole, setUserRole] = useState('employee')
   const [allUsers, setAllUsers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [hasFetched, setHasFetched] = useState(false)
   const [memberRowOpen, setMemberRowOpen] = useState({})
   const [savingAssign, setSavingAssign] = useState(false)
   const [savingProject, setSavingProject] = useState(false)
@@ -1636,15 +1638,60 @@ export default function ProjectsPage() {
     setProjectTasksViewId(null)
   }, [projectsModalCustomerId])
 
+  const [loadingKanban, setLoadingKanban] = useState(false)
+
   useEffect(() => {
     if (!projectsModalCustomer || !projectTasksViewId) return
     const exists = projectsModalCustomer.projects?.some(p => p.project_id === projectTasksViewId)
-    if (!exists) setProjectTasksViewId(null)
+    if (!exists) {
+      setProjectTasksViewId(null)
+      return
+    }
+    
+    // Check if we need to load full details
+    const proj = projectsModalCustomer.projects.find(p => p.project_id === projectTasksViewId)
+    if (proj && proj.features && proj.features.length > 0 && proj.features[0].name === undefined) {
+      fetchProjectDetails(projectTasksViewId)
+    }
   }, [projectsModalCustomer, projectTasksViewId])
 
+  async function fetchProjectDetails(projectId) {
+    setLoadingKanban(true)
+    const { data, error } = await supabase
+      .from('features')
+      .select(`
+        *,
+        tasks (*, users:assigned_to(full_name),
+          subtasks (*, users:assigned_to(full_name))
+        )
+      `)
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+
+    if (!error && data) {
+      setCustomers(prev => prev.map(c => ({
+        ...c,
+        projects: c.projects?.map(p => {
+          if (p.project_id === projectId) {
+            return { ...p, features: data }
+          }
+          return p
+        })
+      })))
+    }
+    setLoadingKanban(false)
+  }
+
+
+  const location = useLocation()
+  const isActive = location.pathname === '/projects'
+
   useEffect(() => {
-    init()
-  }, [])
+    if (isActive) {
+      init(!hasFetched) // showSpinner = true if not fetched yet
+      setHasFetched(true)
+    }
+  }, [isActive])
 
   useEffect(() => {
     const onDoc = e => {
@@ -1654,8 +1701,8 @@ export default function ProjectsPage() {
     return () => document.removeEventListener('click', onDoc)
   }, [])
 
-  async function init() {
-    setLoading(true)
+  async function init(showSpinner = true) {
+    if (showSpinner) setLoading(true)
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (authUser) {
       const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
@@ -1669,19 +1716,15 @@ export default function ProjectsPage() {
     await fetchData()
   }
 
-  async function fetchData(silent = false) {
+  async function fetchData(silent = true) {
     if (!silent) setLoading(true)
     const { data, error } = await supabase
       .from('customers')
       .select(`
-        *,
-        projects (*, 
-          project_assignments(*, users(full_name)), 
-          features (*, 
-            tasks (*, users:assigned_to(full_name), 
-              subtasks (*, users:assigned_to(full_name))
-            )
-          )
+        customer_id, name, created_at, updated_at,
+        projects (
+          project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at,
+          project_assignments(user_id, users(full_name))
         )
       `)
 
@@ -2618,6 +2661,10 @@ export default function ProjectsPage() {
           {projectTasksViewId && projectInTasksView ? (
             projectTasksModalEntries.length === 0 ? (
               <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
+            ) : loadingKanban ? (
+              <div className="flex h-40 w-full items-center justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006591]"></div>
+              </div>
             ) : (
               taskKanbanGrouped && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full">

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import Toast from '../components/Toast'
@@ -63,6 +64,7 @@ function matchesDeadlineFilter(st, deadlineFilter) {
 
 export default function StaffSubtasksPage() {
   const [loading, setLoading] = useState(true)
+  const [hasFetched, setHasFetched] = useState(false)
   const [staffUsers, setStaffUsers] = useState([])
   const [subtasks, setSubtasks] = useState([])
   const [selectedAssignee, setSelectedAssignee] = useState('all')
@@ -104,9 +106,15 @@ export default function StaffSubtasksPage() {
   const PAGE_SIZE = 3
   const [groupPages, setGroupPages] = useState({}) // { project_id: currentPage }
 
+  const location = useLocation()
+  const isActive = location.pathname === '/staff-subtasks'
+
   useEffect(() => {
-    fetchData()
-  }, [])
+    if (isActive) {
+      fetchData(!hasFetched) // showSpinner = true if not fetched yet
+      setHasFetched(true)
+    }
+  }, [isActive])
 
   const handlePageChange = (groupKey, newPage) => {
     setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
@@ -116,8 +124,8 @@ export default function StaffSubtasksPage() {
     }
   }
 
-  async function fetchData() {
-    setLoading(true)
+  async function fetchData(showSpinner = true) {
+    if (showSpinner) setLoading(true)
     try {
       const [{ data: usersData, error: usersErr }, { data: subtasksData, error: subtasksErr }] = await Promise.all([
         supabase

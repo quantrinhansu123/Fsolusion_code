@@ -9,6 +9,7 @@ import CustomerManagement from './pages/CustomerManagement'
 import ProgressReportPage from './pages/ProgressReportPage'
 import StaffSubtasksPage from './pages/StaffSubtasksPage'
 import AttendancePage from './pages/AttendancePage'
+import { AuthProvider, useAuth } from './utils/AuthContext'
 import './index.css'
 
 /**
@@ -19,25 +20,19 @@ function KeepAliveApp() {
   const location = useLocation()
   const navigate = useNavigate()
   const path = location.pathname
+  const { user, loading } = useAuth()
 
-  // Kiểm tra auth một lần khi app load
+  // Kiểm tra auth và điều hướng
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session && path !== '/login') {
+    if (!loading) {
+      if (!user && path !== '/login') {
         navigate('/login', { replace: true })
       }
-      if (session && (path === '/' || path === '/login')) {
+      if (user && (path === '/' || path === '/login')) {
         navigate('/dashboard', { replace: true })
       }
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_OUT' || !session) && path !== '/login') {
-        navigate('/login', { replace: true })
-      }
-    })
-    return () => subscription.unsubscribe()
-  }, [])
+    }
+  }, [user, loading, path])
 
   // Trang Login render riêng, không keep-alive
   if (path === '/login') return <LoginPage />
@@ -59,9 +54,11 @@ function KeepAliveApp() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/*" element={<KeepAliveApp />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/*" element={<KeepAliveApp />} />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
@@ -28,44 +29,56 @@ export default function DashboardPage() {
   const [selectedAssignee, setSelectedAssignee] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [hasFetched, setHasFetched] = useState(false)
+
+  const location = useLocation()
+  const isActive = location.pathname === '/dashboard'
 
   useEffect(() => {
-    fetchDashboardData()
-  }, [])
+    if (isActive) {
+      fetchDashboardData(!hasFetched) // showSpinner = true if not fetched yet
+      setHasFetched(true)
+    }
+  }, [isActive])
 
-  async function fetchDashboardData() {
-    setLoading(true)
+  async function fetchDashboardData(showSpinner = true) {
+    if (showSpinner) setLoading(true)
     try {
-      // 1. Fetch Stats
+      // Fire ALL queries concurrently
       const [
-        { count: customerCount },
-        { count: projectCount },
-        { data: projectsData },
+        customerCountRes,
+        projectCountRes,
+        projectsDataRes,
+        recentProjectsRes,
+        recentTasksRes,
+        subtaskDataRes
       ] = await Promise.all([
         supabase.from('customers').select('*', { count: 'exact', head: true }),
         supabase.from('projects').select('*', { count: 'exact', head: true }),
         supabase.from('projects').select('pricing'),
+        supabase.from('projects').select('name, created_at').order('created_at', { ascending: false }).limit(3),
+        supabase.from('tasks').select('name, created_at, status').order('created_at', { ascending: false }).limit(3),
+        supabase
+          .from('subtasks')
+          .select(`
+            subtask_id, name, status, deadline, assigned_to, updated_at,
+            users:assigned_to(user_id, full_name),
+            task:tasks(name, feature:features(name, project:projects(name)))
+          `)
+          .not('assigned_to', 'is', null)
+          .order('updated_at', { ascending: false })
       ])
 
-      const totalRevenue = (projectsData || []).reduce((sum, p) => sum + (Number(p.pricing) || 0), 0)
+      const totalRevenue = (projectsDataRes.data || []).reduce((sum, p) => sum + (Number(p.pricing) || 0), 0)
 
       setStats([
-        { label: 'Tổng khách hàng', value: String(customerCount || 0), trend: '', trendLabel: 'Hệ thống', icon: 'groups', bg: 'bg-teal-100', iconColor: 'text-teal-600', trendBg: 'bg-teal-50', trendText: 'text-teal-600', circleBg: 'bg-teal-50' },
-        { label: 'Tổng dự án', value: String(projectCount || 0), trend: '', trendLabel: 'Dự án đang chạy', icon: 'folder_open', bg: 'bg-blue-100', iconColor: 'text-blue-600', trendBg: 'bg-blue-50', trendText: 'text-blue-600', circleBg: 'bg-blue-50' },
+        { label: 'Tổng khách hàng', value: String(customerCountRes.count || 0), trend: '', trendLabel: 'Hệ thống', icon: 'groups', bg: 'bg-teal-100', iconColor: 'text-teal-600', trendBg: 'bg-teal-50', trendText: 'text-teal-600', circleBg: 'bg-teal-50' },
+        { label: 'Tổng dự án', value: String(projectCountRes.count || 0), trend: '', trendLabel: 'Dự án đang chạy', icon: 'folder_open', bg: 'bg-blue-100', iconColor: 'text-blue-600', trendBg: 'bg-blue-50', trendText: 'text-blue-600', circleBg: 'bg-blue-50' },
         { label: 'Tổng doanh thu', value: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalRevenue), trend: '', trendLabel: 'Kế hoạch', icon: 'bar_chart', bg: 'bg-green-100', iconColor: 'text-green-600', trendBg: 'bg-green-50', trendText: 'text-green-600', circleBg: 'bg-green-50' },
       ])
 
-      // 2. Fetch Recent Activities (Mix of Projects and Tasks)
-      const [
-        { data: recentProjects },
-        { data: recentTasks },
-      ] = await Promise.all([
-        supabase.from('projects').select('name, created_at').order('created_at', { ascending: false }).limit(3),
-        supabase.from('tasks').select('name, created_at, status').order('created_at', { ascending: false }).limit(3),
-      ])
-
       const combined = [
-        ...(recentProjects || []).map(p => ({
+        ...(recentProjectsRes.data || []).map(p => ({
           icon: 'folder',
           iconBg: 'bg-[#c9e6ff]',
           iconColor: 'text-[#001e2f]',
@@ -74,7 +87,7 @@ export default function DashboardPage() {
           tag: 'Dự án',
           tagCls: 'bg-[#dae2fd] text-[#3e4850]',
         })),
-        ...(recentTasks || []).map(t => {
+        ...(recentTasksRes.data || []).map(t => {
           const STATUS_MAP = {
             pending: 'Đang chờ',
             in_progress: 'Đang làm',
@@ -94,30 +107,7 @@ export default function DashboardPage() {
       ].sort((a, b) => new Date(b.meta.split('vào ')[1] || 0) - new Date(a.meta.split('vào ')[1] || 0))
 
       setActivities(combined.slice(0, 5))
-
-      // 3. Fetch subtask theo nhân sự phụ trách
-      const { data: subtaskData } = await supabase
-        .from('subtasks')
-        .select(`
-          subtask_id,
-          name,
-          status,
-          deadline,
-          assigned_to,
-          updated_at,
-          users:assigned_to(user_id, full_name),
-          task:tasks(
-            name,
-            feature:features(
-              name,
-              project:projects(name)
-            )
-          )
-        `)
-        .not('assigned_to', 'is', null)
-        .order('updated_at', { ascending: false })
-
-      setSubtaskByStaff(subtaskData || [])
+      setSubtaskByStaff(subtaskDataRes.data || [])
     } catch (err) {
       console.error('Error fetching dashboard data:', err)
     } finally {
@@ -268,7 +258,36 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <div className="mb-4 max-w-xs">
+            {/* Desktop: Horizontal staff filter buttons */}
+            <div className="mb-4 hidden md:flex flex-wrap gap-2">
+              <button
+                className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === 'all'
+                  ? 'bg-[#006591] text-white border-[#006591]'
+                  : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'}`}
+                onClick={() => {
+                  setSelectedAssignee('all');
+                  setCurrentPage(1);
+                }}
+              >
+                Tất cả nhân sự
+              </button>
+              {assigneeOptions.map(p => (
+                <button
+                  key={p.id}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === p.id
+                    ? 'bg-[#006591] text-white border-[#006591]'
+                    : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'}`}
+                  onClick={() => {
+                    setSelectedAssignee(p.id);
+                    setCurrentPage(1);
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            {/* Mobile: Combobox chọn nhân sự */}
+            <div className="mb-4 md:hidden max-w-xs">
               <select
                 value={selectedAssignee}
                 onChange={(e) => {
@@ -277,7 +296,7 @@ export default function DashboardPage() {
                 }}
                 className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold border border-[#bec8d2]/40 bg-white text-[#131b2e] hover:bg-[#f2f3ff] focus:outline-none focus:ring-2 focus:ring-[#006591] focus:border-transparent transition-all appearance-none cursor-pointer"
                 style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23006591' d='M1 1l5 5 5-5'/%3E%3C/svg%3E")`,
+                  backgroundImage: `url('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' viewBox=\'0 0 12 8\'%3E%3Cpath fill=\'%23006591\' d=\'M1 1l5 5 5-5\'/%3E%3C/svg%3E')`,
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'right 12px center',
                   paddingRight: '36px'
