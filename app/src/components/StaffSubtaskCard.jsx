@@ -34,8 +34,8 @@ function StaffSubtaskCard({
 }) {
   const sessions = normalizeSubtaskWorkTime(st.work_time)
   const running = subtaskHasOpenWorkSession(sessions)
-  const taskName = st.tasks?.name || '—'
-  const featureName = st.tasks?.features?.name || '—'
+  const taskName = st.task_name || '—'
+  const featureName = st.feature_name || '—'
   const timeStr = formatSubtaskWorkTimeSummary(sessions)
   const timeSummary = timeStr.includes('- tổng') ? timeStr.split('- tổng')[1].trim() : timeStr
 
@@ -58,7 +58,7 @@ function StaffSubtaskCard({
               {st.work_type === 'ngoai_hd' ? 'Thêm' : 'HĐ'}
             </span>
             <p className="text-[10px] text-slate-500 font-medium truncate flex-1 min-w-0">
-              {st.users?.full_name ? `${st.users.full_name.split(' ').slice(-2).join(' ')} · ` : ''}
+              {st.assignee_name ? `${st.assignee_name.split(' ').slice(-2).join(' ')} · ` : ''}
               {featureName} · {taskName}
             </p>
           </div>

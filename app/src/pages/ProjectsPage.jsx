@@ -667,11 +667,10 @@ function ModalTaskCard({
             )}
             <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${
-                  task.work_type === 'ngoai_hd' 
-                    ? 'bg-orange-100 text-orange-700 border border-orange-200' 
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${task.work_type === 'ngoai_hd'
+                    ? 'bg-orange-100 text-orange-700 border border-orange-200'
                     : 'bg-blue-50 text-blue-600 border border-blue-100'
-                }`}>
+                  }`}>
                   {task.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
                 </span>
                 <p className="text-sm font-bold leading-snug text-[#131b2e] truncate" title={task.name}>{task.name}</p>
@@ -1284,11 +1283,10 @@ function ModalTaskCard({
 
                         {/* 5. Loại CV */}
                         <div className="flex items-center w-full pl-6 lg:pl-0 lg:w-full">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            st.work_type === 'ngoai_hd' 
-                              ? 'bg-orange-100 text-orange-700 border border-orange-200' 
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${st.work_type === 'ngoai_hd'
+                              ? 'bg-orange-100 text-orange-700 border border-orange-200'
                               : 'bg-blue-50 text-blue-600 border border-blue-100'
-                          }`}>
+                            }`}>
                             {st.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
                           </span>
                         </div>
@@ -1666,7 +1664,7 @@ export default function ProjectsPage() {
   /** customer_id → true = đang thu gọn danh sách dự án */
   const [collapsedCustomerIds, setCollapsedCustomerIds] = useState({})
   const [openProjectMenuId, setOpenProjectMenuId] = useState(null)
-  
+
   // Logic chọn từ mẫu
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [templateLibrary, setTemplateLibrary] = useState([])
@@ -1681,7 +1679,7 @@ export default function ProjectsPage() {
   const handlePickTemplate = (template) => {
     // Chuyển dữ liệu từ mẫu sang form
     m.set('name', template.name)
-    
+
     // Gộp Yêu cầu và Giải pháp vào nội dung task
     const combinedContent = [
       template.requirement ? `YÊU CẦU: ${template.requirement}` : '',
@@ -2917,7 +2915,7 @@ export default function ProjectsPage() {
                     )}
                   </div>
                 </div>
-                
+
                 {/* NHÂN SỰ COLLAPSIBLE */}
                 <div className="border-t border-[#bec8d2]/15 pt-2">
                   <button
@@ -2970,12 +2968,12 @@ export default function ProjectsPage() {
                 <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
               ) : (
                 taskKanbanGrouped && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full h-full items-stretch">
+                  <div className="flex flex-col lg:flex-row lg:overflow-x-auto lg:overflow-y-hidden gap-5 w-full h-full items-stretch pb-8 pt-2 px-2 custom-scrollbar">
                     {KANBAN_COLUMNS.map(col => (
-                      <div
-                        key={col.key}
-                        className={`flex flex-col h-full rounded-xl border border-[#bec8d2]/25 bg-[#f4f6fc]/90 border-t-[3px] ${col.topBar} shadow-sm overflow-hidden`}
-                      >
+                        <div
+                          key={col.key}
+                          className={`flex flex-col h-full min-w-[320px] lg:min-w-[380px] lg:w-[380px] shrink-0 rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
+                        >
                         <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
@@ -2984,11 +2982,10 @@ export default function ProjectsPage() {
                             </span>
                           </div>
                         </div>
-                        <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
+                        <div className="flex-1 min-h-0 p-2 space-y-3 overflow-y-auto lg:max-h-full max-h-[60vh] custom-scrollbar touch-pan-y">
                           {taskKanbanGrouped[col.key].map(({ feature, task }) => (
                             <ModalTaskCard
                               key={task.task_id}
-                              compact
                               hideStatusBadge
                               statusActionsOutside
                               feature={feature}
@@ -3003,7 +3000,7 @@ export default function ProjectsPage() {
                               updatingSubtaskId={updatingSubtaskId}
                               onSubtaskWorkTimeSave={saveSubtaskWorkTime}
                               updatingSubtaskWorkTimeId={updatingSubtaskWorkTimeId}
-                               onSubtaskFeedbackChange={updateSubtaskFeedback}
+                              onSubtaskFeedbackChange={updateSubtaskFeedback}
                               onToast={(msg, type) => setToast({ message: msg, type })}
                             />
                           ))}
@@ -3055,14 +3052,14 @@ export default function ProjectsPage() {
       )}
 
       {isPickerOpen && (
-        <Modal 
-          title={`Chọn ${m.modal?.type === 'add_subtask' ? 'Tiểu mục' : 'Nhiệm vụ'} từ thư viện mẫu`} 
+        <Modal
+          title={`Chọn ${m.modal?.type === 'add_subtask' ? 'Tiểu mục' : 'Nhiệm vụ'} từ thư viện mẫu`}
           onClose={() => setIsPickerOpen(false)}
           maxWidthClassName="max-w-6xl"
         >
           <div className="h-[60vh] flex flex-col p-1">
-            <TaskTemplateManager 
-              templates={templateLibrary.filter(t => 
+            <TaskTemplateManager
+              templates={templateLibrary.filter(t =>
                 m.modal?.type === 'add_subtask' ? !!t.parent_id : !t.parent_id
               )}
               isPicker={true}

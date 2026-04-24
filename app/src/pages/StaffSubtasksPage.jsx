@@ -115,169 +115,43 @@ export default function StaffSubtasksPage() {
   const location = useLocation()
   const isActive = location.pathname === '/staff-subtasks'
 
-  useEffect(() => {
+  // -- PERFORMANCE REFACTOR: CACHING & STABILIZATION --
+  const authCache = useRef({ role: null, employeeUserId: null, initialized: false })
+  const lastFiltersRef = useRef(null)
+
+  const loadData = useCallback(async (silent = false) => {
     if (!isActive) return
-
-    if (!hasFetched) {
-      init().then(() => setHasFetched(true))
-    } else {
-      fetchData(true)
-    }
-  }, [isActive])
-
-  async function init() {
-    setLoading(true)
-    try {
-      // 1. Auth & Role Resolution
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      let role = null
-      let employeeUserId = null
-
-      if (authUser) {
-        const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
-        if (profile?.role) {
-          role = profile.role
-          setUserRole(role)
-          if (role === 'employee') {
-            setSelectedAssignee(authUser.id)
-            employeeUserId = authUser.id
-          }
-        }
-      }
-
-      // 2. Chuẩn bị filter server-side cho Project
-      let taskIdsFilter = null
-      if (selectedProjectIds.length > 0) {
-        const { data: tasksInProjects } = await supabase
-          .from('tasks')
-          .select('task_id, features!inner(project_id)')
-          .in('features.project_id', selectedProjectIds)
-        taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
-      }
-
-      // 3. Khởi tạo Query Subtasks
-      let subtasksQuery = supabase
-        .from('subtasks')
-        .select(`
-          subtask_id, name, status, deadline, completed_at, assigned_to, work_time, work_type,
-          description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
-          users:assigned_to(user_id, full_name),
-          tasks:task_id(
-            task_id, name, work_type,
-            features:feature_id(
-              feature_id, name,
-              projects:project_id(project_id, name)
-            )
-          )
-        `)
-        .not('assigned_to', 'is', null)
-
-      // Áp dụng Assigned_to filter
-      if (employeeUserId) {
-        subtasksQuery = subtasksQuery.eq('assigned_to', employeeUserId)
-      } else if (selectedAssignee !== 'all') {
-        subtasksQuery = subtasksQuery.eq('assigned_to', selectedAssignee)
-      }
-
-      // Áp dụng filters nặng lên server
-      if (selectedStatus !== 'all') subtasksQuery = subtasksQuery.eq('status', selectedStatus)
-      if (taskIdsFilter) subtasksQuery = subtasksQuery.in('task_id', taskIdsFilter)
-
-      // Deadline filters
-      const now = new Date().toISOString()
-      if (deadlineFilter === 'overdue') subtasksQuery = subtasksQuery.lt('deadline', now)
-      if (deadlineFilter === 'no_deadline') subtasksQuery = subtasksQuery.is('deadline', null)
-      if (deadlineFilter === 'today') {
-        const start = new Date(); start.setHours(0, 0, 0, 0)
-        const end = new Date(); end.setHours(23, 59, 59, 999)
-        subtasksQuery = subtasksQuery.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
-      }
-      if (deadlineFilter === 'week') {
-        const start = new Date().toISOString()
-        const end = new Date(); end.setDate(end.getDate() + 7)
-        subtasksQuery = subtasksQuery.gte('deadline', start).lte('deadline', end.toISOString())
-      }
-
-      const [
-        { data: usersData },
-        { data: subtasksData, error: subtasksErr }
-      ] = await Promise.all([
-        supabase.from('users').select('user_id, full_name').order('full_name', { ascending: true }),
-        subtasksQuery.order('updated_at', { ascending: false }).limit(300)
-      ])
-
-      if (subtasksErr) throw subtasksErr
-
-      setStaffUsers(usersData || [])
-      setSubtasks(subtasksData || [])
-    } catch (err) {
-      console.error('Init error:', err)
-      setToast({ message: err.message || 'Không khởi tạo được dữ liệu', type: 'error' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function fetchData(silent = false) {
+    console.time('Fetch Subtasks (View)')
     if (!silent) setLoading(true)
+
     try {
-      // 0. Lọc Task IDs theo Project (nếu có chọn Project)
-      let taskIdsFilter = null
-      if (selectedProjectIds.length > 0) {
-        const { data: tasksInProjects } = await supabase
-          .from('tasks')
-          .select('task_id, features!inner(project_id)')
-          .in('features.project_id', selectedProjectIds)
-        taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
+      const currentEmployeeUserId = authCache.current.employeeUserId
+      const effectiveAssignee = currentEmployeeUserId || selectedAssignee
 
-        // Nếu không có task nào thuộc project đó, trả về rỗng luôn
-        if (taskIdsFilter.length === 0) {
-          setSubtasks([])
-          return
-        }
-      }
+      const currentFilters = JSON.stringify({ effectiveAssignee, selectedStatus, deadlineFilter })
 
-      // Query 1: Lấy subtasks với đầy đủ Metadata lồng nhau (Single Query)
+      // QUERY FROM FLAT VIEW (Much faster)
       let query = supabase
-        .from('subtasks')
-        .select(`
-          subtask_id, name, status, deadline, completed_at, assigned_to, work_time, work_type,
-          description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
-          users:assigned_to(user_id, full_name),
-          tasks:task_id(
-            task_id, name, work_type,
-            features:feature_id(
-              feature_id, name,
-              projects:project_id(project_id, name)
-            )
-          )
-        `)
+        .from('staff_subtasks_view')
+        .select('*')
         .not('assigned_to', 'is', null)
 
-      // Lọc employee lên server
-      let currentAssigneeFilter = selectedAssignee
-      if (userRole === 'employee') {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) currentAssigneeFilter = user.id
-      }
-      if (currentAssigneeFilter !== 'all') query = query.eq('assigned_to', currentAssigneeFilter)
-
-      // Lọc nặng lên server
+      // Apply server-side filters
+      if (effectiveAssignee !== 'all') query = query.eq('assigned_to', effectiveAssignee)
       if (selectedStatus !== 'all') query = query.eq('status', selectedStatus)
-      if (taskIdsFilter) query = query.in('task_id', taskIdsFilter)
 
       // Deadline filters server-side
-      const now = new Date().toISOString()
-      if (deadlineFilter === 'overdue') query = query.lt('deadline', now)
+      const now = new Date()
+      if (deadlineFilter === 'overdue') query = query.lt('deadline', now.toISOString())
       if (deadlineFilter === 'no_deadline') query = query.is('deadline', null)
       if (deadlineFilter === 'today') {
-        const start = new Date(); start.setHours(0, 0, 0, 0)
-        const end = new Date(); end.setHours(23, 59, 59, 999)
+        const start = new Date(now); start.setHours(0, 0, 0, 0)
+        const end = new Date(now); end.setHours(23, 59, 59, 999)
         query = query.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
       }
       if (deadlineFilter === 'week') {
-        const start = new Date().toISOString()
-        const end = new Date(); end.setDate(end.getDate() + 7)
+        const start = now.toISOString()
+        const end = new Date(now); end.setDate(end.getDate() + 7)
         query = query.gte('deadline', start).lte('deadline', end.toISOString())
       }
 
@@ -288,13 +162,76 @@ export default function StaffSubtasksPage() {
       if (subtasksErr) throw subtasksErr
 
       setSubtasks(subtasksData || [])
+      setHasFetched(true)
+      lastFiltersRef.current = currentFilters
     } catch (err) {
-      console.error(err)
-      setToast({ message: err.message || 'Không tải được danh sách subtask', type: 'error' })
+      console.error('Load subtasks error:', err)
+      setToast({ message: 'Không tải được dữ liệu từ View', type: 'error' })
     } finally {
-      if (!silent) setLoading(false)
+      console.timeEnd('Fetch Subtasks (View)')
+      setLoading(false)
     }
-  }
+  }, [isActive, selectedAssignee, selectedStatus, deadlineFilter])
+
+  // -- INITIALIZATION: PARALLEL LOADING --
+  useEffect(() => {
+    if (!isActive || authCache.current.initialized) return
+
+    const initialize = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const authUser = session?.user
+
+        const { data: usersData, error: usersErr } = await supabase
+          .from('users')
+          .select('user_id, full_name, role')
+          .order('full_name', { ascending: true })
+
+        if (usersErr) throw usersErr
+        setStaffUsers(usersData || [])
+
+        let currentRole = null
+        let currentEmployeeUserId = null
+
+        if (authUser) {
+          const profile = (usersData || []).find(u => u.user_id === authUser.id)
+          currentRole = profile?.role || null
+
+          if (currentRole === 'employee') {
+            currentEmployeeUserId = authUser.id
+            setSelectedAssignee(authUser.id)
+          }
+          setUserRole(currentRole)
+        }
+
+        authCache.current = {
+          role: currentRole,
+          employeeUserId: currentEmployeeUserId,
+          initialized: true
+        }
+
+        // Trigger load immediately
+        loadData(false)
+      } catch (err) {
+        console.error('Init error:', err)
+      }
+    }
+
+    initialize()
+  }, [isActive, loadData])
+
+  // Fetch subtasks when filters change (with stabilization)
+  useEffect(() => {
+    if (!isActive || !authCache.current.initialized) return
+
+    const effectiveAssignee = (authCache.current.role === 'employee') ? authCache.current.employeeUserId : selectedAssignee
+    const currentFilters = JSON.stringify({ effectiveAssignee, selectedStatus, deadlineFilter })
+
+    if (hasFetched && lastFiltersRef.current === currentFilters) return
+
+    loadData(hasFetched)
+  }, [isActive, selectedAssignee, selectedStatus, deadlineFilter, hasFetched, loadData])
+
 
   const assigneeOptions = useMemo(() => {
     const countMap = new Map()
@@ -313,47 +250,58 @@ export default function StaffSubtasksPage() {
   const projectOptions = useMemo(() => {
     const map = new Map()
     for (const st of subtasks) {
-      const p = st.tasks?.features?.projects
-      if (!p?.project_id) continue
-      const cur = map.get(p.project_id) || { id: p.project_id, name: p.name || 'Chưa có dự án', count: 0 }
+      if (!st.project_id) continue
+      const cur = map.get(st.project_id) || { id: st.project_id, name: st.project_name || 'Chưa có dự án', count: 0 }
       cur.count += 1
-      map.set(p.project_id, cur)
+      map.set(st.project_id, cur)
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'))
   }, [subtasks])
 
+
+  // Filter client-side for projects only
   const filteredSubtasks = useMemo(() => (
     subtasks.filter(st => {
-      const passAssignee = selectedAssignee === 'all' || st.assigned_to === selectedAssignee
-      const passStatus = selectedStatus === 'all' || (st.status || 'pending') === selectedStatus
-      const projectId = st.tasks?.features?.projects?.project_id
-      const passProject = selectedProjectIds.length === 0 || selectedProjectIds.includes(projectId)
-      const passDeadline = matchesDeadlineFilter(st, deadlineFilter)
-      return passAssignee && passStatus && passProject && passDeadline
+      const projectId = st.project_id
+      return selectedProjectIds.length === 0 || selectedProjectIds.includes(projectId)
     })
-  ), [selectedAssignee, selectedStatus, selectedProjectIds, deadlineFilter, subtasks])
+  ), [selectedProjectIds, subtasks])
+
 
   const subtasksByProject = useMemo(() => {
+    if (filteredSubtasks.length === 0) return []
+    console.time('Grouping logic')
+
     const map = new Map()
+    const getDeadlineTime = (st) => {
+      if (!st.deadline) return Number.MAX_SAFE_INTEGER
+      const t = new Date(st.deadline).getTime()
+      return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+    }
+
     for (const st of filteredSubtasks) {
-      const p = st.tasks?.features?.projects
-      const key = p?.project_id || 'unknown'
-      const name = p?.name || 'Chưa có dự án'
-      if (!map.has(key)) map.set(key, { key, name, items: [] })
+      const key = st.project_id || 'unknown'
+      const name = st.project_name || 'Chưa có dự án'
+
+      if (!map.has(key)) {
+        map.set(key, { key, name, items: [] })
+      }
       map.get(key).items.push(st)
     }
-    const toTs = x => {
-      if (!x?.deadline) return Number.POSITIVE_INFINITY
-      const t = new Date(x.deadline).getTime()
-      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY
-    }
-    return Array.from(map.values())
+
+
+    const result = Array.from(map.values())
       .map(group => ({
         ...group,
-        items: [...group.items].sort((a, b) => toTs(a) - toTs(b)),
+        items: group.items.sort((a, b) => getDeadlineTime(a) - getDeadlineTime(b))
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+
+    console.timeEnd('Grouping logic')
+    return result
   }, [filteredSubtasks])
+
+
 
   const updateSubtaskStatus = useCallback(async (subtaskId, status) => {
     setUpdatingStatusId(subtaskId)
@@ -361,14 +309,11 @@ export default function StaffSubtasksPage() {
       const patch = { status }
       if (status === 'completed') {
         patch.completed_at = new Date().toISOString()
-        // Đọc trực tiếp từ localStorage để luôn lấy được session mới nhất kể cả khi trang không bị unmount
         const storedSessionId = localStorage.getItem('checkin_session_id')
-        if (storedSessionId) {
-          patch.session_id = storedSessionId
-        }
+        if (storedSessionId) patch.session_id = storedSessionId
       } else {
         patch.completed_at = null
-        patch.session_id = null // Hủy link session nếu chuyển khỏi trạng thái completed
+        patch.session_id = null
       }
 
       const { error } = await supabase
@@ -411,7 +356,6 @@ export default function StaffSubtasksPage() {
   }, [])
 
   const updateSubtaskEvaluation = useCallback(async (subtaskId, field, value) => {
-    // Optimistic UI update
     setSubtasks(prev => prev.map(st => (
       st.subtask_id === subtaskId ? { ...st, [field]: value } : st
     )))
@@ -426,12 +370,14 @@ export default function StaffSubtasksPage() {
     } catch (err) {
       console.error('Update evaluation error:', err)
       setToast({ message: 'Không thể lưu nhận xét: ' + err.message, type: 'error' })
-      // Revert if error? (Optional, usually for evaluation we just let it be and user might retry)
     }
   }, [])
 
   const handleDeleteClick = useCallback((id) => setConfirmDeleteId(id), [])
   const handleSetLightboxUrl = useCallback((url) => setLightboxUrl(url), [])
+  const handlePageChange = useCallback((groupKey, newPage) => {
+    setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
+  }, [])
 
   async function deleteSubtask(subtaskId) {
     setConfirmDeleteId(null)
@@ -448,7 +394,6 @@ export default function StaffSubtasksPage() {
 
   const handleAssignClick = async () => {
     setAssignModal(true)
-    // Khởi tạo form TRẮNG tuyệt đối để tránh lấy nhầm dữ liệu task/subtask cũ
     setAssignForm({
       status: 'pending',
       name: '',
@@ -484,7 +429,7 @@ export default function StaffSubtasksPage() {
     }
   }
 
-  const handleAssignSave = async () => {
+  const handleAssignSave = useCallback(async () => {
     if (!assignForm.project_id) return setToast({ message: 'Vui lòng chọn Dự án', type: 'error' })
     if (!assignForm.task_id) return setToast({ message: 'Vui lòng chọn Task', type: 'error' })
     if (!assignForm.assigned_to) return setToast({ message: 'Vui lòng chọn Người thực hiện', type: 'error' })
@@ -506,18 +451,19 @@ export default function StaffSubtasksPage() {
 
       setToast({ message: 'Đã giao việc thành công', type: 'success' })
       setAssignModal(false)
-      fetchData(true)
+      loadData(true)
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Lỗi khi giao việc', type: 'error' })
     } finally {
       setSavingAssign(false)
     }
-  }
+  }, [assignForm, loadData])
+
 
   const assignSubtaskFields = useMemo(() => {
     const projectOptions = assignProjects.map(p => ({ value: p.project_id, label: p.name }))
-    const filteredTasks = assignForm.project_id 
+    const filteredTasks = assignForm.project_id
       ? assignTasks.filter(t => t.features?.project_id === assignForm.project_id)
       : []
     const taskOptions = filteredTasks.map(t => ({ value: t.task_id, label: t.name }))
@@ -541,7 +487,7 @@ export default function StaffSubtasksPage() {
         ]
       },
     ]
-  }, [assignProjects, assignTasks, assignForm.project_id, staffUsers])
+  }, [assignProjects, assignTasks, assignForm.project_id])
 
   if (loading) {
     return (
@@ -590,7 +536,7 @@ export default function StaffSubtasksPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={fetchData}
+                  onClick={() => loadData()}
                   className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#dae2fd] text-[#006591] px-2.5 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-xs font-bold hover:bg-[#c9d4fc] transition-colors shadow-sm"
                 >
                   <span className="material-symbols-outlined text-[16px] lg:text-[18px]">refresh</span>
@@ -901,7 +847,6 @@ export default function StaffSubtasksPage() {
           onChange={(field, value) => {
             setAssignForm(prev => {
               const next = { ...prev, [field]: value }
-              // Reset task_id if project_id changes
               if (field === 'project_id') next.task_id = ''
               return next
             })
