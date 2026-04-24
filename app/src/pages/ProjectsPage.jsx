@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import StatusBadge from '../components/StatusBadge'
 import ThreeDotMenu from '../components/ThreeDotMenu'
+import TaskTemplateManager from '../components/TaskTemplateModal'
 import {
   EntityFormModal,
   CUSTOMER_FIELDS,
@@ -1648,6 +1649,32 @@ export default function ProjectsPage() {
   /** customer_id → true = đang thu gọn danh sách dự án */
   const [collapsedCustomerIds, setCollapsedCustomerIds] = useState({})
   const [openProjectMenuId, setOpenProjectMenuId] = useState(null)
+  
+  // Logic chọn từ mẫu
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const [templateLibrary, setTemplateLibrary] = useState([])
+
+  const fetchTemplateLibrary = async () => {
+    try {
+      const { data } = await supabase.from('task_templates').select('*').order('group_name')
+      setTemplateLibrary(data || [])
+    } catch (err) { console.error(err) }
+  }
+
+  const handlePickTemplate = (template) => {
+    // Chuyển dữ liệu từ mẫu sang form
+    m.set('name', template.name)
+    
+    // Gộp Yêu cầu và Giải pháp vào nội dung task
+    const combinedContent = [
+      template.requirement ? `YÊU CẦU: ${template.requirement}` : '',
+      template.solution ? `GIẢI PHÁP: ${template.solution}` : ''
+    ].filter(Boolean).join('\n\n')
+
+    m.set('content_blocks', [{ content: combinedContent, image_url: '' }])
+    setIsPickerOpen(false)
+    setToast({ message: `Đã áp dụng mẫu: ${template.name}`, type: 'success' })
+  }
   const [confirmDeleteData, setConfirmDeleteData] = useState(null)
   const m = useModal()
 
@@ -2983,6 +3010,10 @@ export default function ProjectsPage() {
           onChange={m.set}
           onSave={handleSave}
           onClose={m.close}
+          onChooseTemplate={() => {
+            fetchTemplateLibrary()
+            setIsPickerOpen(true)
+          }}
           isLoading={
             ((m.modal?.type === 'add_project' || m.modal?.type === 'edit_project') && savingProject) ||
             ((m.modal?.type === 'add_subtask' || m.modal?.type === 'edit_subtask') && savingSubtask) ||
@@ -2990,6 +3021,24 @@ export default function ProjectsPage() {
             ((m.modal?.type === 'add_feature' || m.modal?.type === 'edit_feature') && savingFeature)
           }
         />
+      )}
+
+      {isPickerOpen && (
+        <Modal 
+          title={`Chọn ${m.modal?.type === 'add_subtask' ? 'Tiểu mục' : 'Nhiệm vụ'} từ thư viện mẫu`} 
+          onClose={() => setIsPickerOpen(false)}
+          maxWidthClassName="max-w-4xl"
+        >
+          <div className="h-[60vh] flex flex-col p-1">
+            <TaskTemplateManager 
+              templates={templateLibrary.filter(t => 
+                m.modal?.type === 'add_subtask' ? !!t.parent_id : !t.parent_id
+              )}
+              isPicker={true}
+              onSelect={handlePickTemplate}
+            />
+          </div>
+        </Modal>
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 

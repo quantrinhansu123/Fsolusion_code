@@ -174,11 +174,35 @@ function SearchableSelect({ value, options = [], onChange, placeholder = '-- Ch�
 }
 
 // Generic entity form (project / feature / task / subtask / customer)
-export function EntityFormModal({ title, subtitle, fields, data, onChange, onSave, onClose, saveLabel = 'Lưu', isLoading = false }) {
+export function EntityFormModal({ 
+  title, 
+  subtitle, 
+  fields, 
+  data, 
+  onChange, 
+  onSave, 
+  onClose, 
+  saveLabel = 'Lưu', 
+  isLoading = false,
+  onChooseTemplate 
+}) {
+  const isTaskOrSubtask = title?.toLowerCase().includes('nhiệm vụ') || title?.toLowerCase().includes('tiểu mục')
+
+  const headerActions = isTaskOrSubtask ? (
+    <button
+      type="button"
+      onClick={onChooseTemplate}
+      className="text-[10px] py-1 px-2 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded font-bold transition-all border border-purple-200/50 flex items-center gap-1 active:scale-95 shadow-sm"
+    >
+      <span>✨</span> Chọn mẫu
+    </button>
+  ) : null
+
   return (
     <Modal
       title={title}
       subtitle={subtitle}
+      headerActions={headerActions}
       maxWidthClassName="max-w-[95vw] lg:max-w-[70vw]"
       overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[#131b2e]/40 backdrop-blur-sm p-3 sm:p-4"
       bodyClassName="px-4 sm:px-6 py-5 sm:py-6 space-y-5 flex-grow overflow-y-auto max-h-[60vh]"
