@@ -55,18 +55,18 @@ export default function TaskTemplateManager({ templates = [], onEdit, onDelete, 
         <table className="w-full border-collapse text-left table-fixed">
           <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-100">
             <tr className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              <th className="px-3 py-2 w-[80px]">Nhóm</th>
-              <th className="px-3 py-2 w-[250px]">Tên Task / Subtask</th>
-              <th className="px-3 py-2 w-[200px]">Yêu cầu tiêu chuẩn</th>
-              <th className="px-3 py-2 w-[200px]">Giải pháp xử lý</th>
+              {!isPicker && <th className="px-3 py-2 w-[10%]">Nhóm</th>}
+              <th className="px-3 py-2">Tên Task / Subtask</th>
+              <th className="px-3 py-2 w-[25%]">Yêu cầu tiêu chuẩn</th>
+              <th className="px-3 py-2 w-[25%]">Giải pháp xử lý</th>
               <th className="px-3 py-2 w-[90px] text-center">Thời gian</th>
-              <th className="px-3 py-2 w-[130px] text-right pr-4">Thao tác</th>
+              <th className={`px-3 py-2 text-right pr-4 ${isPicker ? 'w-[70px]' : 'w-[120px]'}`}>Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredTemplates.length === 0 ? (
               <tr>
-                <td colSpan="6" className="py-12 text-center text-[12px] text-slate-400 italic">
+                <td colSpan={isPicker ? "5" : "6"} className="py-12 text-center text-[12px] text-slate-400 italic">
                   Chưa có quy trình mẫu nào được tạo...
                 </td>
               </tr>
@@ -105,13 +105,15 @@ function TemplateRow({ item, onEdit, onDelete, onAddSubtask, onSelect, isPicker 
   return (
     <tr className={`hover:bg-blue-50/30 transition-colors group ${!isSubtask ? 'bg-white font-medium' : 'bg-slate-50/10'}`}>
       {/* Cột Nhóm */}
-      <td className="px-3 py-2.5">
-        {!isSubtask && item.group_name && (
-          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[9px] uppercase tracking-tighter">
-            {item.group_name}
-          </span>
-        )}
-      </td>
+      {!isPicker && (
+        <td className="px-3 py-2.5">
+          {!isSubtask && item.group_name && (
+            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[9px] uppercase tracking-tighter">
+              {item.group_name}
+            </span>
+          )}
+        </td>
+      )}
 
       {/* Cột Tên Task */}
       <td className={`px-3 py-2.5 relative ${isSubtask ? 'pl-10' : ''}`}>
@@ -142,7 +144,7 @@ function TemplateRow({ item, onEdit, onDelete, onAddSubtask, onSelect, isPicker 
 
       {/* Cột Thời gian */}
       <td className="px-3 py-2.5 text-center">
-        <span className="px-2 py-0.5 rounded-lg bg-[#131b2e] text-white text-[10px] font-black tabular-nums">
+        <span className="px-1.5 py-0.5 rounded-lg bg-[#131b2e] text-white text-[9px] font-black tabular-nums whitespace-nowrap">
           {item.standard_time || 0} phút
         </span>
       </td>

@@ -3027,7 +3027,7 @@ export default function ProjectsPage() {
         <Modal 
           title={`Chọn ${m.modal?.type === 'add_subtask' ? 'Tiểu mục' : 'Nhiệm vụ'} từ thư viện mẫu`} 
           onClose={() => setIsPickerOpen(false)}
-          maxWidthClassName="max-w-4xl"
+          maxWidthClassName="max-w-6xl"
         >
           <div className="h-[60vh] flex flex-col p-1">
             <TaskTemplateManager 
