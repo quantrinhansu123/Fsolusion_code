@@ -104,10 +104,16 @@ export default function Sidebar() {
           </NavLink>
 
           {isAdminOrManager(role) && (
-            <NavLink to="/progress" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
-              <span className="material-symbols-outlined">bar_chart</span>
-              Báo cáo tiến độ
-            </NavLink>
+            <>
+              <NavLink to="/progress" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                <span className="material-symbols-outlined">bar_chart</span>
+                Báo cáo tiến độ
+              </NavLink>
+              <NavLink to="/statistics" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                <span className="material-symbols-outlined">analytics</span>
+                Thống kê nhân sự
+              </NavLink>
+            </>
           )}
 
           {canManageUsers(role) && (

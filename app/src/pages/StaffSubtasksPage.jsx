@@ -159,11 +159,11 @@ export default function StaffSubtasksPage() {
       let subtasksQuery = supabase
         .from('subtasks')
         .select(`
-          subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
+          subtask_id, name, status, deadline, completed_at, assigned_to, work_time, work_type,
           description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
           users:assigned_to(user_id, full_name),
           tasks:task_id(
-            task_id, name, description, image_url, content_blocks,
+            task_id, name, work_type,
             features:feature_id(
               feature_id, name,
               projects:project_id(project_id, name)
@@ -241,11 +241,11 @@ export default function StaffSubtasksPage() {
       let query = supabase
         .from('subtasks')
         .select(`
-          subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
+          subtask_id, name, status, deadline, completed_at, assigned_to, work_time, work_type,
           description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
           users:assigned_to(user_id, full_name),
           tasks:task_id(
-            task_id, name, description, image_url, content_blocks,
+            task_id, name, work_type,
             features:feature_id(
               feature_id, name,
               projects:project_id(project_id, name)

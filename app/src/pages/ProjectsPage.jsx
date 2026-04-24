@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import StatusBadge from '../components/StatusBadge'
@@ -664,7 +664,16 @@ function ModalTaskCard({
               <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full border-2 border-[#eef1f6]" aria-hidden />
             )}
             <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
-              <p className="text-sm font-bold leading-snug text-[#131b2e]">{task.name}</p>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${
+                  task.work_type === 'ngoai_hd' 
+                    ? 'bg-orange-100 text-orange-700 border border-orange-200' 
+                    : 'bg-blue-50 text-blue-600 border border-blue-100'
+                }`}>
+                  {task.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
+                </span>
+                <p className="text-sm font-bold leading-snug text-[#131b2e] truncate" title={task.name}>{task.name}</p>
+              </div>
               {task.description || displayBlocks.length > 0 ? (
                 <div className="mt-1.5 text-xs leading-relaxed text-[#475569] whitespace-pre-wrap">
                   {task.description || displayBlocks[0]?.content}
@@ -1090,7 +1099,7 @@ function ModalTaskCard({
                 </div>
 
                 {/* HEADER BẢNG - Ẩn trên Mobile */}
-                <div className="hidden lg:grid grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
+                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(150px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
                     {(() => {
                       const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
@@ -1121,6 +1130,7 @@ function ModalTaskCard({
                   <div>Ghi chú & Hướng dẫn</div>
                   <div className="text-center">Đính kèm</div>
                   <div>Thống kê thời gian</div>
+                  <div>Loại CV</div>
                   <div>Theo dõi tiến độ</div>
                   <div className="text-right">Thao tác</div>
                 </div>
@@ -1152,7 +1162,7 @@ function ModalTaskCard({
 
                     {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */ }
                     return (
-                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_200px_minmax(200px,_1fr)_80px_140px_220px_80px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(150px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
                         {/* 1. Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
@@ -1254,9 +1264,44 @@ function ModalTaskCard({
                           </div>
                         </div>
 
+                        {/* 5. Loại CV */}
+                        <div className="flex items-center w-full pl-6 lg:pl-0 lg:w-full">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            st.work_type === 'ngoai_hd' 
+                              ? 'bg-orange-100 text-orange-700 border border-orange-200' 
+                              : 'bg-blue-50 text-blue-600 border border-blue-100'
+                          }`}>
+                            {st.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
+                          </span>
+                        </div>
+
                         {/* 5. Bộ đếm (Timer) */}
                         <div className="flex flex-col gap-1 w-full pl-6 lg:pl-0">
-                          <SubtaskModalWorkClock workTimeRaw={st.work_time} />
+                          <SubtaskModalWorkClock
+                            workTimeRaw={st.work_time}
+                            actions={
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy || workRunning}
+                                  onClick={() => onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(workSessions))}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20 shadow-sm"
+                                  title="Bắt đầu làm việc"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy || !workRunning}
+                                  onClick={() => onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(workSessions))}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20 shadow-sm"
+                                  title="Tạm dừng"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">pause</span>
+                                </button>
+                              </div>
+                            }
+                          />
                         </div>
 
                         {/* 6. Thao tác (Sửa/Xóa xếp dọc) */}
@@ -1552,6 +1597,7 @@ function AssignTeamModal({ allUsers, selectedIds, onToggle, onSave, onClose, sav
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
+  const navigate = useNavigate()
   const [customers, setCustomers] = useState([])
   const customersRef = useRef([])
   const [fadingTaskIds, setFadingTaskIds] = useState(new Set())
@@ -2441,14 +2487,24 @@ export default function ProjectsPage() {
                 </div>
               </div>
               {userRole === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => m.open('add_project')}
-                  className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-800 shadow-sm hover:bg-sky-100/90"
-                >
-                  <span className="material-symbols-outlined text-[16px] text-sky-700">add</span>
-                  Dự án mới
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/task-templates')}
+                    className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[12px] font-medium text-indigo-800 shadow-sm hover:bg-indigo-100/90"
+                  >
+                    <span className="material-symbols-outlined text-[16px] text-indigo-700">auto_awesome</span>
+                    Task mẫu
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => m.open('add_project')}
+                    className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-800 shadow-sm hover:bg-sky-100/90"
+                  >
+                    <span className="material-symbols-outlined text-[16px] text-sky-700">add</span>
+                    Dự án mới
+                  </button>
+                </div>
               )}
             </div>
 

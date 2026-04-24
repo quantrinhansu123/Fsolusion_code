@@ -618,9 +618,18 @@ export const TASK_FIELDS = [
     placeholderContent: 'Chi tiết công việc...',
   },
   {
-    name: 'meta', type: 'grid', children: [
+    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
       { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
+      { 
+        name: 'work_type', 
+        label: 'Loại CV', 
+        type: 'select', 
+        options: [
+          { value: 'trong_hd', label: 'Trong HĐ' },
+          { value: 'ngoai_hd', label: 'CV thêm' },
+        ] 
+      },
     ]
   },
 ]
@@ -635,9 +644,18 @@ export const SUBTASK_FIELDS = [
     placeholderContent: 'Chi tiết tiểu mục...',
   },
   {
-    name: 'meta', type: 'grid', children: [
+    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
       { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
+      { 
+        name: 'work_type', 
+        label: 'Loại CV', 
+        type: 'select', 
+        options: [
+          { value: 'trong_hd', label: 'Trong HĐ' },
+          { value: 'ngoai_hd', label: 'CV thêm' },
+        ] 
+      },
     ]
   },
 ]

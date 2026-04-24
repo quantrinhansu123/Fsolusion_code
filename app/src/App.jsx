@@ -9,6 +9,8 @@ import CustomerManagement from './pages/CustomerManagement'
 import ProgressReportPage from './pages/ProgressReportPage'
 import StaffSubtasksPage from './pages/StaffSubtasksPage'
 import AttendancePage from './pages/AttendancePage'
+import StaffStatisticsPage from './pages/StaffStatisticsPage'
+import TaskTemplatePage from './pages/TaskTemplatePage'
 import { AuthProvider, useAuth } from './utils/AuthContext'
 import './index.css'
 
@@ -62,8 +64,10 @@ function KeepAliveApp() {
       <div style={{ display: path === '/users' ? 'contents' : 'none' }}><UserManagement /></div>
       <div style={{ display: path === '/customers' ? 'contents' : 'none' }}><CustomerManagement /></div>
       <div style={{ display: path === '/progress' ? 'contents' : 'none' }}><ProgressReportPage /></div>
+      <div style={{ display: path === '/statistics' ? 'contents' : 'none' }}><StaffStatisticsPage /></div>
       <div style={{ display: path === '/staff-subtasks' ? 'contents' : 'none' }}><StaffSubtasksPage /></div>
       <div style={{ display: path === '/attendance' ? 'contents' : 'none' }}><AttendancePage /></div>
+      <div style={{ display: path === '/task-templates' ? 'contents' : 'none' }}><TaskTemplatePage /></div>
     </>
   )
 }

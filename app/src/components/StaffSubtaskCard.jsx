@@ -48,8 +48,15 @@ function StaffSubtaskCard({
     <div className="rounded-lg border border-slate-200 bg-[#fafafa] p-2 hover:bg-[#f2f3ff] transition-all shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2 min-w-0">
-            <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[65%]">{st.name}</p>
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[55%]">{st.name}</p>
+            <span className={`px-1 rounded text-[8px] font-bold uppercase shrink-0 ${
+              st.work_type === 'ngoai_hd' 
+                ? 'bg-orange-100 text-orange-700 border border-orange-200' 
+                : 'bg-blue-50 text-blue-600 border border-blue-100'
+            }`}>
+              {st.work_type === 'ngoai_hd' ? 'Thêm' : 'HĐ'}
+            </span>
             <p className="text-[10px] text-slate-500 font-medium truncate flex-1 min-w-0">
               {st.users?.full_name ? `${st.users.full_name.split(' ').slice(-2).join(' ')} · ` : ''}
               {featureName} · {taskName}
@@ -88,10 +95,30 @@ function StaffSubtaskCard({
                         </span>
                       )
                     })()}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={isUpdatingWorkTime || running}
+                        onClick={handlePlayClick}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
+                        title="Bắt đầu làm việc"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isUpdatingWorkTime || !running}
+                        onClick={handlePauseClick}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
+                        title="Tạm dừng"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">pause</span>
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={handleDelete}
-                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all border border-transparent hover:border-rose-100"
                       title="Xóa subtask"
                     >
                       <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -118,7 +145,7 @@ function StaffSubtaskCard({
                         type="button"
                         disabled={isUpdatingWorkTime || running}
                         onClick={handlePlayClick}
-                        className="flex h-7 w-7 items-center justify-center rounded bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-colors border border-[#1e8e3e]/20"
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
                       >
                         <span className="material-symbols-outlined text-[16px]">play_arrow</span>
                       </button>
@@ -126,7 +153,7 @@ function StaffSubtaskCard({
                         type="button"
                         disabled={isUpdatingWorkTime || !running}
                         onClick={handlePauseClick}
-                        className="flex h-7 w-7 items-center justify-center rounded bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-colors border border-[#b06000]/20"
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
                       >
                         <span className="material-symbols-outlined text-[16px]">pause</span>
                       </button>
