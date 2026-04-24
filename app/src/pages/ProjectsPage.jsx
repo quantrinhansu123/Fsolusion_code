@@ -620,7 +620,7 @@ function ModalTaskCard({
     }
 
   const displayBlocks = normalizeTaskContentBlocks(task).filter(
-    b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim())
+    b => (b.content && b.content.trim()) || (Array.isArray(b.image_urls) && b.image_urls.length > 0)
   )
   const subtitleLine = statusActionsOutside ? taskCardSubtitle(task) : ''
   const subProgress = statusActionsOutside ? subtaskCompletionStats(subs) : null
@@ -795,15 +795,15 @@ function ModalTaskCard({
                             <p className={`text-[#6e7881] italic ${subModal.bodyText}`}>—</p>
                           )}
                         </div>
-                        {b.image_url.trim() ? (
+                        {Array.isArray(b.image_urls) && b.image_urls.length > 0 ? (
                           <button
                             type="button"
                             title="Nhấn để phóng to ảnh"
-                            onClick={() => setImageLightboxUrl(b.image_url)}
+                            onClick={() => setImageLightboxUrl(b.image_urls[0])}
                             className="shrink-0 rounded-lg overflow-hidden border-2 border-[#bec8d2]/35 bg-[#f9fafb] w-16 h-16 sm:w-[72px] sm:h-[72px] cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[#006591]/35 shadow-sm"
                           >
                             <img
-                              src={b.image_url}
+                              src={b.image_urls[0]}
                               alt=""
                               className="w-full h-full object-cover pointer-events-none"
                               loading="lazy"
@@ -816,13 +816,13 @@ function ModalTaskCard({
                         <button
                           type="button"
                           onClick={() => {
-                            const u = (b.image_url || '').trim()
+                            const u = Array.isArray(b.image_urls) && b.image_urls.length > 0 ? b.image_urls[0] : ''
                             setPreviewShowIframe(
                               !!(u && isHttpUrl(u) && !shouldTryImageFirst(u) && !hostBlocksIframeEmbedding(u))
                             )
                             setBlockPreview({
                               content: b.content || '',
-                              image_url: b.image_url || '',
+                              image_url: u,
                               lineIndex: i + 1,
                             })
                           }}
@@ -1602,6 +1602,7 @@ export default function ProjectsPage() {
   /** customer_id → true = đang thu gọn danh sách dự án */
   const [collapsedCustomerIds, setCollapsedCustomerIds] = useState({})
   const [openProjectMenuId, setOpenProjectMenuId] = useState(null)
+  const [confirmDeleteData, setConfirmDeleteData] = useState(null)
   const m = useModal()
 
   // -- PHÂN TRANG MOBILE --
@@ -1835,6 +1836,7 @@ export default function ProjectsPage() {
       delete cleanData.customers
       delete cleanData.user_ids
       delete cleanData.featureOptions
+      delete cleanData._progress
 
       Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === '') delete cleanData[key]
@@ -2037,7 +2039,14 @@ export default function ProjectsPage() {
   }
 
   async function deleteEntity(table, column, id) {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa?')) return
+    setConfirmDeleteData({ table, column, id, type: 'entity' })
+  }
+
+  async function performDeleteEntity() {
+    if (!confirmDeleteData) return
+    const { table, column, id } = confirmDeleteData
+    setConfirmDeleteData(null)
+
     const { error } = await supabase.from(table).delete().eq(column, id)
     if (error) setToast({ message: error.message, type: 'error' })
     else {
@@ -2047,7 +2056,14 @@ export default function ProjectsPage() {
   }
 
   async function deleteSubtask(subtaskId) {
-    if (!window.confirm('Xóa tiểu mục này?')) return
+    setConfirmDeleteData({ id: subtaskId, type: 'subtask' })
+  }
+
+  async function performDeleteSubtask() {
+    if (!confirmDeleteData) return
+    const subtaskId = confirmDeleteData.id
+    setConfirmDeleteData(null)
+
     const { error } = await supabase.from('subtasks').delete().eq('subtask_id', subtaskId)
     if (error) {
       setToast({ message: error.message, type: 'error' })
@@ -3088,6 +3104,42 @@ export default function ProjectsPage() {
         />
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* MODAL XÁC NHẬN XÓA CHUNG */}
+      {confirmDeleteData && (
+        <Modal
+          title="Xác nhận xóa"
+          onClose={() => setConfirmDeleteData(null)}
+          footer={
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={() => setConfirmDeleteData(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={confirmDeleteData.type === 'subtask' ? performDeleteSubtask : performDeleteEntity}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+              >
+                Xóa ngay
+              </button>
+            </div>
+          }
+        >
+          <div className="py-4 flex flex-col items-center text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+              <span className="material-symbols-outlined text-red-600 text-3xl">delete_forever</span>
+            </div>
+            <p className="text-slate-600 font-medium">
+              Bạn có chắc chắn muốn xóa dữ liệu này không?
+            </p>
+            <p className="mt-2 text-slate-400 text-xs italic">
+              Hành động này không thể hoàn tác và sẽ xóa mọi dữ liệu liên quan.
+            </p>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
