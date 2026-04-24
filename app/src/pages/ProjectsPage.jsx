@@ -541,6 +541,7 @@ function ModalTaskCard({
   onSubtaskWorkTimeSave,
   updatingSubtaskWorkTimeId = null,
   onToast,
+  onSubtaskFeedbackChange = null,
   compact = false,
   hideStatusBadge = false,
   /** Kanban: chọn trạng thái + meta cùng hàng với «Xem tiểu mục» ở đáy thẻ */
@@ -1100,7 +1101,7 @@ function ModalTaskCard({
                 </div>
 
                 {/* HEADER BẢNG - Ẩn trên Mobile */}
-                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(150px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
+                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
                     {(() => {
                       const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
@@ -1129,6 +1130,7 @@ function ModalTaskCard({
                   </div>
                   <div>Tiểu mục & Trạng thái</div>
                   <div>Ghi chú & Hướng dẫn</div>
+                  <div>Phản hồi nghiệm thu</div>
                   <div className="text-center">Đính kèm</div>
                   <div>Thống kê thời gian</div>
                   <div>Loại CV</div>
@@ -1163,7 +1165,7 @@ function ModalTaskCard({
 
                     {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */ }
                     return (
-                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(150px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
                         {/* 1. Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
@@ -1192,7 +1194,7 @@ function ModalTaskCard({
                                   className={`w-fit lg:w-auto lg:h-7 lg:text-xs max-w-full cursor-pointer rounded-md border py-1 lg:py-0 pl-2 pr-6 text-[11px] font-medium shadow-sm focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/25 disabled:cursor-not-allowed disabled:opacity-45 ${selCls}`}
                                   style={{ backgroundPosition: 'right 6px center', backgroundSize: '10px' }}
                                 >
-                                  {SUBTASK_STATUS_PILLS.filter(opt => opt.value !== 'completed').map(opt => (
+                                  {SUBTASK_STATUS_PILLS.map(opt => (
                                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                                   ))}
                                 </select>
@@ -1222,6 +1224,21 @@ function ModalTaskCard({
                               Không có ghi chú
                             </div>
                           )}
+                        </div>
+
+                        {/* 2.5 Phản hồi nghiệm thu - NHẬP TRỰC TIẾP */}
+                        <div className="flex flex-col min-w-0 w-full lg:h-full pl-6 lg:pl-0">
+                          <textarea
+                            defaultValue={st.feedback || ''}
+                            onBlur={(e) => {
+                              const val = e.target.value.trim()
+                              if (val !== (st.feedback || '')) {
+                                if (onSubtaskFeedbackChange) onSubtaskFeedbackChange(st.subtask_id, val)
+                              }
+                            }}
+                            placeholder="Gõ phản hồi nghiệm thu..."
+                            className="w-full min-h-[60px] lg:min-h-[38px] p-1.5 rounded-md text-[13px] lg:text-[11px] bg-blue-50/20 border border-blue-100/50 focus:border-blue-400 focus:bg-white focus:ring-1 focus:ring-blue-400/20 outline-none transition-all resize-none text-[#006591] placeholder:text-slate-300 custom-scrollbar"
+                          />
                         </div>
 
                         <div className="flex flex-wrap lg:items-center lg:justify-center gap-1 pt-1 min-w-0 w-auto pl-6 lg:pl-0 lg:w-full">
@@ -2041,6 +2058,7 @@ export default function ProjectsPage() {
           }
           if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
           if (cleanData.assigned_to) row.assigned_to = cleanData.assigned_to
+          if (cleanData.feedback) row.feedback = cleanData.feedback
 
           res = await supabase.from('subtasks').insert(row)
           if (res?.error) throw res.error
@@ -2082,6 +2100,7 @@ export default function ProjectsPage() {
           } else {
             patch.completed_at = cleanData.completed_at || new Date().toISOString()
           }
+          if (cleanData.feedback !== undefined) patch.feedback = cleanData.feedback
           res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
@@ -2250,6 +2269,17 @@ export default function ProjectsPage() {
     }
 
     setToast({ message: 'Đã cập nhật trạng thái tiểu mục', type: 'success' })
+  }
+
+  async function updateSubtaskFeedback(subtaskId, feedback) {
+    const patch = { feedback: feedback?.trim() || null }
+    const { error } = await supabase.from('subtasks').update(patch).eq('subtask_id', subtaskId)
+    if (error) {
+      setToast({ message: error.message || 'Không thể cập nhật phản hồi', type: 'error' })
+      return
+    }
+    setCustomers(prev => patchSubtaskInCustomersState(prev, subtaskId, patch))
+    setToast({ message: 'Đã lưu phản hồi nghiệm thu', type: 'success' })
   }
 
   async function saveSubtaskWorkTime(subtaskId, workTime) {
@@ -2973,6 +3003,7 @@ export default function ProjectsPage() {
                               updatingSubtaskId={updatingSubtaskId}
                               onSubtaskWorkTimeSave={saveSubtaskWorkTime}
                               updatingSubtaskWorkTimeId={updatingSubtaskWorkTimeId}
+                               onSubtaskFeedbackChange={updateSubtaskFeedback}
                               onToast={(msg, type) => setToast({ message: msg, type })}
                             />
                           ))}

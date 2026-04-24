@@ -143,15 +143,15 @@ function TemplateRow({ item, onEdit, onDelete, onAddSubtask, onSelect, isPicker 
       </td>
 
       {/* Cột Thời gian */}
-      <td className="px-3 py-2.5 text-center">
+      <td className="px-3 py-2.5 text-center pr-6">
         <span className="px-1.5 py-0.5 rounded-lg bg-[#131b2e] text-white text-[9px] font-black tabular-nums whitespace-nowrap">
           {item.standard_time || 0} phút
         </span>
       </td>
 
       {/* Cột Thao tác */}
-      <td className="px-3 py-2.5 text-right pr-4 relative z-20">
-        <div className="flex items-center justify-end gap-2">
+      <td className="px-3 py-2.5 text-right pr-4 relative z-20 min-w-[130px]">
+        <div className="flex items-center justify-end gap-3">
           {isPicker ? (
             <button 
               onClick={(e) => { e.stopPropagation(); onSelect?.(item); }}
@@ -160,29 +160,29 @@ function TemplateRow({ item, onEdit, onDelete, onAddSubtask, onSelect, isPicker 
               CHỌN
             </button>
           ) : (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {!isSubtask && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); onAddSubtask?.(item); }}
-                  className="p-2 hover:bg-emerald-50 rounded-lg text-emerald-600 transition-all hover:scale-110 active:scale-90" 
+                  className="p-1 hover:bg-emerald-50 rounded-lg text-emerald-600 transition-all hover:scale-110 active:scale-90" 
                   title="Thêm tiểu mục mẫu"
                 >
-                  <span className="material-symbols-outlined text-[18px]">playlist_add</span>
+                  <span className="material-symbols-outlined text-[15px]">playlist_add</span>
                 </button>
               )}
               <button 
                 onClick={(e) => { e.stopPropagation(); onEdit?.(item); }}
-                className="p-2 hover:bg-blue-50 rounded-lg text-blue-500 transition-all hover:scale-110 active:scale-90" 
+                className="p-1 hover:bg-blue-50 rounded-lg text-blue-500 transition-all hover:scale-110 active:scale-90" 
                 title="Sửa"
               >
-                <span className="material-symbols-outlined text-[18px]">edit_square</span>
+                <span className="material-symbols-outlined text-[15px]">edit_square</span>
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); onDelete?.(item.template_id); }}
-                className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-all hover:scale-110 active:scale-90" 
+                className="p-1 hover:bg-red-50 rounded-lg text-red-500 transition-all hover:scale-110 active:scale-90" 
                 title="Xóa"
               >
-                <span className="material-symbols-outlined text-[18px]">delete</span>
+                <span className="material-symbols-outlined text-[15px]">delete</span>
               </button>
             </div>
           )}

@@ -682,4 +682,5 @@ export const SUBTASK_FIELDS = [
       },
     ]
   },
+  { name: 'feedback', label: 'Phản hồi nghiệm thu', type: 'textarea', placeholder: 'Nhập phản hồi sau khi kiểm tra (nếu có)...' },
 ]
