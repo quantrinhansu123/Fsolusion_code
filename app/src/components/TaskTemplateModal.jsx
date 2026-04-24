@@ -99,7 +99,7 @@ export default function TaskTemplateManager({ templates = [], onEdit, onDelete, 
   )
 }
 
-function TemplateRow({ item, onEdit, onDelete, onSelect, isPicker }) {
+function TemplateRow({ item, onEdit, onDelete, onAddSubtask, onSelect, isPicker }) {
   const isSubtask = !!item.parent_id
   
   return (
@@ -220,6 +220,8 @@ export function TemplateFormModal({ isOpen, onClose, onSave, editingItem }) {
 
   if (!isOpen) return null
 
+  const isSubtask = !!formData.parent_id
+
   return (
     <Modal 
       title={formData.template_id ? 'Sửa quy trình mẫu' : 'Thêm quy trình mẫu mới'} 
@@ -228,24 +230,26 @@ export function TemplateFormModal({ isOpen, onClose, onSave, editingItem }) {
     >
       <div className="space-y-4 p-2">
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tên Task / Quy trình</label>
+          <div className={`space-y-1.5 ${isSubtask ? 'col-span-2' : ''}`}>
+            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tên {isSubtask ? 'Tiểu mục' : 'Task / Quy trình'}</label>
             <input 
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition-all"
               value={formData.name}
               onChange={e => setFormData({...formData, name: e.target.value})}
-              placeholder="VD: Thiết lập hạ tầng dự án mới"
+              placeholder={isSubtask ? "VD: Cài đặt SSL Let's Encrypt" : "VD: Thiết lập hạ tầng dự án mới"}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Nhóm bộ phận</label>
-            <input 
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-              value={formData.group_name}
-              onChange={e => setFormData({...formData, group_name: e.target.value})}
-              placeholder="VD: KỸ THUẬT, DESIGN..."
-            />
-          </div>
+          {!isSubtask && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Nhóm bộ phận</label>
+              <input 
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:bg-white focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                value={formData.group_name}
+                onChange={e => setFormData({...formData, group_name: e.target.value})}
+                placeholder="VD: KỸ THUẬT, DESIGN..."
+              />
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">
