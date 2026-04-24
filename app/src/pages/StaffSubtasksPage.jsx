@@ -14,6 +14,9 @@ import {
   subtaskWorkTimeAfterPause,
   subtaskWorkTimeAfterStart,
 } from '../utils/subtaskWorkTime'
+import { EntityFormModal } from '../components/EntityFormModal'
+import { sanitizeTaskContentForSave, subtaskFormInitial } from '../utils/taskContent'
+import { normalizeDeadlineForSave } from '../utils/deadline'
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Đang chờ' },
@@ -89,22 +92,13 @@ export default function StaffSubtasksPage() {
   const [userRole, setUserRole] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
-  useEffect(() => {
-    async function loadCurrentUser() {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (!authUser) return
-      
-      // Lấy role để set mặc định filter cho nhân viên
-      const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
-      if (profile?.role) {
-        setUserRole(profile.role)
-        if (profile.role === 'employee') {
-          setSelectedAssignee(authUser.id) // Nhân viên mặc định xem task của chính mình
-        }
-      }
-    }
-    loadCurrentUser()
-  }, [])
+  // -- MODAL GIAO VIỆC --
+  const [assignModal, setAssignModal] = useState(null)
+  const [assignForm, setAssignForm] = useState({})
+  const [assignProjects, setAssignProjects] = useState([])
+  const [assignTasks, setAssignTasks] = useState([])
+  const [loadingAssignData, setLoadingAssignData] = useState(false)
+  const [savingAssign, setSavingAssign] = useState(false)
 
   // -- RESPONSIVE LOGIC (JS) --
   const [isMobileScreen, setIsMobileScreen] = useState(window.innerWidth < 1024)
@@ -134,7 +128,24 @@ export default function StaffSubtasksPage() {
   async function init() {
     setLoading(true)
     try {
-      // 0. Chuẩn bị filter server-side
+      // 1. Auth & Role Resolution
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      let role = null
+      let employeeUserId = null
+
+      if (authUser) {
+        const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
+        if (profile?.role) {
+          role = profile.role
+          setUserRole(role)
+          if (role === 'employee') {
+            setSelectedAssignee(authUser.id)
+            employeeUserId = authUser.id
+          }
+        }
+      }
+
+      // 2. Chuẩn bị filter server-side cho Project
       let taskIdsFilter = null
       if (selectedProjectIds.length > 0) {
         const { data: tasksInProjects } = await supabase
@@ -144,7 +155,7 @@ export default function StaffSubtasksPage() {
         taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
       }
 
-      // 1. Auth User, 2. Danh sách nhân sự, 3. Danh sách subtasks (Query 1) - CHẠY SONG SONG
+      // 3. Khởi tạo Query Subtasks
       let subtasksQuery = supabase
         .from('subtasks')
         .select(`
@@ -160,18 +171,25 @@ export default function StaffSubtasksPage() {
           )
         `)
         .not('assigned_to', 'is', null)
-      
+
+      // Áp dụng Assigned_to filter
+      if (employeeUserId) {
+        subtasksQuery = subtasksQuery.eq('assigned_to', employeeUserId)
+      } else if (selectedAssignee !== 'all') {
+        subtasksQuery = subtasksQuery.eq('assigned_to', selectedAssignee)
+      }
+
       // Áp dụng filters nặng lên server
       if (selectedStatus !== 'all') subtasksQuery = subtasksQuery.eq('status', selectedStatus)
       if (taskIdsFilter) subtasksQuery = subtasksQuery.in('task_id', taskIdsFilter)
-      
+
       // Deadline filters
       const now = new Date().toISOString()
       if (deadlineFilter === 'overdue') subtasksQuery = subtasksQuery.lt('deadline', now)
       if (deadlineFilter === 'no_deadline') subtasksQuery = subtasksQuery.is('deadline', null)
       if (deadlineFilter === 'today') {
-        const start = new Date(); start.setHours(0,0,0,0)
-        const end = new Date(); end.setHours(23,59,59,999)
+        const start = new Date(); start.setHours(0, 0, 0, 0)
+        const end = new Date(); end.setHours(23, 59, 59, 999)
         subtasksQuery = subtasksQuery.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
       }
       if (deadlineFilter === 'week') {
@@ -181,18 +199,11 @@ export default function StaffSubtasksPage() {
       }
 
       const [
-        { data: { user: authUser } },
         { data: usersData },
         { data: subtasksData, error: subtasksErr }
       ] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase
-          .from('users')
-          .select('user_id, full_name')
-          .order('full_name', { ascending: true }),
-        subtasksQuery
-          .order('updated_at', { ascending: false })
-          .limit(300)
+        supabase.from('users').select('user_id, full_name').order('full_name', { ascending: true }),
+        subtasksQuery.order('updated_at', { ascending: false }).limit(300)
       ])
 
       if (subtasksErr) throw subtasksErr
@@ -218,7 +229,7 @@ export default function StaffSubtasksPage() {
           .select('task_id, features!inner(project_id)')
           .in('features.project_id', selectedProjectIds)
         taskIdsFilter = (tasksInProjects || []).map(t => t.task_id)
-        
+
         // Nếu không có task nào thuộc project đó, trả về rỗng luôn
         if (taskIdsFilter.length === 0) {
           setSubtasks([])
@@ -242,18 +253,26 @@ export default function StaffSubtasksPage() {
           )
         `)
         .not('assigned_to', 'is', null)
-      
+
+      // Lọc employee lên server
+      let currentAssigneeFilter = selectedAssignee
+      if (userRole === 'employee') {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) currentAssigneeFilter = user.id
+      }
+      if (currentAssigneeFilter !== 'all') query = query.eq('assigned_to', currentAssigneeFilter)
+
       // Lọc nặng lên server
       if (selectedStatus !== 'all') query = query.eq('status', selectedStatus)
       if (taskIdsFilter) query = query.in('task_id', taskIdsFilter)
-      
+
       // Deadline filters server-side
       const now = new Date().toISOString()
       if (deadlineFilter === 'overdue') query = query.lt('deadline', now)
       if (deadlineFilter === 'no_deadline') query = query.is('deadline', null)
       if (deadlineFilter === 'today') {
-        const start = new Date(); start.setHours(0,0,0,0)
-        const end = new Date(); end.setHours(23,59,59,999)
+        const start = new Date(); start.setHours(0, 0, 0, 0)
+        const end = new Date(); end.setHours(23, 59, 59, 999)
         query = query.gte('deadline', start.toISOString()).lte('deadline', end.toISOString())
       }
       if (deadlineFilter === 'week') {
@@ -267,7 +286,7 @@ export default function StaffSubtasksPage() {
         .limit(300)
 
       if (subtasksErr) throw subtasksErr
-      
+
       setSubtasks(subtasksData || [])
     } catch (err) {
       console.error(err)
@@ -402,7 +421,7 @@ export default function StaffSubtasksPage() {
         .from('subtasks')
         .update({ [field]: value })
         .eq('subtask_id', subtaskId)
-      
+
       if (error) throw error
     } catch (err) {
       console.error('Update evaluation error:', err)
@@ -427,10 +446,117 @@ export default function StaffSubtasksPage() {
     }
   }
 
+  const handleAssignClick = async () => {
+    setAssignModal(true)
+    setAssignForm(subtaskFormInitial({ status: 'pending' }))
+    setLoadingAssignData(true)
+    try {
+      const { data: projectsData, error: projErr } = await supabase
+        .from('projects')
+        .select('project_id, name')
+        .order('name', { ascending: true })
+      if (projErr) throw projErr
+
+      const { data: tasksData, error: tasksErr } = await supabase
+        .from('tasks')
+        .select('task_id, name, feature_id, features(project_id)')
+        .order('name', { ascending: true })
+      if (tasksErr) throw tasksErr
+
+      setAssignProjects(projectsData || [])
+      setAssignTasks(tasksData || [])
+    } catch (err) {
+      console.error(err)
+      setToast({ message: 'Không thể tải danh sách dự án/task', type: 'error' })
+      setAssignModal(null)
+    } finally {
+      setLoadingAssignData(false)
+    }
+  }
+
+  const handleAssignSave = async () => {
+    if (!assignForm.project_id) return setToast({ message: 'Vui lòng chọn Dự án', type: 'error' })
+    if (!assignForm.task_id) return setToast({ message: 'Vui lòng chọn Task', type: 'error' })
+    if (!assignForm.assigned_to) return setToast({ message: 'Vui lòng chọn Người thực hiện', type: 'error' })
+    if (!assignForm.name?.trim()) return setToast({ message: 'Vui lòng nhập tên tiểu mục', type: 'error' })
+
+    setSavingAssign(true)
+    try {
+      const payload = {
+        task_id: assignForm.task_id,
+        name: assignForm.name.trim(),
+        assigned_to: assignForm.assigned_to,
+        content_blocks: sanitizeTaskContentForSave(assignForm.content_blocks),
+        deadline: normalizeDeadlineForSave(assignForm.deadline),
+        status: assignForm.status || 'pending',
+      }
+
+      const { error } = await supabase.from('subtasks').insert([payload])
+      if (error) throw error
+
+      setToast({ message: 'Đã giao việc thành công', type: 'success' })
+      setAssignModal(false)
+      fetchData(true)
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi khi giao việc', type: 'error' })
+    } finally {
+      setSavingAssign(false)
+    }
+  }
+
+  const assignSubtaskFields = useMemo(() => {
+    const projectOptions = assignProjects.map(p => ({ value: p.project_id, label: p.name }))
+    const filteredTasks = assignForm.project_id 
+      ? assignTasks.filter(t => t.features?.project_id === assignForm.project_id)
+      : []
+    const taskOptions = filteredTasks.map(t => ({ value: t.task_id, label: t.name }))
+    const staffOptions = staffUsers.map(u => ({ value: u.user_id, label: u.full_name }))
+
+    return [
+      { name: 'project_id', label: 'Dự án', type: 'searchable_select', options: projectOptions },
+      { name: 'task_id', label: 'Task thuộc dự án', type: 'select', options: taskOptions },
+      { name: 'assigned_to', label: 'Người thực hiện', type: 'searchable_select', options: staffOptions },
+      { name: 'name', label: 'Tên tiểu mục', placeholder: 'VD: Line chart widget' },
+      {
+        name: 'content_blocks',
+        label: 'Nội dung & ảnh',
+        type: 'content_image_pairs',
+        placeholderContent: 'Chi tiết tiểu mục...',
+      },
+      {
+        name: 'meta', type: 'grid', children: [
+          { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
+          { name: 'status', label: 'Trạng thái', type: 'select' }
+        ]
+      },
+    ]
+  }, [assignProjects, assignTasks, assignForm.project_id, staffUsers])
+
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#faf8ff]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006591]" />
+      <div className="flex h-screen overflow-hidden bg-[#faf8ff]">
+        <Sidebar />
+        <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
+          <TopBar title="Task theo nhân sự" />
+          <main className="flex-1 p-8">
+            <div className="max-w-7xl mx-auto space-y-5 pb-20">
+              <div className="flex items-center justify-between py-2 lg:py-6 border-b lg:border-none border-[#bec8d2]/10 mb-2 lg:mb-0">
+                <div>
+                  <h2 className="text-lg lg:text-3xl font-bold tracking-tight text-[#131b2e]">Task theo nhân sự</h2>
+                  <p className="hidden lg:block text-[#3e4850] text-sm mt-1">
+                    Lọc theo nhân sự, trạng thái, dự án và deadline để thao tác nhanh các subtask phụ trách.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-4 mt-4">
+                <div className="h-32 bg-[#e2e8f0] animate-pulse rounded-xl border border-[#bec8d2]/20"></div>
+                <div className="h-32 bg-[#e2e8f0] animate-pulse rounded-xl border border-[#bec8d2]/20"></div>
+                <div className="h-32 bg-[#e2e8f0] animate-pulse rounded-xl border border-[#bec8d2]/20"></div>
+              </div>
+            </div>
+          </main>
+        </div>
       </div>
     )
   }
@@ -451,14 +577,26 @@ export default function StaffSubtasksPage() {
                   Lọc theo nhân sự, trạng thái, dự án và deadline để thao tác nhanh các subtask phụ trách.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={fetchData}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#dae2fd] text-[#006591] px-2.5 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-xs font-bold hover:bg-[#c9d4fc] transition-colors shadow-sm"
-              >
-                <span className="material-symbols-outlined text-[16px] lg:text-[18px]">refresh</span>
-                <span>Làm mới</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fetchData}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#dae2fd] text-[#006591] px-2.5 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-xs font-bold hover:bg-[#c9d4fc] transition-colors shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[16px] lg:text-[18px]">refresh</span>
+                  <span>Làm mới</span>
+                </button>
+                {(userRole === 'admin' || userRole === 'manager') && (
+                  <button
+                    type="button"
+                    onClick={handleAssignClick}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg primary-gradient text-white px-2.5 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-xs font-bold hover:brightness-110 transition-all shadow-md active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-[16px] lg:text-[18px]">add_task</span>
+                    <span>Giao việc</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* ── COMPACT FILTER TOOLBAR ── */}
@@ -526,8 +664,7 @@ export default function StaffSubtasksPage() {
                   Tất cả ({subtasks.length})
                 </button>
                 {assigneeOptions.filter(p => p.count > 0).map(p => (
-                  <button
-                    key={p.id}
+                  <button key={p.id}
                     type="button"
                     onClick={() => { setSelectedAssignee(p.id); }}
                     className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${selectedAssignee === p.id ? 'bg-[#006591] text-white border-[#006591]' : 'bg-white text-[#3e4850] border-[#e2e8f0] hover:bg-[#f2f3ff]'}`}
@@ -744,6 +881,25 @@ export default function StaffSubtasksPage() {
             </p>
           </div>
         </Modal>
+      )}
+
+      {assignModal && (
+        <EntityFormModal
+          title={`Giao việc mới`}
+          fields={assignSubtaskFields}
+          data={assignForm}
+          onChange={(field, value) => {
+            setAssignForm(prev => {
+              const next = { ...prev, [field]: value }
+              // Reset task_id if project_id changes
+              if (field === 'project_id') next.task_id = ''
+              return next
+            })
+          }}
+          onSave={handleAssignSave}
+          onClose={() => setAssignModal(null)}
+          isLoading={savingAssign || loadingAssignData}
+        />
       )}
     </div>
   )

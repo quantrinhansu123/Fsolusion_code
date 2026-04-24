@@ -580,7 +580,7 @@ function ModalTaskCard({
   const activeSubs = useMemo(() => {
     return subs.filter(s => (s.status || 'pending') !== 'completed')
   }, [subs])
-  
+
   const groupedSubs = useMemo(() => {
     // Tự động ẩn các tiểu mục đã hoàn thành khỏi danh sách hiển thị
     return groupSubtasksByDay(activeSubs)
@@ -1633,11 +1633,10 @@ export default function ProjectsPage() {
     }
   }, [customers, projectsModalCustomerId])
 
-  useEffect(() => {
-    setProjectTasksViewId(null)
-  }, [projectsModalCustomerId])
 
   const [loadingKanban, setLoadingKanban] = useState(false)
+  const [showKanbanDocs, setShowKanbanDocs] = useState(true)
+  const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager'
 
   useEffect(() => {
     if (!projectsModalCustomer || !projectTasksViewId || loadingKanban) return
@@ -2512,7 +2511,6 @@ export default function ProjectsPage() {
                   const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
                   const dashKey = projectDashboardKey(p)
                   const sm = DASH_STATUS_META[dashKey]
-                  const isMgr = userRole === 'admin' || userRole === 'manager'
                   const assignments = p.project_assignments || []
                   const memberChips = assignments.slice(0, 3).map((a, idx) => {
                     const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
@@ -2557,7 +2555,7 @@ export default function ProjectsPage() {
                         </div>
 
                         {/* 3-dot menu */}
-                        {isMgr && (
+                        {isManagerOrAdmin && (
                           <div
                             className="relative shrink-0"
                             data-project-dd
@@ -2577,16 +2575,12 @@ export default function ProjectsPage() {
                             {openProjectMenuId === p.project_id && (
                               <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
                                 <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(null) }}>
-                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">info</span>Chi tiết
+                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
+                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem Kanban & Chi tiết
                                 </button>
                                 <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
                                   onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
                                   <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
-                                </button>
-                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
-                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Kanban
                                 </button>
                                 <div className="my-1 h-px bg-[#e2e8f0]" />
                                 <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
@@ -2686,27 +2680,11 @@ export default function ProjectsPage() {
               ? 'px-3 py-4 flex flex-col h-[78vh] overflow-hidden'
               : 'px-4 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-5 overflow-y-auto max-h-[80vh]'
           }
-          title={
-            projectTasksViewId && projectInTasksView
-              ? `Nhiệm vụ — ${projectInTasksView.name}`
-              : `Dự án — ${projectsModalCustomer.name}`
-          }
-          subtitle={
-            projectTasksViewId && projectInTasksView
-              ? 'Ba cột theo trạng thái — thẻ task gọn (Kanban)'
-              : 'Danh sách dự án — bấm Xem để mở thẻ nhiệm vụ (task)'
-          }
+          title={projectInTasksView ? `Dự án — ${projectInTasksView.name}` : `Dự án — ${projectsModalCustomer?.name || '...'}`}
+          subtitle={projectTasksViewId ? 'Bảng điều khiển nhiệm vụ & Kanban' : null}
           headerActions={
             projectTasksViewId ? (
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                <button
-                  type="button"
-                  onClick={() => setProjectTasksViewId(null)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-[#006591] bg-[#eae8ff] hover:bg-[#dae2fd] transition-colors whitespace-nowrap"
-                >
-                  <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-                  Quay lại
-                </button>
                 {(userRole === 'admin' || userRole === 'manager') && (
                   <button
                     type="button"
@@ -2747,333 +2725,187 @@ export default function ProjectsPage() {
           }
         >
           {projectTasksViewId && projectInTasksView ? (
-            projectTasksModalEntries.length === 0 ? (
-              <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
-            ) : loadingKanban ? (
-              <div className="flex h-40 w-full items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006591]"></div>
-              </div>
-            ) : (
-              taskKanbanGrouped && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full h-full items-stretch">
-                  {KANBAN_COLUMNS.map(col => (
-                    <div
-                      key={col.key}
-                      className={`flex flex-col h-full rounded-xl border border-[#bec8d2]/25 bg-[#f4f6fc]/90 border-t-[3px] ${col.topBar} shadow-sm overflow-hidden`}
-                    >
-                      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
-                          <span className="shrink-0 rounded-full bg-[#eef1f6] px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-[#475569]">
-                            {taskKanbanGrouped[col.key].length}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
-                        {taskKanbanGrouped[col.key].map(({ feature, task }) => (
-                          <ModalTaskCard
-                            key={task.task_id}
-                            compact
-                            hideStatusBadge
-                            statusActionsOutside
-                            feature={feature}
-                            task={task}
-                            userRole={userRole}
-                            m={m}
-                            deleteEntity={deleteEntity}
-                            onDeleteSubtask={deleteSubtask}
-                            onTaskStatusChange={updateTaskStatus}
-                            updatingTaskId={updatingTaskId}
-                            onSubtaskStatusChange={updateSubtaskStatus}
-                            updatingSubtaskId={updatingSubtaskId}
-                            onSubtaskWorkTimeSave={saveSubtaskWorkTime}
-                            updatingSubtaskWorkTimeId={updatingSubtaskWorkTimeId}
-                            onToast={(msg, type) => setToast({ message: msg, type })}
-                          />
-                        ))}
-                        {taskKanbanGrouped[col.key].length === 0 && (
-                          <p className="text-[10px] text-[#6e7881] italic text-center py-3">Trống</p>
-                        )}
-                      </div>
+            <div className="flex flex-col h-full overflow-hidden">
+              {/* KANBAN VIEW HEADER - Bám sát thiết kế card cũ của sếp */}
+              <div className="mb-6 shrink-0 rounded-xl border border-[#bec8d2]/30 bg-[#faf8ff]/50 p-4 space-y-3 shadow-md">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-[#131b2e]">{projectInTasksView.name}</p>
+                      <StatusBadge status={projectInTasksView.status} />
                     </div>
-                  ))}
-                </div>
-              )
-            )
-          ) : (
-            <div className="space-y-4">
-              {/* MOBILE ONLY: PAGINATION TOP (Optional, but sếp said "ở cuối danh sách") */}
+                    <p className="text-xs text-[#3e4850] line-clamp-2">{projectInTasksView.description || '—'}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
+                      <span>Ngân sách: {projectInTasksView.pricing ? `${Number(projectInTasksView.pricing).toLocaleString('vi-VN')} ₫` : '—'}</span>
+                      <span>Hạn: {formatDeadlineDisplay(projectInTasksView.deadline)}</span>
+                    </div>
+                  </div>
 
-              {(window.innerWidth < 1024 ? paginatedModalProjects : projectsModalCustomer.projects).map(p => {
-                const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager'
-                const hasBudget = p.pricing != null && p.pricing !== ''
-                return (
-                  <div key={p.project_id}>
-                    {/* DESKTOP VIEW: Legacy Card Style */}
-                    <div className="hidden lg:block rounded-xl border border-[#bec8d2]/20 bg-[#faf8ff]/50 p-4 space-y-3">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <p className="text-sm font-bold text-[#131b2e]">{p.name}</p>
-                          <p className="text-xs text-[#3e4850] line-clamp-2">{p.description || '—'}</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
-                            <span>
-                              Ngân sách:{' '}
-                              {hasBudget ? `${Number(p.pricing).toLocaleString('vi-VN')} ₫` : '—'}
-                            </span>
-                            <span>Hạn: {formatDeadlineDisplay(p.deadline)}</span>
-                          </div>
-
-                          {/* HIỂN THỊ TÀI LIỆU DỰ ÁN */}
-                          {(() => {
-                            const docs = Array.isArray(p.documents) ? p.documents : [];
-                            const validDocs = docs.filter(d => d.link?.trim());
-                            if (validDocs.length === 0) return null;
-                            return (
-                              <div className="pt-2 flex items-center gap-3">
-                                <div className="flex items-center gap-1 shrink-0 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                  <span className="material-symbols-outlined text-[14px]">description</span>
-                                  Tài liệu:
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  {validDocs.map((doc, idx) => (
+                  {/* BẢNG TÀI LIỆU "HẠT TIÊU" - Đúng ý sếp */}
+                  <div className="hidden lg:block w-[320px] shrink-0 px-4 border-l border-slate-100 self-stretch flex flex-col justify-center">
+                    {(() => {
+                      const docs = (Array.isArray(projectInTasksView.documents) ? projectInTasksView.documents : []).filter(d => d.link?.trim())
+                      return (
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-100">
+                              <th className="text-[10px] font-bold text-slate-500 uppercase py-1 px-2 text-left">Tên tài liệu</th>
+                              <th className="text-[10px] font-bold text-slate-500 uppercase py-1 px-2 text-left">Link</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {docs.length > 0 ? (
+                              docs.map((doc, idx) => (
+                                <tr key={idx} className="border-b border-slate-50 last:border-0">
+                                  <td className="text-[11px] text-[#3e4850] py-0.5 px-2 font-medium truncate max-w-[150px]">
+                                    {doc.name || `Link ${idx + 1}`}
+                                  </td>
+                                  <td className="text-[11px] py-0.5 px-2">
                                     <a
-                                      key={idx}
                                       href={doc.link.startsWith('http') ? doc.link : `https://${doc.link}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-white border border-slate-200 text-[#006591] hover:bg-[#dae2fd] hover:border-[#006591]/30 transition-all shadow-sm group"
+                                      className="text-[#006591] hover:underline inline-flex items-center gap-0.5"
                                     >
-                                      <span className="material-symbols-outlined text-[13px] text-[#64748b] group-hover:text-[#006591]">link</span>
-                                      <span className="text-[10px] font-bold truncate max-w-[150px]">
-                                        {doc.name?.trim() || `Link ${idx + 1}`}
-                                      </span>
+                                      <span className="material-symbols-outlined text-[14px]">link</span>
+                                      Xem
                                     </a>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
-                          <StatusBadge status={p.status} />
-                          <button
-                            type="button"
-                            onClick={() => setProjectTasksViewId(p.project_id)}
-                            className="text-xs font-semibold text-[#006591] bg-[#dae2fd] hover:bg-[#c9d4fc] px-3 py-2 rounded-lg inline-flex items-center gap-1 transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">visibility</span>
-                            Xem
-                          </button>
-                          {isManagerOrAdmin && (
-                            <ThreeDotMenu
-                              items={[
-                                { icon: 'edit', label: 'Chỉnh sửa', onClick: () => m.open('edit_project', { id: p.project_id, ...p }) },
-                                {
-                                  icon: 'group_add',
-                                  label: 'Phân công nhân sự',
-                                  onClick: () =>
-                                    m.open('assign_team', {
-                                      projectId: p.project_id,
-                                      initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
-                                    }),
-                                  primary: true,
-                                },
-                                { icon: 'add_circle', label: 'Thêm tính năng mới', onClick: () => m.open('add_feature', { projectId: p.project_id }), primary: true },
-                                { icon: 'delete', label: 'Xóa', onClick: () => deleteEntity('projects', 'project_id', p.project_id), danger: true },
-                              ]}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      {isManagerOrAdmin && (
-                        <div className="border-t border-[#bec8d2]/15 pt-2">
-                          <button
-                            type="button"
-                            onClick={() => setMemberRowOpen(s => ({ ...s, [p.project_id]: !s[p.project_id] }))}
-                            className="flex w-full items-center justify-between gap-2 text-left rounded-lg px-1 py-1 hover:bg-[#f0f2fa]/80 transition-colors"
-                          >
-                            <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
-                              Nhân sự
-                              {(p.project_assignments || []).length > 0 && (
-                                <span className="font-semibold text-[#006591]">
-                                  {' '}
-                                  · {(p.project_assignments || []).length} người
-                                </span>
-                              )}
-                            </span>
-                            <span className="material-symbols-outlined text-[#6e7881] text-[18px] shrink-0">
-                              {memberRowOpen[p.project_id] ? 'expand_less' : 'expand_more'}
-                            </span>
-                          </button>
-                          {memberRowOpen[p.project_id] && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
-                              {(p.project_assignments || []).map(a => {
-                                const u = allUsers.find(x => x.user_id === a.user_id)
-                                return (
-                                  <div key={a.user_id} className="flex items-center gap-1 bg-[#f9fafb] border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[10px]">
-                                    {u?.full_name || a.users?.full_name || '...'}
-                                    <button
-                                      type="button"
-                                      onClick={() => removeAssignment(p.project_id, a.user_id)}
-                                      className="text-[#6e7881] hover:text-red-500 ml-0.5"
-                                      title="Gỡ khỏi dự án"
-                                    >
-                                      <span className="material-symbols-outlined text-[12px]">close</span>
-                                    </button>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr><td colSpan={2} className="text-[11px] text-slate-400 italic py-2 text-center">Chưa có tài liệu</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      )
+                    })()}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {isManagerOrAdmin && (
+                      <ThreeDotMenu
+                        items={[
+                          { icon: 'edit', label: 'Chỉnh sửa', onClick: () => m.open('edit_project', { id: projectInTasksView.project_id, ...projectInTasksView }) },
+                          {
+                            icon: 'group_add',
+                            label: 'Phân công nhân sự',
+                            onClick: () =>
+                              m.open('assign_team', {
+                                projectId: projectInTasksView.project_id,
+                                initial: { user_ids: (projectInTasksView.project_assignments || []).map(a => a.user_id) },
+                              }),
+                            primary: true,
+                          },
+                          { icon: 'add_circle', label: 'Thêm tính năng mới', onClick: () => m.open('add_feature', { projectId: projectInTasksView.project_id }), primary: true },
+                          { icon: 'delete', label: 'Xóa', onClick: () => deleteEntity('projects', 'project_id', projectInTasksView.project_id), danger: true },
+                        ]}
+                      />
+                    )}
+                  </div>
+                </div>
+                
+                {/* NHÂN SỰ COLLAPSIBLE */}
+                <div className="border-t border-[#bec8d2]/15 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowKanbanDocs(!showKanbanDocs)}
+                    className="flex w-full items-center justify-between gap-2 text-left rounded-lg px-1 py-1 hover:bg-[#f0f2fa]/80 transition-colors"
+                  >
+                    <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-wide">
+                      Nhân sự dự án
+                      {(projectInTasksView.project_assignments || []).length > 0 && (
+                        <span className="font-semibold text-[#006591]">
+                          {' '}· {(projectInTasksView.project_assignments || []).length} người
+                        </span>
                       )}
-                    </div>
-
-                    {/* MOBILE VIEW: Ultra-Compact List Item */}
-                    <div className="lg:hidden border-b border-[#bec8d2]/15 pb-4 last:border-b-0 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[13px] font-bold text-[#131b2e] truncate grow">{p.name}</p>
-                        {isManagerOrAdmin && (
-                          <ThreeDotMenu
-                            items={[
-                              { icon: 'edit', label: 'Chỉnh sửa', onClick: () => m.open('edit_project', { id: p.project_id, ...p }) },
-                              {
-                                icon: 'group_add',
-                                label: 'Phân công nhân sự',
-                                onClick: () => m.open('assign_team', {
-                                  projectId: p.project_id,
-                                  initial: { user_ids: (p.project_assignments || []).map(a => a.user_id) },
-                                }),
-                                primary: true,
-                              },
-                              { icon: 'add_circle', label: 'Thêm tính năng mới', onClick: () => m.open('add_feature', { projectId: p.project_id }), primary: true },
-                              { icon: 'delete', label: 'Xóa dự án', onClick: () => deleteEntity('projects', 'project_id', p.project_id), danger: true },
-                            ]}
-                          />
-                        )}
-                      </div>
-
-                      {/* Row 2: Info & Actions */}
-                      <div className="flex flex-row items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1 text-[10px] text-[#3e4850] bg-slate-100 px-1.5 py-0.5 rounded">
-                            <span className="material-symbols-outlined text-[12px]">event</span>
-                            {formatDeadlineDisplay(p.deadline)}
-                          </div>
-                          <StatusBadge status={p.status} />
-                          {hasBudget && (
-                            <span className="text-[10px] text-emerald-700 font-medium">
-                              {Number(p.pricing).toLocaleString('vi-VN')} ₫
-                            </span>
-                          )}
-                        </div>
-
-                        {/* MOBILE: HIỂN THỊ TÀI LIỆU */}
-                        {(() => {
-                          const docs = Array.isArray(p.documents) ? p.documents : [];
-                          const validDocs = docs.filter(d => d.link?.trim());
-                          if (validDocs.length === 0) return null;
-                          return (
-                            <div className="pt-1 flex items-center gap-2">
-                              <div className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter shrink-0">TÀI LIỆU:</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {validDocs.map((doc, idx) => (
-                                  <a
-                                    key={idx}
-                                    href={doc.link.startsWith('http') ? doc.link : `https://${doc.link}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-100 text-[#006591] shadow-sm active:scale-95"
-                                  >
-                                    <span className="material-symbols-outlined text-[10px]">link</span>
-                                    <span className="text-[9px] font-bold truncate max-w-[80px]">
-                                      {doc.name?.trim() || 'Link'}
-                                    </span>
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        <button
-                          type="button"
-                          onClick={() => setProjectTasksViewId(p.project_id)}
-                          className="text-[11px] font-bold text-[#006591] bg-[#dae2fd] active:scale-95 px-3 py-1 rounded-md transition-all uppercase tracking-tighter"
-                        >
-                          Xem
-                        </button>
-                      </div>
-
-                      {/* Staff Dropdown (Mobile Optimized) */}
-                      {isManagerOrAdmin && (
-                        <div className="mt-1">
-                          <button
-                            type="button"
-                            onClick={() => setMemberRowOpen(s => ({ ...s, [p.project_id]: !s[p.project_id] }))}
-                            className="flex h-8 w-full items-center justify-between gap-2 text-left rounded-lg px-2 bg-slate-50/50 border border-slate-100"
-                          >
-                            <span className="text-[10px] font-bold text-[#3e4850] uppercase tracking-tighter">
-                              NHÂN SỰ {(p.project_assignments || []).length > 0 && `· ${(p.project_assignments || []).length}`}
-                            </span>
-                            <span className="material-symbols-outlined text-[#6e7881] text-[16px]">
-                              {memberRowOpen[p.project_id] ? 'expand_less' : 'expand_more'}
-                            </span>
-                          </button>
-                          {memberRowOpen[p.project_id] && (
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                              {(p.project_assignments || []).map(a => {
-                                const u = allUsers.find(x => x.user_id === a.user_id)
-                                return (
-                                  <div key={a.user_id} className="flex items-center gap-1 bg-white border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[9px] font-medium text-[#131b2e]">
-                                    {u?.full_name || a.users?.full_name || '...'}
-                                    <button type="button" onClick={() => removeAssignment(p.project_id, a.user_id)} className="text-slate-400">
-                                      <span className="material-symbols-outlined text-[10px]">close</span>
-                                    </button>
-                                  </div>
-                                )
-                              })}
+                    </span>
+                    <span className="material-symbols-outlined text-[#6e7881] text-[18px] shrink-0">
+                      {showKanbanDocs ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </button>
+                  {showKanbanDocs && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
+                      {(projectInTasksView.project_assignments || []).map(a => {
+                        const u = allUsers.find(x => x.user_id === a.user_id)
+                        return (
+                          <div key={a.user_id} className="flex items-center gap-1 bg-[#f9fafb] border border-[#bec8d2]/20 px-2 py-0.5 rounded-full text-[10px]">
+                            {u?.full_name || a.users?.full_name || '...'}
+                            {isManagerOrAdmin && (
                               <button
                                 type="button"
-                                onClick={() => m.open('assign_team', { projectId: p.project_id, initial: { user_ids: (p.project_assignments || []).map(z => z.user_id) } })}
-                                className="w-6 h-6 flex items-center justify-center rounded-full bg-[#dae2fd] text-[#006591] border border-white"
+                                onClick={() => removeAssignment(projectInTasksView.project_id, a.user_id)}
+                                className="text-[#6e7881] hover:text-red-500 ml-0.5"
+                                title="Gỡ khỏi dự án"
                               >
-                                <span className="material-symbols-outlined text-[14px]">add</span>
+                                <span className="material-symbols-outlined text-[12px]">close</span>
                               </button>
-                            </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {loadingKanban ? (
+                <div className="flex h-40 w-full items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006591]"></div>
+                </div>
+              ) : projectTasksModalEntries.length === 0 ? (
+                <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
+              ) : (
+                taskKanbanGrouped && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full h-full items-stretch">
+                    {KANBAN_COLUMNS.map(col => (
+                      <div
+                        key={col.key}
+                        className={`flex flex-col h-full rounded-xl border border-[#bec8d2]/25 bg-[#f4f6fc]/90 border-t-[3px] ${col.topBar} shadow-sm overflow-hidden`}
+                      >
+                        <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                            <span className="shrink-0 rounded-full bg-[#eef1f6] px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-[#475569]">
+                              {taskKanbanGrouped[col.key].length}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
+                          {taskKanbanGrouped[col.key].map(({ feature, task }) => (
+                            <ModalTaskCard
+                              key={task.task_id}
+                              compact
+                              hideStatusBadge
+                              statusActionsOutside
+                              feature={feature}
+                              task={task}
+                              userRole={userRole}
+                              m={m}
+                              deleteEntity={deleteEntity}
+                              onDeleteSubtask={deleteSubtask}
+                              onTaskStatusChange={updateTaskStatus}
+                              updatingTaskId={updatingTaskId}
+                              onSubtaskStatusChange={updateSubtaskStatus}
+                              updatingSubtaskId={updatingSubtaskId}
+                              onSubtaskWorkTimeSave={saveSubtaskWorkTime}
+                              updatingSubtaskWorkTimeId={updatingSubtaskWorkTimeId}
+                              onToast={(msg, type) => setToast({ message: msg, type })}
+                            />
+                          ))}
+                          {taskKanbanGrouped[col.key].length === 0 && (
+                            <p className="text-[10px] text-[#6e7881] italic text-center py-3">Trống</p>
                           )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ))}
                   </div>
                 )
-              })}
-
-              {/* MOBILE ONLY: MINI PAGINATION CONTROLS */}
-              {totalPagesModal > 1 && (
-                <div className="lg:hidden flex items-center justify-center gap-4 pt-2 pb-1 border-t border-[#bec8d2]/10">
-                  <button
-                    disabled={modalProjectPage === 1}
-                    onClick={() => setModalProjectPage(prev => Math.max(1, prev - 1))}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#006591] disabled:opacity-30 active:scale-95 transition-all shadow-sm"
-                  >
-                    <span className="material-symbols-outlined text-[20px]">chevron_left</span>
-                  </button>
-                  <p className="text-[11px] font-bold text-[#131b2e] tracking-widest tabular-nums">
-                    TRANG {modalProjectPage} / {totalPagesModal}
-                  </p>
-                  <button
-                    disabled={modalProjectPage === totalPagesModal}
-                    onClick={() => setModalProjectPage(prev => Math.min(totalPagesModal, prev + 1))}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#006591] disabled:opacity-30 active:scale-95 transition-all shadow-sm"
-                  >
-                    <span className="material-symbols-outlined text-[20px]">chevron_right</span>
-                  </button>
-                </div>
               )}
             </div>
+          ) : (
+            null
           )}
-
         </Modal>
       )}
 
