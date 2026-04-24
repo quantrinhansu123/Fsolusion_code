@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
+import { useAuth } from '../utils/AuthContext'
 
 export default function AttendancePage() {
+  const { user } = useAuth()
+  const role = user?.role || 'employee'
+  const canEditDelete = role === 'admin' || role === 'manager'
+
   const [filterDate, setFilterDate] = useState('')
   const [filterMonth, setFilterMonth] = useState('')
   const [filterUser, setFilterUser] = useState('all')
@@ -614,7 +619,7 @@ export default function AttendancePage() {
                   </div>
                 </div>
 
-                {selectedIds.size > 0 && (
+                {canEditDelete && selectedIds.size > 0 && (
                   <button
                     type="button"
                     onClick={handleDeleteSelected}
@@ -663,7 +668,7 @@ export default function AttendancePage() {
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-out</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Tổng giờ</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200 w-1/3">Task hoàn thành</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200 text-right">Thao tác</th>
+                      {canEditDelete && <th className="px-4 py-3 font-semibold border-b border-slate-200 text-right">Thao tác</th>}
                     </tr>
                   </thead>
 
@@ -732,42 +737,43 @@ export default function AttendancePage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
-                                const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+                        {canEditDelete && (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                  const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
 
-                                // Format date YYYY-MM-DD for input
-                                const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+                                  // Format date YYYY-MM-DD for input
+                                  const getD = (d) => d ? d.toISOString().split('T')[0] : ''
 
-                                setEditingRecord({
-                                  ...row,
-                                  in_date: getD(dIn),
-                                  in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
-                                  in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
-                                  out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
-                                  out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
-                                  out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
-                                })
-                              }}
-                              className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">edit</span>
-
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSingle(row.id)}
-                              disabled={deleting}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                            >
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
-                            </button>
-                          </div>
-                        </td>
+                                  setEditingRecord({
+                                    ...row,
+                                    in_date: getD(dIn),
+                                    in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                    in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                    out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
+                                    out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                    out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
+                                  })
+                                }}
+                                className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSingle(row.id)}
+                                disabled={deleting}
+                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -805,25 +811,27 @@ export default function AttendancePage() {
                           <span className="material-symbols-outlined text-[14px]">list_alt</span>
                           TASK ĐÃ LÀM
                         </button>
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setEditingRecord(row)}
-                            className="flex-1 bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-blue-100 flex items-center justify-center gap-1 active:scale-95 transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">edit</span>
-                            SỬA
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSingle(row.id)}
-                            disabled={deleting}
-                            className="flex-1 bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">delete</span>
-                            XÓA
-                          </button>
-                        </div>
+                        {canEditDelete && (
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingRecord(row)}
+                              className="flex-1 bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-blue-100 flex items-center justify-center gap-1 active:scale-95 transition-all"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">edit</span>
+                              SỬA
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSingle(row.id)}
+                              disabled={deleting}
+                              className="flex-1 bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">delete</span>
+                              XÓA
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 

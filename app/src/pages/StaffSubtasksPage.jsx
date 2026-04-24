@@ -4,6 +4,9 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import Toast from '../components/Toast'
 import { supabase } from '../utils/supabase'
+import Modal from '../components/Modal'
+import StaffSubtaskCard from '../components/StaffSubtaskCard'
+import { useCallback } from 'react'
 import {
   formatSubtaskWorkTimeSummary,
   normalizeSubtaskWorkTime,
@@ -83,20 +86,21 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
-  const isInitialMount = useRef(true)
-
-  // -- STATE CHẤM CÔNG: Chỉ dùng session nếu thuộc về user đang đăng nhập --
-  const [activeSessionId, setActiveSessionId] = useState(null)
+  const [userRole, setUserRole] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   useEffect(() => {
     async function loadCurrentUser() {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (!authUser) return
-      // Validate session: chỉ dùng nếu session_id là của user này
-      const storedSessionId = localStorage.getItem('checkin_session_id')
-      const storedUserId = localStorage.getItem('checkin_user_id')
-      if (storedSessionId && storedUserId === authUser.id) {
-        setActiveSessionId(storedSessionId)
+      
+      // Lấy role để set mặc định filter cho nhân viên
+      const { data: profile } = await supabase.from('users').select('role').eq('user_id', authUser.id).single()
+      if (profile?.role) {
+        setUserRole(profile.role)
+        if (profile.role === 'employee') {
+          setSelectedAssignee(authUser.id) // Nhân viên mặc định xem task của chính mình
+        }
       }
     }
     loadCurrentUser()
@@ -118,27 +122,14 @@ export default function StaffSubtasksPage() {
   const isActive = location.pathname === '/staff-subtasks'
 
   useEffect(() => {
-    if (isActive) {
-      if (!hasFetched) {
-        init()
-        setHasFetched(true)
-      } else {
-        // Mỗi khi quay lại trang, tải lại dữ liệu ngầm để cập nhật subtask mới từ trang Dự án
-        fetchData(true)
-      }
-    }
-  }, [isActive])
+    if (!isActive) return
 
-  // Chạy fetchData silent khi filter thay đổi (không hiện spinner chặn màn hình)
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false
-      return
-    }
-    if (hasFetched) {
+    if (!hasFetched) {
+      init().then(() => setHasFetched(true))
+    } else {
       fetchData(true)
     }
-  }, [selectedStatus, deadlineFilter, selectedProjectIds])
+  }, [isActive])
 
   async function init() {
     setLoading(true)
@@ -156,10 +147,21 @@ export default function StaffSubtasksPage() {
       // 1. Auth User, 2. Danh sách nhân sự, 3. Danh sách subtasks (Query 1) - CHẠY SONG SONG
       let subtasksQuery = supabase
         .from('subtasks')
-        .select('subtask_id, name, status, deadline, completed_at, assigned_to, work_time, description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note, users:assigned_to(user_id, full_name)')
+        .select(`
+          subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
+          description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
+          users:assigned_to(user_id, full_name),
+          tasks:task_id(
+            task_id, name, description, image_url, content_blocks,
+            features:feature_id(
+              feature_id, name,
+              projects:project_id(project_id, name)
+            )
+          )
+        `)
         .not('assigned_to', 'is', null)
       
-      // Áp dụng filters nặng lên server (Giữ assignee ở client để ko mất list nhân sự)
+      // Áp dụng filters nặng lên server
       if (selectedStatus !== 'all') subtasksQuery = subtasksQuery.eq('status', selectedStatus)
       if (taskIdsFilter) subtasksQuery = subtasksQuery.in('task_id', taskIdsFilter)
       
@@ -190,45 +192,13 @@ export default function StaffSubtasksPage() {
           .order('full_name', { ascending: true }),
         subtasksQuery
           .order('updated_at', { ascending: false })
-          .limit(150)
+          .limit(300)
       ])
 
       if (subtasksErr) throw subtasksErr
 
-      // Query 2: Lấy thông tin Tasks/Features/Projects cho các task_id vừa lấy được
-      const subtasksList = subtasksData || []
-      const taskIds = [...new Set(subtasksList.map(st => st.task_id).filter(Boolean))]
-      
-      let finalSubtasks = subtasksList
-      if (taskIds.length > 0) {
-        const { data: tasksData } = await supabase
-          .from('tasks')
-          .select(`
-            task_id, name, description, image_url, content_blocks,
-            features(
-              feature_id, name,
-              projects(project_id, name)
-            )
-          `)
-          .in('task_id', taskIds)
-
-        const taskMap = new Map((tasksData || []).map(t => [t.task_id, t]))
-        finalSubtasks = subtasksList.map(st => ({
-          ...st,
-          tasks: taskMap.get(st.task_id) || null
-        }))
-      }
-
-      if (authUser) {
-        const storedSessionId = localStorage.getItem('checkin_session_id')
-        const storedUserId = localStorage.getItem('checkin_user_id')
-        if (storedSessionId && storedUserId === authUser.id) {
-          setActiveSessionId(storedSessionId)
-        }
-      }
-
       setStaffUsers(usersData || [])
-      setSubtasks(finalSubtasks)
+      setSubtasks(subtasksData || [])
     } catch (err) {
       console.error('Init error:', err)
       setToast({ message: err.message || 'Không khởi tạo được dữ liệu', type: 'error' })
@@ -256,17 +226,24 @@ export default function StaffSubtasksPage() {
         }
       }
 
-      // Query 1: Lấy subtasks tối giản
+      // Query 1: Lấy subtasks với đầy đủ Metadata lồng nhau (Single Query)
       let query = supabase
         .from('subtasks')
         .select(`
           subtask_id, name, status, deadline, completed_at, assigned_to, work_time,
           description, image_url, content_blocks, task_id, evaluation_rating, evaluation_note,
-          users:assigned_to(user_id, full_name)
+          users:assigned_to(user_id, full_name),
+          tasks:task_id(
+            task_id, name, description, image_url, content_blocks,
+            features:feature_id(
+              feature_id, name,
+              projects:project_id(project_id, name)
+            )
+          )
         `)
         .not('assigned_to', 'is', null)
       
-      // Lọc nặng lên server (Assignee lọc ở client để giữ thanh filter)
+      // Lọc nặng lên server
       if (selectedStatus !== 'all') query = query.eq('status', selectedStatus)
       if (taskIdsFilter) query = query.in('task_id', taskIdsFilter)
       
@@ -287,37 +264,11 @@ export default function StaffSubtasksPage() {
 
       const { data: subtasksData, error: subtasksErr } = await query
         .order('updated_at', { ascending: false })
-        .limit(150)
+        .limit(300)
 
       if (subtasksErr) throw subtasksErr
       
-      // Query 2: Lấy metadata (Tasks -> Features -> Projects)
-      const subtasksList = subtasksData || []
-      const taskIds = [...new Set(subtasksList.map(st => st.task_id).filter(Boolean))]
-      
-      let finalSubtasks = subtasksList
-      if (taskIds.length > 0) {
-        const { data: tasksData, error: tasksErr } = await supabase
-          .from('tasks')
-          .select(`
-            task_id, name, description, image_url, content_blocks,
-            features(
-              feature_id, name,
-              projects(project_id, name)
-            )
-          `)
-          .in('task_id', taskIds)
-        
-        if (tasksErr) throw tasksErr
-
-        const taskMap = new Map((tasksData || []).map(t => [t.task_id, t]))
-        finalSubtasks = subtasksList.map(st => ({
-          ...st,
-          tasks: taskMap.get(st.task_id) || null
-        }))
-      }
-
-      setSubtasks(finalSubtasks)
+      setSubtasks(subtasksData || [])
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Không tải được danh sách subtask', type: 'error' })
@@ -385,17 +336,20 @@ export default function StaffSubtasksPage() {
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
   }, [filteredSubtasks])
 
-  async function updateSubtaskStatus(subtaskId, status) {
+  const updateSubtaskStatus = useCallback(async (subtaskId, status) => {
     setUpdatingStatusId(subtaskId)
     try {
       const patch = { status }
       if (status === 'completed') {
         patch.completed_at = new Date().toISOString()
-        if (activeSessionId) {
-          patch.session_id = activeSessionId
+        // Đọc trực tiếp từ localStorage để luôn lấy được session mới nhất kể cả khi trang không bị unmount
+        const storedSessionId = localStorage.getItem('checkin_session_id')
+        if (storedSessionId) {
+          patch.session_id = storedSessionId
         }
       } else {
         patch.completed_at = null
+        patch.session_id = null // Hủy link session nếu chuyển khỏi trạng thái completed
       }
 
       const { error } = await supabase
@@ -414,9 +368,9 @@ export default function StaffSubtasksPage() {
     } finally {
       setUpdatingStatusId(null)
     }
-  }
+  }, [])
 
-  async function updateSubtaskWorkTime(subtaskId, nextWorkTime) {
+  const updateSubtaskWorkTime = useCallback(async (subtaskId, nextWorkTime) => {
     setUpdatingWorkTimeId(subtaskId)
     try {
       const { error } = await supabase
@@ -435,9 +389,9 @@ export default function StaffSubtasksPage() {
     } finally {
       setUpdatingWorkTimeId(null)
     }
-  }
+  }, [])
 
-  async function updateSubtaskEvaluation(subtaskId, field, value) {
+  const updateSubtaskEvaluation = useCallback(async (subtaskId, field, value) => {
     // Optimistic UI update
     setSubtasks(prev => prev.map(st => (
       st.subtask_id === subtaskId ? { ...st, [field]: value } : st
@@ -454,6 +408,22 @@ export default function StaffSubtasksPage() {
       console.error('Update evaluation error:', err)
       setToast({ message: 'Không thể lưu nhận xét: ' + err.message, type: 'error' })
       // Revert if error? (Optional, usually for evaluation we just let it be and user might retry)
+    }
+  }, [])
+
+  const handleDeleteClick = useCallback((id) => setConfirmDeleteId(id), [])
+  const handleSetLightboxUrl = useCallback((url) => setLightboxUrl(url), [])
+
+  async function deleteSubtask(subtaskId) {
+    setConfirmDeleteId(null)
+    try {
+      const { error } = await supabase.from('subtasks').delete().eq('subtask_id', subtaskId)
+      if (error) throw error
+      setSubtasks(prev => prev.filter(st => st.subtask_id !== subtaskId))
+      setToast({ message: 'Đã xóa subtask', type: 'success' })
+    } catch (err) {
+      console.error('Delete subtask error:', err)
+      setToast({ message: err.message || 'Không thể xóa subtask', type: 'error' })
     }
   }
 
@@ -660,172 +630,20 @@ export default function StaffSubtasksPage() {
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 border border-[#e2e8f0] rounded-[10px] p-2 shadow-sm bg-slate-50/20">
-                      {displayedItems.map((st, idx) => {
-                        const sessions = normalizeSubtaskWorkTime(st.work_time)
-                        const running = subtaskHasOpenWorkSession(sessions)
-                        const taskName = st.tasks?.name || '—'
-                        const featureName = st.tasks?.features?.name || '—'
-                        const timeStr = formatSubtaskWorkTimeSummary(sessions)
-                        const timeSummary = timeStr.includes('- tổng') ? timeStr.split('- tổng')[1].trim() : timeStr
-
-                        return (
-                          <div
-                            key={st.subtask_id}
-                            className="rounded-lg border border-slate-200 bg-[#fafafa] p-2 hover:bg-[#f2f3ff] transition-all shadow-sm"
-                          >
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline gap-2 min-w-0">
-                                  <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[65%]">{st.name}</p>
-                                  <p className="text-[10px] text-slate-500 font-medium truncate flex-1 min-w-0">
-                                    {st.users?.full_name ? `${st.users.full_name.split(' ').slice(-2).join(' ')} · ` : ''}
-                                    {featureName} · {taskName}
-                                  </p>
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                                  <div className="flex flex-wrap items-center gap-3">
-                                    <div className="flex items-center gap-1 text-[10px] text-slate-600 font-medium" title="Hạn chót">
-                                      <span className="material-symbols-outlined text-[14px] text-slate-400">event</span>
-                                      <span>
-                                        {st.deadline ? new Date(st.deadline).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' }) : '—'}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-[10px] text-slate-600 font-medium" title="Tổng thời gian">
-                                      <span className="material-symbols-outlined text-[14px] text-slate-400">schedule</span>
-                                      <span className="capitalize">{timeSummary}</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <div className="relative">
-                                      <select
-                                        value={st.status || 'pending'}
-                                        onChange={e => updateSubtaskStatus(st.subtask_id, e.target.value)}
-                                        disabled={updatingStatusId === st.subtask_id}
-                                        className="w-[100px] appearance-none rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-[#131b2e] focus:border-[#006591] focus:outline-none disabled:opacity-55"
-                                      >
-                                        {STATUS_OPTIONS.map(o => (
-                                          <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>
-                                        ))}
-                                      </select>
-                                      <span className="material-symbols-outlined pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[12px] text-[#94a3b8]">expand_more</span>
-                                    </div>
-
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        disabled={updatingWorkTimeId === st.subtask_id || running}
-                                        onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(sessions))}
-                                        className="flex h-7 w-7 items-center justify-center rounded bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-colors border border-[#1e8e3e]/20"
-                                      >
-                                        <span className="material-symbols-outlined text-[16px]">play_arrow</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={updatingWorkTimeId === st.subtask_id || !running}
-                                        onClick={() => updateSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(sessions))}
-                                        className="flex h-7 w-7 items-center justify-center rounded bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-colors border border-[#b06000]/20"
-                                      >
-                                        <span className="material-symbols-outlined text-[16px]">pause</span>
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {(() => {
-                                  const displayBlocks = Array.isArray(st.content_blocks) && st.content_blocks.length > 0
-                                    ? st.content_blocks
-                                    : (st.description || st.image_url
-                                      ? [{ content: st.description, image_url: st.image_url }]
-                                      : (st.tasks?.content_blocks || [{ content: st.tasks?.description, image_url: st.tasks?.image_url }]))
-
-                                  const validBlocks = displayBlocks.filter(b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim()))
-                                  if (validBlocks.length === 0) return null
-
-                                  return (
-                                    <div className="mt-1.5 space-y-1.5 border-t border-slate-100 pt-1.5">
-                                      {validBlocks.map((block, bIdx) => (
-                                        <div key={bIdx} className="flex gap-3 items-start group/block">
-                                          {(() => {
-                                            const urls = []
-                                            if (block.image_url?.trim()) urls.push(block.image_url.trim())
-                                            if (Array.isArray(block.image_urls)) {
-                                              block.image_urls.forEach(u => u?.trim() && !urls.includes(u.trim()) && urls.push(u.trim()))
-                                            }
-                                            if (urls.length === 0) return null
-                                            return (
-                                              <div className="flex flex-col gap-1 shrink-0">
-                                                {urls.map((url, uIdx) => (
-                                                  <div
-                                                    key={uIdx}
-                                                    className="relative cursor-pointer group/img"
-                                                    onClick={() => setLightboxUrl(url)}
-                                                  >
-                                                    <img
-                                                      src={url}
-                                                      alt="Subtask attachment"
-                                                      className="w-12 h-12 object-cover rounded-lg border border-slate-200 shadow-sm group-hover/img:border-blue-400 transition-all"
-                                                    />
-                                                    <div className="absolute inset-0 bg-black/5 group-hover/img:bg-transparent rounded-lg transition-all" />
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            )
-                                          })()}
-                                          {block.content && (
-                                            <p className="text-[11px] text-slate-500 leading-relaxed italic flex-1 py-0.5 whitespace-pre-wrap">
-                                              {block.content}
-                                            </p>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )
-                                })()}
-
-                                {/* ── EVALUATION ROW ── */}
-                                <div className="mt-2 -mx-2 -mb-2 bg-gray-50/80 px-2 py-1 border-t border-slate-100 flex items-center gap-2 rounded-b-lg">
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá:</span>
-                                    <div className="relative">
-                                      <select
-                                        value={st.evaluation_rating || 'none'}
-                                        onChange={(e) => updateSubtaskEvaluation(st.subtask_id, 'evaluation_rating', e.target.value)}
-                                        className={`appearance-none rounded px-1.5 py-0.5 text-[9px] font-bold border transition-all cursor-pointer focus:outline-none ${
-                                          EVALUATION_OPTIONS.find(o => o.value === (st.evaluation_rating || 'none'))?.color || EVALUATION_OPTIONS[0].color
-                                        }`}
-                                      >
-                                        {EVALUATION_OPTIONS.map(o => (
-                                          <option key={o.value} value={o.value}>{o.label}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  </div>
-                                  <div className="flex-1">
-                                    <input
-                                      type="text"
-                                      placeholder="Ghi chú đánh giá..."
-                                      defaultValue={st.evaluation_note || ''}
-                                      onBlur={(e) => {
-                                        if (e.target.value !== (st.evaluation_note || '')) {
-                                          updateSubtaskEvaluation(st.subtask_id, 'evaluation_note', e.target.value)
-                                        }
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.target.blur()
-                                        }
-                                      }}
-                                      className="w-full bg-transparent border-none focus:ring-0 text-[9px] text-slate-600 placeholder:text-slate-400 p-0 h-4"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
+                      {displayedItems.map((st) => (
+                        <StaffSubtaskCard
+                          key={st.subtask_id}
+                          st={st}
+                          userRole={userRole}
+                          isUpdatingStatus={updatingStatusId === st.subtask_id}
+                          isUpdatingWorkTime={updatingWorkTimeId === st.subtask_id}
+                          onUpdateStatus={updateSubtaskStatus}
+                          onUpdateWorkTime={updateSubtaskWorkTime}
+                          onSetLightboxUrl={handleSetLightboxUrl}
+                          onDeleteClick={handleDeleteClick}
+                          onUpdateEvaluation={updateSubtaskEvaluation}
+                        />
+                      ))}
                     </div>
 
                     {totalPages > 1 && isMobileScreen && (
@@ -892,7 +710,41 @@ export default function StaffSubtasksPage() {
           </div>
         </main>
       </div>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} duration={2000} />}
+
+      {confirmDeleteId && (
+        <Modal
+          title="Xác nhận xóa"
+          onClose={() => setConfirmDeleteId(null)}
+          maxWidthClassName="max-w-sm"
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-[#3e4850] hover:bg-slate-100 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteSubtask(confirmDeleteId)}
+                className="px-4 py-2 rounded-lg text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 transition-colors shadow-sm"
+              >
+                Xác nhận xóa
+              </button>
+            </>
+          }
+        >
+          <div className="py-4 text-center">
+            <span className="material-symbols-outlined text-[48px] text-rose-500 mb-2">warning</span>
+            <p className="text-sm text-[#131b2e] font-medium leading-relaxed">
+              Bạn có chắc chắn muốn xóa subtask này không? <br />
+              Hành động này <span className="text-rose-600 font-bold underline decoration-rose-200">không thể hoàn tác</span>.
+            </p>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

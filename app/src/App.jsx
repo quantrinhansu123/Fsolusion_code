@@ -27,12 +27,29 @@ function KeepAliveApp() {
     if (!loading) {
       if (!user && path !== '/login') {
         navigate('/login', { replace: true })
+        return
       }
-      if (user && (path === '/' || path === '/login')) {
-        navigate('/dashboard', { replace: true })
+
+      if (user) {
+        const role = user.role || 'employee'
+        const isEmployee = role === 'employee'
+        const employeeAllowedPaths = ['/staff-subtasks', '/attendance']
+
+        // 1. Điều hướng mặc định khi vừa login hoặc vào trang chủ
+        if (path === '/' || path === '/login') {
+          if (isEmployee) {
+            navigate('/staff-subtasks', { replace: true })
+          } else {
+            navigate('/dashboard', { replace: true })
+          }
+        } 
+        // 2. Chặn truy cập trái phép bằng URL
+        else if (isEmployee && !employeeAllowedPaths.includes(path)) {
+          navigate('/staff-subtasks', { replace: true })
+        }
       }
     }
-  }, [user, loading, path])
+  }, [user, loading, path, navigate])
 
   // Trang Login render riêng, không keep-alive
   if (path === '/login') return <LoginPage />

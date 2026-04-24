@@ -82,14 +82,18 @@ export default function Sidebar() {
         )}
 
         <div className="flex flex-col gap-1 flex-grow">
-          <NavLink to="/dashboard" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
-            <span className="material-symbols-outlined">dashboard</span>
-            Tổng quan
-          </NavLink>
-          <NavLink to="/projects" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
-            <span className="material-symbols-outlined">account_tree</span>
-            Quản lý dự án
-          </NavLink>
+          {isAdminOrManager(role) && (
+            <>
+              <NavLink to="/dashboard" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                <span className="material-symbols-outlined">dashboard</span>
+                Tổng quan
+              </NavLink>
+              <NavLink to="/projects" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                <span className="material-symbols-outlined">account_tree</span>
+                Quản lý dự án
+              </NavLink>
+            </>
+          )}
           <NavLink to="/staff-subtasks" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">view_kanban</span>
             Task theo nhân sự

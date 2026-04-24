@@ -577,11 +577,14 @@ function ModalTaskCard({
     return () => window.removeEventListener('keydown', onKey)
   }, [imageLightboxUrl])
   const subs = task.subtasks || []
-  const groupedSubs = useMemo(() => {
-    // Auto-hide on completion: Lọc bỏ các tiểu mục đã hoàn thành khỏi danh sách hiển thị
-    const visibleSubs = subs.filter(s => (s.status || 'pending') !== 'completed')
-    return groupSubtasksByDay(visibleSubs)
+  const activeSubs = useMemo(() => {
+    return subs.filter(s => (s.status || 'pending') !== 'completed')
   }, [subs])
+  
+  const groupedSubs = useMemo(() => {
+    // Tự động ẩn các tiểu mục đã hoàn thành khỏi danh sách hiển thị
+    return groupSubtasksByDay(activeSubs)
+  }, [activeSubs])
   /** Luôn dùng cỡ chữ đọc được trong modal tiểu mục (không phụ thuộc compact của thẻ Kanban) */
   const subModal = {
     blockWrap: 'space-y-2',
@@ -652,7 +655,7 @@ function ModalTaskCard({
                       onClick={() => setShowSubtasksModal(true)}
                       className="hover:underline text-[#006591] font-semibold"
                     >
-                      {subs.length} mục
+                      {activeSubs.length > 0 ? `${activeSubs.length} mục` : 'Hoàn thành'}
                     </button>
                   )}
                 </div>
@@ -1033,7 +1036,7 @@ function ModalTaskCard({
           >
             <span className={`material-symbols-outlined ${compact ? 'text-[12px]' : 'text-[14px]'}`}>checklist</span>
             Xem tiểu mục
-            <span className="opacity-80">({subs.length})</span>
+            <span className="opacity-80">({activeSubs.length})</span>
           </button>
         </div>
       )}
@@ -1253,57 +1256,7 @@ function ModalTaskCard({
 
                         {/* 5. Bộ đếm (Timer) */}
                         <div className="flex flex-col gap-1 w-full pl-6 lg:pl-0">
-                          <SubtaskModalWorkClock workTimeRaw={st.work_time} actions={
-                            <div className="flex items-center gap-1 w-full">
-                              {!workRunning ? (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={async () => {
-                                    const cur = normalizeSubtaskWorkTime(st.work_time)
-                                    if (subtaskHasOpenWorkSession(cur)) return
-                                    await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterStart(cur))
-                                  }}
-                                  className="flex-1 h-8 rounded border border-slate-200 bg-white text-[10px] font-bold hover:bg-slate-50 flex items-center justify-center gap-1 shadow-sm"
-                                >
-                                  <span className="material-symbols-outlined text-[16px] text-slate-700">play_arrow</span> Bắt đầu
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={async () => {
-                                    const cur = normalizeSubtaskWorkTime(st.work_time)
-                                    if (!subtaskHasOpenWorkSession(cur)) return
-                                    await onSubtaskWorkTimeSave(st.subtask_id, subtaskWorkTimeAfterPause(cur))
-                                  }}
-                                  className="flex-1 h-8 rounded border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-900 hover:bg-amber-100 flex items-center justify-center gap-1 shadow-sm"
-                                >
-                                  <span className="material-symbols-outlined text-[16px] text-amber-600">pause</span> Tạm dừng
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                disabled={busy || (!st.work_time && !workRunning)}
-                                onClick={async () => {
-                                  if (confirm('Đặt lại thời gian?')) await onSubtaskWorkTimeSave(st.subtask_id, [])
-                                }}
-                                className="w-8 h-8 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:bg-slate-50 shadow-sm"
-                              >
-                                <span className="material-symbols-outlined text-[20px]">replay</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => onSubtaskStatusChange(st.subtask_id, 'completed')}
-                                className="flex-1 h-8 flex items-center justify-center gap-1 rounded border border-emerald-200 bg-emerald-50 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 shadow-sm"
-                              >
-                                <span className="material-symbols-outlined text-[16px]">check_circle</span> Hoàn thành
-                              </button>
-                            </div>
-                          } />
+                          <SubtaskModalWorkClock workTimeRaw={st.work_time} />
                         </div>
 
                         {/* 6. Thao tác (Sửa/Xóa xếp dọc) */}
