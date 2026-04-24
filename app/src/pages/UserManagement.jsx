@@ -271,16 +271,13 @@ export default function UserManagement() {
                     <div className="space-y-1">
                       {paginatedUsers.map(u => (
                         <div key={u.user_id} className="bg-white rounded-xl border border-[#bec8d2]/15 p-2.5 space-y-2">
-                          {/* Row 1: Identification & Role */}
+                          {/* Row 1: Identity & Role */}
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                              <div className="w-8 h-8 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+                              <div className="w-7 h-7 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-[10px] shrink-0 shadow-sm">
                                 {u.full_name.charAt(0)}
                               </div>
-                              <div className="min-w-0">
-                                <p className="text-[11px] font-black text-[#131b2e] truncate uppercase leading-none mb-0.5">{u.full_name}</p>
-                                <p className="text-[9px] text-[#3e4850] truncate leading-none opacity-70">{shortDisplayForProfile(u.email)}</p>
-                              </div>
+                              <p className="text-[11px] font-black text-[#131b2e] truncate uppercase tracking-tight">{u.full_name}</p>
                             </div>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase whitespace-nowrap shrink-0 border border-current ${ROLES.find(r => r.value === u.role)?.color}`}
@@ -289,18 +286,15 @@ export default function UserManagement() {
                             </span>
                           </div>
 
-                          {/* Row 2: Metadata & Actions (Dàn hàng ngang) */}
-                          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-50">
-                            <div className="flex flex-col min-w-0">
-                              <div className="text-[9px] text-[#3e4850] truncate opacity-80">
-                                <span className="font-bold opacity-60 uppercase">Bộ phận:</span> {u.department || '—'}
-                              </div>
-                              <div className="text-[9px] text-[#3e4850] opacity-80">
-                                <span className="font-bold opacity-60 uppercase">Tham gia:</span> {new Date(u.created_at).toLocaleDateString('vi-VN')}
-                              </div>
+                          {/* Row 2: Combined Metadata & Actions (Strictly 1 line) */}
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-50">
+                            <div className="flex items-center gap-2 text-[9px] text-[#3e4850] min-w-0 opacity-70">
+                              <span className="truncate max-w-[80px] font-bold">{u.department || 'NHÂN SỰ'}</span>
+                              <span className="opacity-30">•</span>
+                              <span className="whitespace-nowrap">{new Date(u.created_at).toLocaleDateString('vi-VN')}</span>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-3 shrink-0">
                               <button
                                 onClick={() => {
                                   setEditingUser(u)

@@ -250,31 +250,31 @@ export default function CustomerManagement() {
               <div className="lg:hidden divide-y divide-[#bec8d2]/10">
                 {displayedCustomers.map(c => (
                   <div key={c.customer_id} className="p-2.5 space-y-2">
-                    {/* Hàng 1: Avatar -> Tên -> Badge */}
+                    {/* Hàng 1: Identity & Badge */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-7 h-7 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-[10px] shrink-0">
                           {c.name.charAt(0)}
                         </div>
-                        <span className="text-xs font-black text-[#131b2e] truncate uppercase tracking-tight">{c.name}</span>
+                        <span className="text-[11px] font-black text-[#131b2e] truncate uppercase tracking-tight">{c.name}</span>
                       </div>
                       <span className="text-[8px] font-black text-[#131b2e] bg-[#f2f3ff] px-1.5 py-0.5 rounded border border-[#dae2fd]/30 tabular-nums whitespace-nowrap">
                         {c.project_count ?? 0} DỰ ÁN
                       </span>
                     </div>
 
-                    {/* Hàng 2: Thông tin liên hệ */}
+                    {/* Hàng 2: Thông tin liên hệ đầy đủ (SĐT & Email) */}
                     {(c.phone && c.phone !== '—' || c.email && c.email !== '—') && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-[#3e4850] font-medium opacity-80">
                         {c.phone && c.phone !== '—' && (
                           <div className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[10px] text-[#006591]">call</span>
+                            <span className="material-symbols-outlined text-[12px] text-[#006591]">call</span>
                             {c.phone}
                           </div>
                         )}
                         {c.email && c.email !== '—' && (
                           <div className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[10px] text-[#006591]">mail</span>
+                            <span className="material-symbols-outlined text-[12px] text-[#006591]">mail</span>
                             <span className="truncate max-w-[150px]">{c.email}</span>
                           </div>
                         )}
@@ -286,7 +286,7 @@ export default function CustomerManagement() {
                       <button
                         type="button"
                         onClick={() => openProjectsModal(c)}
-                        className="flex items-center gap-0.5 text-[9px] font-black text-[#006591] active:scale-90 transition-transform"
+                        className="flex items-center gap-0.5 text-[9px] font-black text-[#006591] active:scale-90 transition-transform uppercase"
                       >
                         <span className="material-symbols-outlined text-[14px]">visibility</span>
                         XEM
@@ -296,7 +296,7 @@ export default function CustomerManagement() {
                         <button
                           type="button"
                           onClick={() => { setEditingCustomer(c); setFormData(c); setIsModalOpen(true) }}
-                          className="flex items-center gap-0.5 text-[9px] font-black text-slate-500 active:scale-90 transition-transform"
+                          className="flex items-center gap-0.5 text-[9px] font-black text-slate-500 active:scale-90 transition-transform uppercase"
                         >
                           <span className="material-symbols-outlined text-[14px]">edit</span>
                           SỬA
@@ -304,7 +304,7 @@ export default function CustomerManagement() {
                         <button
                           type="button"
                           onClick={() => deleteCustomer(c.customer_id)}
-                          className="flex items-center gap-0.5 text-[9px] font-black text-red-500 active:scale-90 transition-transform"
+                          className="flex items-center gap-0.5 text-[9px] font-black text-red-500 active:scale-90 transition-transform uppercase"
                         >
                           <span className="material-symbols-outlined text-[14px]">delete</span>
                           XÓA
