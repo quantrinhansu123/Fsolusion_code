@@ -448,7 +448,17 @@ export default function StaffSubtasksPage() {
 
   const handleAssignClick = async () => {
     setAssignModal(true)
-    setAssignForm(subtaskFormInitial({ status: 'pending' }))
+    // Khởi tạo form TRẮNG tuyệt đối để tránh lấy nhầm dữ liệu task/subtask cũ
+    setAssignForm({
+      status: 'pending',
+      name: '',
+      content_blocks: [{ content: '', image_urls: [] }],
+      description: '',
+      image_url: '',
+      project_id: '',
+      task_id: '',
+      assigned_to: ''
+    })
     setLoadingAssignData(true)
     try {
       const { data: projectsData, error: projErr } = await supabase

@@ -141,7 +141,7 @@ function StaffSubtaskCard({
               ? st.content_blocks
               : (st.description || st.image_url
                 ? [{ content: st.description, image_url: st.image_url }]
-                : (st.tasks?.content_blocks || [{ content: st.tasks?.description, image_url: st.tasks?.image_url }]))
+                : [])
 
             const validBlocks = displayBlocks.filter(b => (b.content && b.content.trim()) || (b.image_url && b.image_url.trim()))
             if (validBlocks.length === 0) return null
