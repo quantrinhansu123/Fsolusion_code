@@ -268,72 +268,64 @@ export default function UserManagement() {
 
                 return (
                   <>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {paginatedUsers.map(u => (
-                        <div key={u.user_id} className="bg-white rounded-xl border border-[#bec8d2]/15 p-3 space-y-2">
-                          {/* Row 1: Avatar + Name/Email + Role Badge + Actions */}
-                          <div className="flex items-start gap-2 justify-between">
-                            <div className="flex items-start gap-2 flex-1 min-w-0">
-                              <div className="w-10 h-10 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-sm shrink-0">
+                        <div key={u.user_id} className="bg-white rounded-xl border border-[#bec8d2]/15 p-2.5 space-y-2">
+                          {/* Row 1: Identification & Role */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-8 h-8 rounded-full primary-gradient flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
                                 {u.full_name.charAt(0)}
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-[#131b2e] truncate">{u.full_name}</p>
-                                <p className="text-xs text-[#3e4850] truncate">{shortDisplayForProfile(u.email)}</p>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-black text-[#131b2e] truncate uppercase leading-none mb-0.5">{u.full_name}</p>
+                                <p className="text-[9px] text-[#3e4850] truncate leading-none opacity-70">{shortDisplayForProfile(u.email)}</p>
                               </div>
                             </div>
                             <span
-                              className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase whitespace-nowrap shrink-0 ${ROLES.find(r => r.value === u.role)?.color}`}
+                              className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase whitespace-nowrap shrink-0 border border-current ${ROLES.find(r => r.value === u.role)?.color}`}
                             >
                               {ROLES.find(r => r.value === u.role)?.label}
                             </span>
                           </div>
 
-                          {/* Row 2: Department + Created Date (if not empty) */}
-                          <div className="flex items-center justify-between text-[10px] text-[#3e4850] gap-2">
-                            {u.department?.trim() ? (
-                              <span className="flex-1 truncate" title={u.department}>
-                                <span className="font-medium">Bộ phận:</span> {u.department}
-                              </span>
-                            ) : null}
-                            <span className="whitespace-nowrap">
-                              <span className="font-medium">Tham gia:</span> {new Date(u.created_at).toLocaleDateString('vi-VN')}
-                            </span>
-                          </div>
-
-                          {/* Row 3: Password Updated (if not empty) */}
-                          {formatPasswordCol(u.password_updated_at) !== '—' && (
-                            <div className="text-[10px] text-[#3e4850]">
-                              <span className="font-medium">MK cập nhật:</span> {formatPasswordCol(u.password_updated_at)}
+                          {/* Row 2: Metadata & Actions (Dàn hàng ngang) */}
+                          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-50">
+                            <div className="flex flex-col min-w-0">
+                              <div className="text-[9px] text-[#3e4850] truncate opacity-80">
+                                <span className="font-bold opacity-60 uppercase">Bộ phận:</span> {u.department || '—'}
+                              </div>
+                              <div className="text-[9px] text-[#3e4850] opacity-80">
+                                <span className="font-bold opacity-60 uppercase">Tham gia:</span> {new Date(u.created_at).toLocaleDateString('vi-VN')}
+                              </div>
                             </div>
-                          )}
 
-                          {/* Actions */}
-                          <div className="pt-1.5 border-t border-[#bec8d2]/10 flex justify-end gap-1.5">
-                            <button
-                              onClick={() => {
-                                setEditingUser(u)
-                                setFormData({
-                                  full_name: u.full_name,
-                                  login: shortDisplayForProfile(u.email),
-                                  role: u.role,
-                                  department: u.department ?? '',
-                                  password: '',
-                                })
-                                setIsModalOpen(true)
-                              }}
-                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-[#006591] hover:bg-[#dae2fd] transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-sm">edit</span>
-                              Sửa
-                            </button>
-                            <button
-                              onClick={() => deleteUser(u.user_id)}
-                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-sm">delete</span>
-                              Xóa
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => {
+                                  setEditingUser(u)
+                                  setFormData({
+                                    full_name: u.full_name,
+                                    login: shortDisplayForProfile(u.email),
+                                    role: u.role,
+                                    department: u.department ?? '',
+                                    password: '',
+                                  })
+                                  setIsModalOpen(true)
+                                }}
+                                className="flex items-center gap-0.5 text-[9px] font-black text-[#006591] active:scale-90 transition-transform uppercase"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">edit</span>
+                                SỬA
+                              </button>
+                              <button
+                                onClick={() => deleteUser(u.user_id)}
+                                className="flex items-center gap-0.5 text-[9px] font-black text-red-500 active:scale-90 transition-transform uppercase"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">delete</span>
+                                XÓA
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
