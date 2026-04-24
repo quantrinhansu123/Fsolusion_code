@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
+import Modal from '../components/Modal'
 
 export default function AttendancePage() {
   const { user } = useAuth()
@@ -27,6 +28,8 @@ export default function AttendancePage() {
   const PAGE_SIZE = 100 // Lấy 100 bản ghi trên trang
   const [editingRecord, setEditingRecord] = useState(null) // Bản ghi đang sửa
   const [isUpdating, setIsUpdating] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [confirmDeleteBulk, setConfirmDeleteBulk] = useState(false)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -331,10 +334,11 @@ export default function AttendancePage() {
       setToast({ message: 'Vui lòng chọn ít nhất một bản ghi để xóa', type: 'warning' })
       return
     }
+    setConfirmDeleteBulk(true)
+  }
 
-    if (!window.confirm(`Bạn có chắc muốn xóa ${selectedIds.size} bản ghi này không?`)) {
-      return
-    }
+  const performDeleteSelected = async () => {
+    setConfirmDeleteBulk(false)
 
     setDeleting(true)
     try {
@@ -342,10 +346,7 @@ export default function AttendancePage() {
 
       // Kiểm tra xem có session nào đang hoạt động không để tránh xóa nhầm ca đang làm
       if (idsArray.includes(activeSessionId)) {
-        if (!window.confirm('Trong danh sách chọn có ca làm việc đang hoạt động. Bạn có chắc muốn xóa và kết thúc ca này không?')) {
-          setDeleting(false)
-          return
-        }
+        // Ghi chú: Logic xác nhận xóa ca đang làm đã được gộp vào Modal xác nhận chung
       }
 
       const { error: deleteError, count } = await supabase
@@ -381,14 +382,12 @@ export default function AttendancePage() {
   }
 
   // 7. Hàm xóa 1 bản ghi duy nhất
-  const handleDeleteSingle = async (id) => {
-    if (!window.confirm('Bạn có chắc muốn xóa bản ghi chấm công này?')) return
+  const handleDeleteSingle = (id) => {
+    setConfirmDeleteId(id)
+  }
 
-    // Nếu xóa đúng session đang làm việc
-    const isDeletingActive = id === activeSessionId
-    if (isDeletingActive) {
-      if (!window.confirm('Đây là ca làm việc đang hoạt động. Xóa đồng nghĩa với việc hủy ca này. Tiếp tục?')) return
-    }
+  const performDeleteSingle = async (id) => {
+    setConfirmDeleteId(null)
 
     setDeleting(true)
     try {
@@ -403,6 +402,8 @@ export default function AttendancePage() {
         throw new Error('Không thể xóa bản ghi. Có thể bạn không có quyền hoặc bản ghi không tồn tại.')
       }
 
+      // Kiểm tra xem có đang xóa đúng ca làm việc hiện tại không
+      const isDeletingActive = id === activeSessionId
       if (isDeletingActive) {
         localStorage.removeItem('checkin_session_id')
         localStorage.removeItem('checkin_user_id')
@@ -1030,6 +1031,87 @@ export default function AttendancePage() {
                   </form>
                 </div>
               </div>
+            )}
+            {/* 6. Modal xác nhận xóa đơn */}
+            {confirmDeleteId && (
+              <Modal
+                title="Xác nhận xóa"
+                onClose={() => setConfirmDeleteId(null)}
+                footer={
+                  <div className="flex gap-3 w-full">
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={() => performDeleteSingle(confirmDeleteId)}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                    >
+                      Xóa ngay
+                    </button>
+                  </div>
+                }
+              >
+                <div className="py-4 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-red-600 text-3xl">delete_forever</span>
+                  </div>
+                  <p className="text-slate-600 font-medium">
+                    Bạn có chắc chắn muốn xóa bản ghi chấm công này không?
+                  </p>
+                  {confirmDeleteId === activeSessionId && (
+                    <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                      Cảnh báo: Đây là ca làm việc đang hoạt động!
+                    </p>
+                  )}
+                  <p className="mt-2 text-slate-400 text-xs italic">
+                    Hành động này không thể hoàn tác.
+                  </p>
+                </div>
+              </Modal>
+            )}
+
+            {/* 7. Modal xác nhận xóa nhiều */}
+            {confirmDeleteBulk && (
+              <Modal
+                title="Xóa nhiều bản ghi"
+                onClose={() => setConfirmDeleteBulk(false)}
+                footer={
+                  <div className="flex gap-3 w-full">
+                    <button
+                      onClick={() => setConfirmDeleteBulk(false)}
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={performDeleteSelected}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                    >
+                      Xóa {selectedIds.size} dòng
+                    </button>
+                  </div>
+                }
+              >
+                <div className="py-4 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-red-600 text-3xl">delete_sweep</span>
+                  </div>
+                  <p className="text-slate-600 font-medium">
+                    Bạn có chắc chắn muốn xóa <strong>{selectedIds.size}</strong> bản ghi chấm công đã chọn không?
+                  </p>
+                  {Array.from(selectedIds).includes(activeSessionId) && (
+                    <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                      Lưu ý: Có bao gồm ca làm việc đang hoạt động!
+                    </p>
+                  )}
+                  <p className="mt-2 text-slate-400 text-xs italic">
+                    Mọi dữ liệu liên quan sẽ bị xóa vĩnh viễn.
+                  </p>
+                </div>
+              </Modal>
             )}
           </div>
         </main>
