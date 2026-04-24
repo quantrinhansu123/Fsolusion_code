@@ -249,46 +249,46 @@ export default function CustomerManagement() {
               {/* VIEW MOBILE: Danh sách nén gọn 3 hàng */}
               <div className="lg:hidden divide-y divide-[#bec8d2]/10">
                 {displayedCustomers.map(c => (
-                  <div key={c.customer_id} className="p-4 space-y-2">
+                  <div key={c.customer_id} className="p-2.5 space-y-1.5">
                     {/* Hàng 1: Avatar -> Tên -> Badge */}
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-xs shrink-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-[#dae2fd] text-[#006591] flex items-center justify-center font-bold text-[10px] shrink-0">
                           {c.name.charAt(0)}
                         </div>
-                        <span className="text-sm font-bold text-[#131b2e] truncate">{c.name}</span>
+                        <span className="text-xs font-bold text-[#131b2e] truncate">{c.name}</span>
                       </div>
-                      <span className="text-[10px] font-bold text-[#131b2e] bg-[#f2f3ff] px-2 py-0.5 rounded-md tabular-nums whitespace-nowrap">
+                      <span className="text-[9px] font-bold text-[#131b2e] bg-[#f2f3ff] px-1.5 py-0.5 rounded tabular-nums whitespace-nowrap">
                         {c.project_count ?? 0} dự án
                       </span>
                     </div>
 
-                    {/* Hàng 2: Thông tin liên hệ (Ẩn nếu là —) */}
+                    {/* Hàng 2: Thông tin liên hệ */}
                     {(c.phone && c.phone !== '—' || c.email && c.email !== '—') && (
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#3e4850] font-medium">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[9px] text-[#3e4850] font-medium opacity-80">
                         {c.phone && c.phone !== '—' && (
                           <div className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px] text-[#006591]">call</span>
+                            <span className="material-symbols-outlined text-[10px] text-[#006591]">call</span>
                             {c.phone}
                           </div>
                         )}
                         {c.email && c.email !== '—' && (
                           <div className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px] text-[#006591]">mail</span>
-                            <span className="truncate max-w-[150px]">{c.email}</span>
+                            <span className="material-symbols-outlined text-[10px] text-[#006591]">mail</span>
+                            <span className="truncate max-w-[140px]">{c.email}</span>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Hàng 3: Các nút thao tác dàn hàng ngang (Bỏ menu ba chấm trên Mobile) */}
-                    <div className="flex items-center justify-between gap-1 pt-1.5">
+                    {/* Hàng 3: Các nút thao tác (Siêu nén) */}
+                    <div className="flex items-center justify-between gap-1 pt-1">
                       <button
                         type="button"
                         onClick={() => openProjectsModal(c)}
-                        className="text-[10px] font-bold text-[#006591] bg-[#dae2fd] px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                        className="text-[9px] font-bold text-[#006591] bg-[#dae2fd] px-2 py-1 rounded-md transition-colors flex items-center gap-1 active:scale-95"
                       >
-                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        <span className="material-symbols-outlined text-[12px]">visibility</span>
                         XEM
                       </button>
 
@@ -296,17 +296,17 @@ export default function CustomerManagement() {
                         <button
                           type="button"
                           onClick={() => { setEditingCustomer(c); setFormData(c); setIsModalOpen(true) }}
-                          className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                          className="text-[9px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md transition-colors flex items-center gap-1 active:scale-95 border border-slate-200/50"
                         >
-                          <span className="material-symbols-outlined text-[14px]">edit</span>
+                          <span className="material-symbols-outlined text-[12px]">edit</span>
                           SỬA
                         </button>
                         <button
                           type="button"
                           onClick={() => deleteCustomer(c.customer_id)}
-                          className="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 active:scale-95"
+                          className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded-md transition-colors flex items-center gap-1 active:scale-95 border border-red-100/50"
                         >
-                          <span className="material-symbols-outlined text-[14px]">delete</span>
+                          <span className="material-symbols-outlined text-[12px]">delete</span>
                           XÓA
                         </button>
                       </div>

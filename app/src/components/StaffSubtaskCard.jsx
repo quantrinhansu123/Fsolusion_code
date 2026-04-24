@@ -48,16 +48,15 @@ function StaffSubtaskCard({
     <div className="rounded-lg border border-slate-200 bg-[#fafafa] p-2 hover:bg-[#f2f3ff] transition-all shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-[55%]">{st.name}</p>
-            <span className={`px-1 rounded text-[8px] font-bold uppercase shrink-0 ${
-              st.work_type === 'ngoai_hd' 
-                ? 'bg-orange-100 text-orange-700 border border-orange-200' 
-                : 'bg-blue-50 text-blue-600 border border-blue-100'
-            }`}>
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <p className="text-[13px] font-bold text-[#131b2e] leading-tight truncate shrink-0 max-w-full sm:max-w-[55%]">{st.name}</p>
+            <span className={`px-1 rounded text-[8px] font-bold uppercase shrink-0 ${st.work_type === 'ngoai_hd'
+              ? 'bg-orange-100 text-orange-700 border border-orange-200'
+              : 'bg-blue-50 text-blue-600 border border-blue-100'
+              }`}>
               {st.work_type === 'ngoai_hd' ? 'Thêm' : 'HĐ'}
             </span>
-            <p className="text-[10px] text-slate-500 font-medium truncate flex-1 min-w-0">
+            <p className="text-[10px] text-slate-500 font-medium truncate w-full sm:w-auto">
               {st.assignee_name ? `${st.assignee_name.split(' ').slice(-2).join(' ')} · ` : ''}
               {featureName} · {taskName}
             </p>
@@ -78,88 +77,89 @@ function StaffSubtaskCard({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-                {userRole === 'admin' ? (
-                  <div className="flex items-center gap-1.5">
-                    {(() => {
-                      const currentStatus = STATUS_OPTIONS.find(o => o.value === (st.status || 'pending'))
-                      const colors = {
-                        pending: 'bg-slate-100 text-slate-600 border-slate-200',
-                        in_progress: 'bg-blue-50 text-blue-600 border-blue-200',
-                        completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-                        overdue: 'bg-rose-50 text-rose-600 border-rose-200',
-                      }
-                      const colorClass = colors[st.status] || colors.pending
-                      return (
-                        <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${colorClass}`}>
-                          {currentStatus?.label}
-                        </span>
-                      )
-                    })()}
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={isUpdatingWorkTime || running}
-                        onClick={handlePlayClick}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
-                        title="Bắt đầu làm việc"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">play_arrow</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdatingWorkTime || !running}
-                        onClick={handlePauseClick}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
-                        title="Tạm dừng"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">pause</span>
-                      </button>
-                    </div>
+              {userRole === 'admin' ? (
+                <div className="flex items-center gap-1.5">
+                  {(() => {
+                    const currentStatus = STATUS_OPTIONS.find(o => o.value === (st.status || 'pending'))
+                    const colors = {
+                      pending: 'bg-slate-100 text-slate-600 border-slate-200',
+                      in_progress: 'bg-blue-50 text-blue-600 border-blue-200',
+                      completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+                      overdue: 'bg-rose-50 text-rose-600 border-rose-200',
+                    }
+                    const colorClass = colors[st.status] || colors.pending
+                    return (
+                      <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${colorClass}`}>
+                        {currentStatus?.label}
+                      </span>
+                    )
+                  })()}
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={handleDelete}
-                      className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all border border-transparent hover:border-rose-100"
-                      title="Xóa subtask"
+                      disabled={isUpdatingWorkTime || running}
+                      onClick={handlePlayClick}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
+                      title="Bắt đầu làm việc"
                     >
-                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                      <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUpdatingWorkTime || !running}
+                      onClick={handlePauseClick}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
+                      title="Tạm dừng"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">pause</span>
                     </button>
                   </div>
-                ) : (
-                  <>
-                    <div className="relative">
-                      <select
-                        value={st.status || 'pending'}
-                        onChange={handleStatusChange}
-                        disabled={isUpdatingStatus}
-                        className="w-[100px] appearance-none rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-[#131b2e] focus:border-[#006591] focus:outline-none disabled:opacity-75"
-                      >
-                        {STATUS_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>
-                        ))}
-                      </select>
-                      <span className="material-symbols-outlined pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[12px] text-[#94a3b8]">expand_more</span>
-                    </div>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all border border-transparent hover:border-rose-100"
+                    title="Xóa subtask"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Đây là vị trí Icon cho ô Trạng thái trong Card */}
+                  <div className="relative">
+                    <select
+                      value={st.status || 'pending'}
+                      onChange={handleStatusChange}
+                      disabled={isUpdatingStatus}
+                      className="w-[100px] appearance-none rounded border border-slate-200 bg-white pl-2 pr-6 py-1 text-[10px] font-bold text-[#131b2e] focus:border-[#006591] focus:outline-none disabled:opacity-75"
+                    >
+                      {STATUS_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>
+                      ))}
+                    </select>
+                    <span className="material-symbols-outlined pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[12px] text-[#94a3b8]">expand_more</span>
+                  </div>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={isUpdatingWorkTime || running}
-                        onClick={handlePlayClick}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">play_arrow</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdatingWorkTime || !running}
-                        onClick={handlePauseClick}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">pause</span>
-                      </button>
-                    </div>
-                  </>
-                )}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={isUpdatingWorkTime || running}
+                      onClick={handlePlayClick}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8e3e]/10 text-[#1e8e3e] hover:bg-[#1e8e3e]/20 disabled:opacity-40 transition-all border border-[#1e8e3e]/20"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUpdatingWorkTime || !running}
+                      onClick={handlePauseClick}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b06000]/10 text-[#b06000] hover:bg-[#b06000]/20 disabled:opacity-40 transition-all border border-[#b06000]/20"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">pause</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -215,24 +215,24 @@ function StaffSubtaskCard({
           })()}
 
           {/* ── EVALUATION ROW ── */}
-          <div className="mt-2 -mx-2 -mb-2 bg-gray-50/80 px-2 py-1 border-t border-slate-100 flex items-center gap-2 rounded-b-lg">
+          <div className="mt-2 -mx-2 -mb-2 bg-gray-50/80 px-2 py-1.5 border-t border-slate-100 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-b-lg">
             <div className="flex items-center gap-1 shrink-0">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá:</span>
               <div className="relative">
                 <select
                   value={st.evaluation_rating || 'none'}
                   onChange={(e) => onUpdateEvaluation(st.subtask_id, 'evaluation_rating', e.target.value)}
-                  className={`appearance-none rounded px-1.5 py-0.5 text-[9px] font-bold border transition-all cursor-pointer focus:outline-none ${
-                    EVALUATION_OPTIONS.find(o => o.value === (st.evaluation_rating || 'none'))?.color || EVALUATION_OPTIONS[0].color
-                  }`}
+                  className={`appearance-none rounded px-1.5 py-0.5 text-[9px] font-bold border transition-all cursor-pointer focus:outline-none pr-4 ${EVALUATION_OPTIONS.find(o => o.value === (st.evaluation_rating || 'none'))?.color || EVALUATION_OPTIONS[0].color
+                    }`}
                 >
                   {EVALUATION_OPTIONS.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
+                <span className="material-symbols-outlined pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[10px] opacity-60">expand_more</span>
               </div>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-[120px]">
               <input
                 type="text"
                 placeholder="Ghi chú đánh giá..."
@@ -263,7 +263,7 @@ export default React.memo(StaffSubtaskCard, (prevProps, nextProps) => {
   if (prevProps.userRole !== nextProps.userRole) return false;
   if (prevProps.isUpdatingStatus !== nextProps.isUpdatingStatus) return false;
   if (prevProps.isUpdatingWorkTime !== nextProps.isUpdatingWorkTime) return false;
-  
+
   // Các hàm callback phải dùng useCallback ở Component cha để giữ nguyên reference
   if (prevProps.onUpdateStatus !== nextProps.onUpdateStatus) return false;
   if (prevProps.onUpdateWorkTime !== nextProps.onUpdateWorkTime) return false;

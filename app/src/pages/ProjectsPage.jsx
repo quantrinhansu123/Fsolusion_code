@@ -668,8 +668,8 @@ function ModalTaskCard({
             <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${task.work_type === 'ngoai_hd'
-                    ? 'bg-orange-100 text-orange-700 border border-orange-200'
-                    : 'bg-blue-50 text-blue-600 border border-blue-100'
+                  ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                  : 'bg-blue-50 text-blue-600 border border-blue-100'
                   }`}>
                   {task.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
                 </span>
@@ -1284,8 +1284,8 @@ function ModalTaskCard({
                         {/* 5. Loại CV */}
                         <div className="flex items-center w-full pl-6 lg:pl-0 lg:w-full">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${st.work_type === 'ngoai_hd'
-                              ? 'bg-orange-100 text-orange-700 border border-orange-200'
-                              : 'bg-blue-50 text-blue-600 border border-blue-100'
+                            ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                            : 'bg-blue-50 text-blue-600 border border-blue-100'
                             }`}>
                             {st.work_type === 'ngoai_hd' ? 'CV thêm' : 'Trong HĐ'}
                           </span>
@@ -2839,7 +2839,7 @@ export default function ProjectsPage() {
             <div className="flex flex-col h-full overflow-hidden">
               {/* KANBAN VIEW HEADER - Bám sát thiết kế card cũ của sếp */}
               <div className="mb-6 shrink-0 rounded-xl border border-[#bec8d2]/30 bg-[#faf8ff]/50 p-4 space-y-3 shadow-md">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-[#131b2e]">{projectInTasksView.name}</p>
@@ -2893,7 +2893,7 @@ export default function ProjectsPage() {
                     })()}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     {isManagerOrAdmin && (
                       <ThreeDotMenu
                         items={[
@@ -2970,10 +2970,10 @@ export default function ProjectsPage() {
                 taskKanbanGrouped && (
                   <div className="flex flex-col lg:flex-row lg:overflow-x-auto lg:overflow-y-hidden gap-5 w-full h-full items-stretch pb-8 pt-2 px-2 custom-scrollbar">
                     {KANBAN_COLUMNS.map(col => (
-                        <div
-                          key={col.key}
-                          className={`flex flex-col h-full min-w-[320px] lg:min-w-[380px] lg:w-[380px] shrink-0 rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
-                        >
+                      <div
+                        key={col.key}
+                        className={`flex flex-col h-full min-w-[320px] lg:min-w-[380px] lg:w-[380px] shrink-0 rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
+                      >
                         <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>

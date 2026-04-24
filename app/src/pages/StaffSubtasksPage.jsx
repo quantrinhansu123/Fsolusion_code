@@ -584,21 +584,30 @@ export default function StaffSubtasksPage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <select
-                  value={selectedStatus}
-                  onChange={e => { setSelectedStatus(e.target.value); }}
-                  className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 text-[10px] font-bold text-[#131b2e]"
-                >
-                  <option value="all">TẤT CẢ TRẠNG THÁI</option>
-                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>)}
-                </select>
-                <select
-                  value={deadlineFilter}
-                  onChange={e => { setDeadlineFilter(e.target.value); }}
-                  className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-1.5 pl-2.5 text-[10px] font-bold text-[#131b2e]"
-                >
-                  {DEADLINE_FILTER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>)}
-                </select>
+                {/* Icon cho ô Trạng thái (Bộ lọc mobile) */}
+                <div className="relative">
+                  <select
+                    value={selectedStatus}
+                    onChange={e => { setSelectedStatus(e.target.value); }}
+                    className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-2 pl-2.5 pr-8 text-[10px] font-bold text-[#131b2e]"
+                  >
+                    <option value="all">TẤT CẢ TRẠNG THÁI</option>
+                    {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>)}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[16px] text-[#94a3b8]">expand_more</span>
+                </div>
+
+                {/* Icon cho ô Deadline (Bộ lọc mobile) */}
+                <div className="relative">
+                  <select
+                    value={deadlineFilter}
+                    onChange={e => { setDeadlineFilter(e.target.value); }}
+                    className="w-full appearance-none rounded-md border border-[#e2e8f0] bg-[#fafafa] py-2 pl-2.5 pr-8 text-[10px] font-bold text-[#131b2e]"
+                  >
+                    {DEADLINE_FILTER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label.toUpperCase()}</option>)}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[16px] text-[#94a3b8]">expand_more</span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowProjectDropdown(v => !v)}

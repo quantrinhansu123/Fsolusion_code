@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 // Helper functions for permissions
@@ -9,8 +9,14 @@ const canViewCustomers = (role) => role === 'admin' || role === 'manager'
 
 export default function Sidebar() {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const { user, loading } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Auto-close sidebar when URL changes
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
 
   useEffect(() => {
     function handleOpenSidebar() {
@@ -68,48 +74,45 @@ export default function Sidebar() {
           ) : null}
         </div>
 
-        {role !== 'employee' && (
+        {/* {role !== 'employee' && (
           <button
-            onClick={() => {
-              navigate('/projects')
-              if (isMobile) closeMobileSidebar()
-            }}
+            onClick={() => navigate('/projects')}
             className="mb-6 w-full py-2.5 px-4 primary-gradient text-white rounded-xl shadow-lg font-medium text-[13px] hover:brightness-110 transition-all flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-base">add</span>
             Dự án mới
           </button>
-        )}
+        )} */}
 
         <div className="flex flex-col gap-1 flex-grow">
           {isAdminOrManager(role) && (
             <>
-              <NavLink to="/dashboard" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+              <NavLink to="/dashboard" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">dashboard</span>
                 Tổng quan
               </NavLink>
-              <NavLink to="/projects" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+              <NavLink to="/projects" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">account_tree</span>
                 Quản lý dự án
               </NavLink>
             </>
           )}
-          <NavLink to="/staff-subtasks" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+          <NavLink to="/staff-subtasks" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">view_kanban</span>
             Task theo nhân sự
           </NavLink>
-          <NavLink to="/attendance" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+          <NavLink to="/attendance" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
             <span className="material-symbols-outlined">calendar_month</span>
             Chấm Công
           </NavLink>
 
           {isAdminOrManager(role) && (
             <>
-              <NavLink to="/progress" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+              <NavLink to="/progress" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">bar_chart</span>
                 Báo cáo tiến độ
               </NavLink>
-              <NavLink to="/statistics" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+              <NavLink to="/statistics" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">analytics</span>
                 Thống kê nhân sự
               </NavLink>
@@ -119,12 +122,12 @@ export default function Sidebar() {
           {canManageUsers(role) && (
             <>
               {canViewCustomers(role) && (
-                <NavLink to="/customers" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+                <NavLink to="/customers" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                   <span className="material-symbols-outlined">groups</span>
                   Danh sách khách hàng
                 </NavLink>
               )}
-              <NavLink to="/users" onClick={isMobile ? closeMobileSidebar : undefined} className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+              <NavLink to="/users" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
                 <span className="material-symbols-outlined">manage_accounts</span>
                 Quản lý tài khoản
               </NavLink>

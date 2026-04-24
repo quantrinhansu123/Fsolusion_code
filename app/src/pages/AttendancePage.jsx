@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
+import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2 } from 'lucide-react'
 
 export default function AttendancePage() {
   const { user } = useAuth()
@@ -30,6 +31,9 @@ export default function AttendancePage() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [confirmDeleteBulk, setConfirmDeleteBulk] = useState(false)
+  const [isMobileStaffOpen, setIsMobileStaffOpen] = useState(false)
+  const [isDesktopStaffOpen, setIsDesktopStaffOpen] = useState(false)
+  const [showMobileHeader, setShowMobileHeader] = useState(true)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -501,8 +505,120 @@ export default function AttendancePage() {
               </div>
             )}
 
-            {/* 1. Khu vực Header & Bộ lọc (Top Bar mới) */}
-            <div className="bg-white/60 backdrop-blur-md rounded-2xl border border-slate-200/60 p-4 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+            {/* 1. Mobile Header (Dành riêng cho < 640px) */}
+            {showMobileHeader ? (
+              <div className="block sm:hidden bg-white border border-slate-200 rounded-2xl sticky top-[72px] z-[30] -mx-4 mb-4 p-3 shadow-lg animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2.5">
+                {/* Lớp 1: Tiêu đề & Nút đóng */}
+                <div className="flex items-center justify-between">
+                  <h1 className="text-[11px] font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight">
+                    <div className="w-1 h-3 bg-blue-600 rounded-full"></div>
+                    Bảng Chấm Công
+                  </h1>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => fetchAttendanceData()}
+                      className="p-1.5 hover:bg-slate-100 rounded-full transition-colors active:scale-90"
+                    >
+                      <RefreshCcw size={14} className="text-slate-400" />
+                    </button>
+                    <button
+                      onClick={() => setShowMobileHeader(false)}
+                      className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full transition-colors active:scale-90"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lớp 2: Nhóm Hành động & Đồng hồ LED */}
+                <div className="grid grid-cols-3 items-center gap-2 p-1 bg-slate-50 rounded-xl border border-slate-100">
+                  <button
+                    onClick={handleCheckIn}
+                    disabled={isWorking}
+                    className="h-8 flex items-center justify-center gap-1.5 bg-white border border-blue-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
+                  >
+                    <LogIn size={12} className="text-blue-600" />
+                    <span className="text-[9px] font-bold text-blue-700">Vào</span>
+                  </button>
+
+                  <div className="h-8 flex items-center justify-center bg-[#0a0a0a] rounded-lg border border-slate-800 shadow-[inset_0_0_8px_rgba(34,197,94,0.3)]">
+                    <span className="font-mono text-[11px] font-black text-green-400 drop-shadow-[0_0_3px_rgba(74,222,128,0.5)] tracking-tighter">
+                      {formatTimer(sessionTimer)}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleCheckOut}
+                    disabled={!isWorking}
+                    className="h-8 flex items-center justify-center gap-1.5 bg-white border border-red-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
+                  >
+                    <LogOut size={12} className="text-red-600" />
+                    <span className="text-[9px] font-bold text-red-700">Ra</span>
+                  </button>
+                </div>
+
+                {/* Lớp 3: Bộ lọc (Tinh gọn) */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="relative group">
+                    <Calendar size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="date"
+                      value={filterDate}
+                      onChange={e => {
+                        setFilterDate(e.target.value)
+                        if (e.target.value) setFilterMonth('')
+                      }}
+                      className="w-full h-7 pl-7 pr-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-medium outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <div
+                      onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
+                      className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
+                    >
+                      <Users size={12} className="absolute left-2 text-slate-400" />
+                      <span className="truncate">
+                        {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
+                      </span>
+                      <ChevronDown size={12} className="absolute right-1 text-slate-400" />
+                    </div>
+
+                    {isMobileStaffOpen && (
+                      <>
+                        <div className="fixed inset-0 z-[90]" onClick={() => setIsMobileStaffOpen(false)} />
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
+                          <div
+                            onClick={() => { setFilterUser('all'); setIsMobileStaffOpen(false); }}
+                            className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                          >
+                            Tất cả nhân sự
+                          </div>
+                          {staffList.map(staff => (
+                            <div
+                              key={staff.user_id}
+                              onClick={() => { setFilterUser(staff.user_id); setIsMobileStaffOpen(false); }}
+                              className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                            >
+                              {staff.full_name}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowMobileHeader(true)}
+                className="block sm:hidden fixed top-[80px] right-4 z-[30] bg-blue-600 text-white p-2.5 rounded-full shadow-lg animate-in fade-in slide-in-from-right-4 active:scale-90 transition-all border border-white/20"
+              >
+                <RefreshCcw size={18} className="animate-spin-slow" />
+              </button>
+            )}
+
+            {/* 1. Desktop Header (Ẩn trên Mobile) */}
+            <div className="hidden sm:flex bg-white/60 backdrop-blur-md rounded-2xl border border-slate-200/60 p-4 shadow-sm flex-col xl:flex-row xl:items-center justify-between gap-6">
 
               {/* Cánh trái: Tiêu đề & Badge */}
               <div className="flex items-center gap-4">
@@ -602,21 +718,40 @@ export default function AttendancePage() {
                     />
                   </div>
 
-                  <div className="relative group">
-                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 group-focus-within:text-blue-500 transition-colors">group</span>
-                    <select
-                      value={filterUser}
-                      onChange={e => setFilterUser(e.target.value)}
-                      className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[160px] appearance-none transition-all"
+                  <div className="relative">
+                    <div
+                      onClick={() => setIsDesktopStaffOpen(!isDesktopStaffOpen)}
+                      className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[180px] flex items-center cursor-pointer hover:border-blue-400 transition-all"
                     >
-                      <option value="all">Tất cả nhân sự</option>
-                      {staffList.map(staff => (
-                        <option key={staff.user_id} value={staff.user_id}>
-                          {staff.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+                      <span className="material-symbols-outlined absolute left-2.5 text-[18px] text-slate-400">group</span>
+                      <span className="truncate max-w-[120px]">
+                        {staffList.find(s => s.user_id === filterUser)?.full_name || 'Tất cả nhân sự'}
+                      </span>
+                      <span className="material-symbols-outlined absolute right-2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+                    </div>
+
+                    {isDesktopStaffOpen && (
+                      <>
+                        <div className="fixed inset-0 z-[90]" onClick={() => setIsDesktopStaffOpen(false)} />
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
+                          <div
+                            onClick={() => { setFilterUser('all'); setIsDesktopStaffOpen(false); }}
+                            className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                          >
+                            Tất cả nhân sự
+                          </div>
+                          {staffList.map(staff => (
+                            <div
+                              key={staff.user_id}
+                              onClick={() => { setFilterUser(staff.user_id); setIsDesktopStaffOpen(false); }}
+                              className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                            >
+                              {staff.full_name}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -781,92 +916,102 @@ export default function AttendancePage() {
                 </table>
               </div>
 
-              {/* VIEW MOBILE: Vertical Mini Cards */}
+              {/* VIEW MOBILE: Vertical Mini Cards (SIÊU NÉN & THẲNG HÀNG) */}
               <div className="lg:hidden p-4 space-y-3">
                 {!loading && attendanceList.map((row) => (
-                  <div key={row.id} className={`bg-white rounded-xl border p-4 shadow-sm active:scale-[0.98] transition-all ${selectedIds.has(row.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-100'
-                    }`}>
-                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-50">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(row.id)}
-                          onChange={() => toggleSelectId(row.id)}
-                          className="w-4 h-4 cursor-pointer mt-0.5 shrink-0"
-                        />
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[11px] uppercase shadow-sm shrink-0">
-                          {row.user.avatar}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-slate-800 text-[14px] leading-tight truncate">{row.user.name}</p>
-                          <p className="text-[11px] text-slate-400 font-medium">{row.work_date}</p>
-                        </div>
+                  <div key={row.id} className={`bg-white rounded-xl border p-3 shadow-sm transition-all ${selectedIds.has(row.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-100'}`}>
+
+                    {/* HÀNG 1: ĐỊNH DANH & HÀNH ĐỘNG (ÉP THẲNG HÀNG) */}
+                    <div className="flex items-center gap-2 w-full mb-2">
+                      {/* Checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleSelectId(row.id)}
+                        className="w-4 h-4 cursor-pointer shrink-0"
+                      />
+
+                      {/* Icon 'Q' / Avatar */}
+                      <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] uppercase shrink-0 shadow-sm">
+                        {row.user.avatar}
                       </div>
 
-                      <div className="flex flex-col gap-1.5">
+                      {/* Tên & Ngày (Tự xuống dòng, không đẩy icon) */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-slate-800 leading-tight break-words">{row.user.name}</p>
+                        <p className="text-[9px] text-slate-400 font-medium">{row.work_date}</p>
+                      </div>
+
+                      {/* Nhóm Nút (CHỈ ICON - KHÔNG CHỮ) */}
+                      <div className="flex items-center gap-2 ml-auto shrink-0">
                         <button
                           type="button"
                           onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
-                          className="bg-[#f2f3ff] text-[#006591] px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-[#dce4ff] flex items-center gap-1 active:scale-95 transition-all"
+                          className={`p-1.5 rounded-lg active:scale-90 transition-all ${showTasksId === row.id ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
                         >
-                          <span className="material-symbols-outlined text-[14px]">list_alt</span>
-                          TASK ĐÃ LÀM
+                          <ClipboardList size={14} />
                         </button>
                         {canEditDelete && (
-                          <div className="flex gap-1.5">
+                          <>
                             <button
                               type="button"
-                              onClick={() => setEditingRecord(row)}
-                              className="flex-1 bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-blue-100 flex items-center justify-center gap-1 active:scale-95 transition-all"
+                              onClick={() => {
+                                const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+                                const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+                                setEditingRecord({
+                                  ...row,
+                                  in_date: getD(dIn),
+                                  in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                  in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                  out_date: getD(dOut) || getD(dIn),
+                                  out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                  out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
+                                })
+                              }}
+                              className="p-1.5 bg-blue-50 text-blue-600 rounded-lg active:scale-90 transition-all"
                             >
-                              <span className="material-symbols-outlined text-[14px]">edit</span>
-                              SỬA
+                              <Edit3 size={14} />
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteSingle(row.id)}
                               disabled={deleting}
-                              className="flex-1 bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg text-[10px] font-bold border border-red-100 flex items-center justify-center gap-1 active:scale-95 transition-all disabled:opacity-50"
+                              className="p-1.5 bg-red-50 text-red-600 rounded-lg active:scale-90 transition-all disabled:opacity-50"
                             >
-                              <span className="material-symbols-outlined text-[14px]">delete</span>
-                              XÓA
+                              <Trash2 size={14} />
                             </button>
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
 
+                    {/* Chi tiết Task (Dropdown nội bộ) */}
                     {showTasksId === row.id && (
-                      <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-top-1">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Chi tiết task hoàn thành:</p>
-                        <div className="flex flex-wrap gap-1.5">
+                      <div className="mb-2 p-2 bg-slate-50 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-top-1">
+                        <div className="flex flex-wrap gap-1">
                           {row.tasks.length > 0 ? row.tasks.map((task, idx) => (
-                            <span key={idx} className="bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded text-[10px]">
+                            <span key={idx} className="bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px]">
                               {task}
                             </span>
-                          )) : <span className="text-[10px] text-slate-400 italic">Chưa có task nào được ghi nhận</span>}
+                          )) : <span className="text-[9px] text-slate-400 italic text-center w-full">Chưa có task nào</span>}
                         </div>
                       </div>
                     )}
 
-                    <div className="grid grid-cols-3 gap-2 mt-2">
-                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Vào</span>
-                        <span className="bg-white border border-slate-200 text-green-600 px-2 py-0.5 rounded text-[11px] font-bold">
-                          {row.check_in}
-                        </span>
+                    {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Vào</span>
+                        <span className="text-[10px] font-mono font-bold text-green-600">{row.check_in}</span>
                       </div>
-                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Ra</span>
-                        <span className="bg-white border border-slate-200 text-red-600 px-2 py-0.5 rounded text-[11px] font-bold">
-                          {row.check_out}
-                        </span>
+                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Ra</span>
+                        <span className="text-[10px] font-mono font-bold text-red-600">{row.check_out}</span>
                       </div>
-                      <div className="flex-1 flex flex-col items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Tổng</span>
-                        <span className="text-slate-800 text-[13px] font-black">
-                          {row.total_hours}
-                        </span>
+                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Tổng</span>
+                        <span className="text-[11px] font-black text-slate-800">{row.total_hours}</span>
                       </div>
                     </div>
 
