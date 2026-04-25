@@ -489,7 +489,7 @@ export default function AttendancePage() {
       <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
         <TopBar title="Bảng Chấm Công" />
 
-        <main className="flex-1 p-8">
+        <main className="flex-1 p-4 md:p-8">
           <div className="max-w-7xl mx-auto space-y-6 pb-20">
 
             {/* Toast Notification */}
@@ -507,7 +507,7 @@ export default function AttendancePage() {
 
             {/* 1. Mobile Header (Dành riêng cho < 640px) */}
             {showMobileHeader ? (
-              <div className="block sm:hidden bg-white border border-slate-200 rounded-2xl sticky top-[72px] z-[30] -mx-4 mb-4 p-3 shadow-lg animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2.5">
+              <div className="block sm:hidden bg-white border border-slate-200 rounded-2xl sticky top-[72px] z-[30] mb-4 p-3 shadow-lg animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2.5">
                 {/* Lớp 1: Tiêu đề & Nút đóng */}
                 <div className="flex items-center justify-between">
                   <h1 className="text-[11px] font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight">
