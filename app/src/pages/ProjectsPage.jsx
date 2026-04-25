@@ -665,8 +665,8 @@ function ModalTaskCard({
             ) : (
               <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full border-2 border-[#eef1f6]" aria-hidden />
             )}
-            <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
-              <div className="flex items-center gap-2 mb-1">
+            <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-0.5 lg:mt-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${task.work_type === 'ngoai_hd'
                   ? 'bg-orange-100 text-orange-700 border border-orange-200'
                   : 'bg-blue-50 text-blue-600 border border-blue-100'
@@ -676,12 +676,12 @@ function ModalTaskCard({
                 <p className="text-sm font-bold leading-snug text-[#131b2e] truncate" title={task.name}>{task.name}</p>
               </div>
               {task.description || displayBlocks.length > 0 ? (
-                <div className="mt-1.5 text-xs leading-relaxed text-[#475569] whitespace-pre-wrap">
+                <div className="mt-1 text-[11px] leading-snug text-[#475569] whitespace-pre-wrap line-clamp-2">
                   {task.description || displayBlocks[0]?.content}
                 </div>
               ) : null}
               {showFeatureLabel ? (
-                <p className="mt-2 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
+                <p className="mt-1 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
               ) : null}
             </div>
             <div className="flex w-auto shrink-0 flex-col items-end gap-1">
@@ -703,14 +703,14 @@ function ModalTaskCard({
           </div>
           {subProgress ? (
             <div
-              className="mt-2 w-full min-w-0"
+              className="mt-1 w-full min-w-0"
               title={
                 subProgress.total > 0
                   ? `${subProgress.done}/${subProgress.total} hoàn thành.`
                   : 'Chưa có tiểu mục.'
               }
             >
-              <div className="mb-0.5 flex items-center justify-between gap-2 text-[9px] text-[#64748b]">
+              <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px] text-[#64748b]">
                 <span className="font-semibold uppercase tracking-wide">Tiến độ</span>
                 <span className="tabular-nums font-bold text-[#334155]">
                   {subProgress.total > 0 ? `${subProgress.done}/${subProgress.total} · ${subProgress.pct}%` : '—'}
@@ -1066,14 +1066,26 @@ function ModalTaskCard({
               </p>
               <div className="flex items-center justify-between pr-4 mt-1">
                 <h3 className="text-base font-medium tracking-tight text-[#131b2e]">Tiểu mục</h3>
-                <button
-                  type="button"
-                  disabled={selectedTaskIds.length === 0}
-                  onClick={() => setShowPrintModal(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#006591] bg-[#eef4ff] px-3 py-1.5 text-xs font-bold text-[#006591] hover:bg-[#dae2fd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Giao việc {selectedTaskIds.length > 0 && `(${selectedTaskIds.length})`}
-                </button>
+                <div className="flex items-center gap-2">
+                  {canModify ? (
+                    <button
+                      type="button"
+                      onClick={() => m.open('add_subtask', { taskId: task.task_id })}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-100 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">add</span>
+                      Thêm tiểu mục
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={selectedTaskIds.length === 0}
+                    onClick={() => setShowPrintModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#006591] bg-[#eef4ff] px-3 py-1.5 text-xs font-bold text-[#006591] hover:bg-[#dae2fd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Giao việc {selectedTaskIds.length > 0 && `(${selectedTaskIds.length})`}
+                  </button>
+                </div>
               </div>
             </div>
           }
@@ -1352,7 +1364,7 @@ function ModalTaskCard({
   )
 
   const taskCardWrapClass = statusActionsOutside
-    ? 'rounded-xl border border-[#e5e8ef] bg-white p-3 shadow-sm transition-all duration-200 hover:border-[#cfd6e6] hover:shadow-md'
+    ? 'rounded-xl border border-[#e5e8ef] bg-white p-2 shadow-sm transition-all duration-200 hover:border-[#cfd6e6] hover:shadow-md'
     : c.wrap
 
   return (
@@ -1408,8 +1420,8 @@ function ModalTaskCard({
 
               {/* HEADER THEO PHONG CÁCH GIẤY A4 */}
               <div className="w-full px-10 pt-10 pb-6 border-b border-slate-100 bg-white">
-                <h1 className="text-[24px] font-bold text-slate-800 tracking-tight">DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ</h1>
-                <p className="text-sm text-slate-500 mt-2">Dự án: {feature.name || 'Chung'} • Khối lượng: {selectedTaskIds.length} việc</p>
+                <h1 className="text-[28px] font-extrabold text-slate-800 tracking-tight">DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ</h1>
+                <p className="text-[15px] font-semibold text-slate-600 mt-2">Dự án: {feature.name || 'Chung'} • Khối lượng: {selectedTaskIds.length} việc</p>
               </div>
 
               {/* LIST TASK CARDS */}
@@ -1450,7 +1462,7 @@ function ModalTaskCard({
 
                         {/* Title & Tags */}
                         <div className="flex flex-col gap-2 min-w-0 h-full">
-                          <h2 className={`text-[16px] font-bold leading-snug tracking-tight break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#3e4850]'}`}>
+                          <h2 className={`text-[19px] font-extrabold leading-snug tracking-tight break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#3e4850]'}`}>
                             {st.name}
                           </h2>
 
@@ -1470,7 +1482,7 @@ function ModalTaskCard({
                       {/* CỘT 2: GHI CHÚ & HƯỚNG DẪN */}
                       <div className="w-full lg:w-[35%] flex-1">
                         <div className={`h-full lg:border-l lg:border-slate-100 lg:pl-8 flex flex-col justify-center ${isCompleted ? 'opacity-60' : ''}`}>
-                          <ul className={`list-outside ml-4 space-y-3 text-[13.5px] leading-relaxed text-[#3e4850] marker:text-[#6e7881] ${isCompleted ? 'line-through text-slate-400' : ''}`} style={{ listStyleType: 'disc' }}>
+                          <ul className={`list-outside ml-4 space-y-3 text-[18px] font-bold leading-relaxed text-[#334155] marker:text-[#6e7881] ${isCompleted ? 'line-through text-slate-400' : ''}`} style={{ listStyleType: 'disc' }}>
                             {subDisplayBlocks.filter(b => b.content?.trim()).map((b, bIdx) => {
                               const lines = b.content.trim().split('\n').filter(l => l.trim())
                               return lines.map((line, lIndex) => {
@@ -1486,7 +1498,7 @@ function ModalTaskCard({
                       </div>
 
                       {/* CỘT 3: HÌNH ẢNH MINH HỌA (GALLERY) */}
-                      <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-3">
+                      <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-3">
                         {allMedia.length > 0 ? (
                           <div className={`grid gap-2 ${allMedia.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                             {allMedia.map((url, mIdx) => {
@@ -1494,16 +1506,16 @@ function ModalTaskCard({
                               return isImg ? (
                                 <div
                                   key={mIdx}
-                                  className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center cursor-zoom-in group hover:opacity-90 transition-all"
+                                  className="w-full h-[220px] rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 flex items-center justify-center cursor-zoom-in group hover:opacity-90 transition-all"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setImageLightboxUrl(url);
                                   }}
                                 >
-                                  <img src={url} alt="Preview" className="w-full h-full object-cover" />
+                                  <img src={url} alt="Preview" className="w-full h-full object-contain p-1.5" />
                                 </div>
                               ) : (
-                                <div key={mIdx} className="w-full rounded-[12px] bg-white border border-slate-200 aspect-[4/3] flex flex-col items-center justify-center gap-1 text-[#006591]">
+                                <div key={mIdx} className="w-full h-[220px] rounded-[12px] bg-white border border-slate-200 flex flex-col items-center justify-center gap-1 text-[#006591]">
                                   <span className="material-symbols-outlined text-[20px]">attach_file</span>
                                   <span className="text-[8px] font-bold uppercase truncate px-2 w-full text-center">Link tài liệu</span>
                                 </div>
@@ -1511,7 +1523,7 @@ function ModalTaskCard({
                             })}
                           </div>
                         ) : (
-                          <div className="w-full rounded-[12px] bg-slate-50 border border-slate-100 aspect-[4/3] flex flex-col items-center justify-center gap-2 text-slate-300">
+                          <div className="w-full h-[220px] rounded-[12px] bg-slate-50 border border-slate-100 flex flex-col items-center justify-center gap-2 text-slate-300">
                             <span className="material-symbols-outlined text-[32px]">image</span>
                             <span className="text-[9px] uppercase font-bold tracking-wider">No preview available</span>
                           </div>
@@ -1723,7 +1735,7 @@ export default function ProjectsPage() {
 
 
   const [loadingKanban, setLoadingKanban] = useState(false)
-  const [showKanbanDocs, setShowKanbanDocs] = useState(true)
+  const [showKanbanDocs, setShowKanbanDocs] = useState(false)
   const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager'
 
   useEffect(() => {
@@ -2645,7 +2657,7 @@ export default function ProjectsPage() {
                         setProjectsModalCustomerId(c.customer_id)
                         setProjectTasksViewId(p.project_id)
                       }}
-                      className="rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
+                      className="w-full rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
                     >
                       {/* ─── Hàng 1: Tên + Avatars + Badge + Menu ─── */}
                       <div className="flex items-center gap-2 px-4 pt-3 pb-1">
@@ -2838,22 +2850,22 @@ export default function ProjectsPage() {
           {projectTasksViewId && projectInTasksView ? (
             <div className="flex flex-col h-full overflow-hidden">
               {/* KANBAN VIEW HEADER - Bám sát thiết kế card cũ của sếp */}
-              <div className="mb-6 shrink-0 rounded-xl border border-[#bec8d2]/30 bg-[#faf8ff]/50 p-4 space-y-3 shadow-md">
+              <div className="mb-3 shrink-0 rounded-xl border border-[#bec8d2]/25 bg-[#faf8ff]/40 p-2.5 space-y-2 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-[#131b2e]">{projectInTasksView.name}</p>
                       <StatusBadge status={projectInTasksView.status} />
                     </div>
-                    <p className="text-xs text-[#3e4850] line-clamp-2">{projectInTasksView.description || '—'}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
+                    <p className="text-[11px] text-[#3e4850] line-clamp-1">{projectInTasksView.description || '—'}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[#3e4850]">
                       <span>Ngân sách: {projectInTasksView.pricing ? `${Number(projectInTasksView.pricing).toLocaleString('vi-VN')} ₫` : '—'}</span>
                       <span>Hạn: {formatDeadlineDisplay(projectInTasksView.deadline)}</span>
                     </div>
                   </div>
 
                   {/* BẢNG TÀI LIỆU "HẠT TIÊU" - Đúng ý sếp */}
-                  <div className="hidden lg:block w-[320px] shrink-0 px-4 border-l border-slate-100 self-stretch flex flex-col justify-center">
+                  <div className="hidden 2xl:block w-[280px] shrink-0 px-3 border-l border-slate-100 self-stretch flex flex-col justify-center">
                     {(() => {
                       const docs = (Array.isArray(projectInTasksView.documents) ? projectInTasksView.documents : []).filter(d => d.link?.trim())
                       return (
@@ -2917,7 +2929,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {/* NHÂN SỰ COLLAPSIBLE */}
-                <div className="border-t border-[#bec8d2]/15 pt-2">
+                <div className="border-t border-[#bec8d2]/15 pt-1.5">
                   <button
                     type="button"
                     onClick={() => setShowKanbanDocs(!showKanbanDocs)}
@@ -2936,7 +2948,7 @@ export default function ProjectsPage() {
                     </span>
                   </button>
                   {showKanbanDocs && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-0.5">
                       {(projectInTasksView.project_assignments || []).map(a => {
                         const u = allUsers.find(x => x.user_id === a.user_id)
                         return (
@@ -2968,24 +2980,25 @@ export default function ProjectsPage() {
                 <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
               ) : (
                 taskKanbanGrouped && (
-                  <div className="flex flex-col lg:flex-row lg:overflow-x-auto lg:overflow-y-hidden gap-5 w-full h-full items-stretch pb-8 pt-2 px-2 custom-scrollbar">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 w-full h-full items-stretch pb-6 pt-1 px-1">
                     {KANBAN_COLUMNS.map(col => (
                       <div
                         key={col.key}
-                        className={`flex flex-col h-full min-w-[320px] lg:min-w-[380px] lg:w-[380px] shrink-0 rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
+                        className={`flex min-w-0 flex-col h-full w-full rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
                       >
-                        <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[#e8ecf0] bg-white shrink-0">
                           <div className="flex min-w-0 items-center gap-2">
-                            <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
-                            <span className="shrink-0 rounded-full bg-[#eef1f6] px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-[#475569]">
+                            <p className="text-sm font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                            <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
                               {taskKanbanGrouped[col.key].length}
                             </span>
                           </div>
                         </div>
-                        <div className="flex-1 min-h-0 p-2 space-y-3 overflow-y-auto lg:max-h-full max-h-[60vh] custom-scrollbar touch-pan-y">
+                        <div className="flex-1 min-h-0 p-1.5 space-y-2 overflow-y-auto lg:max-h-full max-h-[66vh] custom-scrollbar touch-pan-y">
                           {taskKanbanGrouped[col.key].map(({ feature, task }) => (
                             <ModalTaskCard
                               key={task.task_id}
+                              compact
                               hideStatusBadge
                               statusActionsOutside
                               feature={feature}

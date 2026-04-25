@@ -4,7 +4,6 @@ import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
-import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2 } from 'lucide-react'
 
 export default function AttendancePage() {
   const { user } = useAuth()
@@ -519,7 +518,7 @@ export default function AttendancePage() {
                       onClick={() => fetchAttendanceData()}
                       className="p-1.5 hover:bg-slate-100 rounded-full transition-colors active:scale-90"
                     >
-                      <RefreshCcw size={14} className="text-slate-400" />
+                      <span className="material-symbols-outlined text-[14px] text-slate-400">refresh</span>
                     </button>
                     <button
                       onClick={() => setShowMobileHeader(false)}
@@ -537,7 +536,7 @@ export default function AttendancePage() {
                     disabled={isWorking}
                     className="h-8 flex items-center justify-center gap-1.5 bg-white border border-blue-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
                   >
-                    <LogIn size={12} className="text-blue-600" />
+                    <span className="material-symbols-outlined text-[12px] text-blue-600">login</span>
                     <span className="text-[9px] font-bold text-blue-700">Vào</span>
                   </button>
 
@@ -552,7 +551,7 @@ export default function AttendancePage() {
                     disabled={!isWorking}
                     className="h-8 flex items-center justify-center gap-1.5 bg-white border border-red-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
                   >
-                    <LogOut size={12} className="text-red-600" />
+                    <span className="material-symbols-outlined text-[12px] text-red-600">logout</span>
                     <span className="text-[9px] font-bold text-red-700">Ra</span>
                   </button>
                 </div>
@@ -560,7 +559,7 @@ export default function AttendancePage() {
                 {/* Lớp 3: Bộ lọc (Tinh gọn) */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="relative group">
-                    <Calendar size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-slate-400">event</span>
                     <input
                       type="date"
                       value={filterDate}
@@ -576,11 +575,11 @@ export default function AttendancePage() {
                       onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
                       className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
                     >
-                      <Users size={12} className="absolute left-2 text-slate-400" />
+                      <span className="material-symbols-outlined absolute left-2 text-[12px] text-slate-400">group</span>
                       <span className="truncate">
                         {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
                       </span>
-                      <ChevronDown size={12} className="absolute right-1 text-slate-400" />
+                      <span className="material-symbols-outlined absolute right-1 text-[12px] text-slate-400">expand_more</span>
                     </div>
 
                     {isMobileStaffOpen && (
@@ -613,7 +612,7 @@ export default function AttendancePage() {
                 onClick={() => setShowMobileHeader(true)}
                 className="block sm:hidden fixed top-[80px] right-4 z-[30] bg-blue-600 text-white p-2.5 rounded-full shadow-lg animate-in fade-in slide-in-from-right-4 active:scale-90 transition-all border border-white/20"
               >
-                <RefreshCcw size={18} className="animate-spin-slow" />
+                <span className="material-symbols-outlined text-[18px] animate-spin-slow">refresh</span>
               </button>
             )}
 
@@ -949,7 +948,7 @@ export default function AttendancePage() {
                           onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
                           className={`p-1.5 rounded-lg active:scale-90 transition-all ${showTasksId === row.id ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
                         >
-                          <ClipboardList size={14} />
+                          <span className="material-symbols-outlined text-[14px]">checklist</span>
                         </button>
                         {canEditDelete && (
                           <>
@@ -971,7 +970,7 @@ export default function AttendancePage() {
                               }}
                               className="p-1.5 bg-blue-50 text-blue-600 rounded-lg active:scale-90 transition-all"
                             >
-                              <Edit3 size={14} />
+                              <span className="material-symbols-outlined text-[14px]">edit</span>
                             </button>
                             <button
                               type="button"
@@ -979,7 +978,7 @@ export default function AttendancePage() {
                               disabled={deleting}
                               className="p-1.5 bg-red-50 text-red-600 rounded-lg active:scale-90 transition-all disabled:opacity-50"
                             >
-                              <Trash2 size={14} />
+                              <span className="material-symbols-outlined text-[14px]">delete</span>
                             </button>
                           </>
                         )}

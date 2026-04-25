@@ -40,6 +40,13 @@ const DEADLINE_FILTER_OPTIONS = [
   { value: 'no_deadline', label: 'Không có deadline' },
 ]
 
+const KANBAN_COLUMNS = [
+  { key: 'pending', title: 'Đang chờ', topBar: 'border-t-[#8b9dc3]' },
+  { key: 'in_progress', title: 'Đang làm', topBar: 'border-t-[#006591]' },
+  { key: 'completed', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
+  { key: 'overdue', title: 'Trễ hẹn', topBar: 'border-t-[#ba1a1a]' },
+]
+
 function formatDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -107,10 +114,6 @@ export default function StaffSubtasksPage() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
-
-  // -- STATE PHÂN TRANG --
-  const PAGE_SIZE = 3
-  const [groupPages, setGroupPages] = useState({}) // { project_id: currentPage }
 
   const location = useLocation()
   const isActive = location.pathname === '/staff-subtasks'
@@ -268,37 +271,27 @@ export default function StaffSubtasksPage() {
   ), [selectedProjectIds, subtasks])
 
 
-  const subtasksByProject = useMemo(() => {
-    if (filteredSubtasks.length === 0) return []
-    console.time('Grouping logic')
-
-    const map = new Map()
-    const getDeadlineTime = (st) => {
-      if (!st.deadline) return Number.MAX_SAFE_INTEGER
+  const subtasksByStatus = useMemo(() => {
+    const grouped = {
+      pending: [],
+      in_progress: [],
+      completed: [],
+      overdue: [],
+    }
+    const toDeadlineTime = st => {
+      if (!st?.deadline) return Number.MAX_SAFE_INTEGER
       const t = new Date(st.deadline).getTime()
-      return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+      return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER
     }
-
     for (const st of filteredSubtasks) {
-      const key = st.project_id || 'unknown'
-      const name = st.project_name || 'Chưa có dự án'
-
-      if (!map.has(key)) {
-        map.set(key, { key, name, items: [] })
-      }
-      map.get(key).items.push(st)
+      const key = (st.status || 'pending')
+      if (!grouped[key]) grouped.pending.push(st)
+      else grouped[key].push(st)
     }
-
-
-    const result = Array.from(map.values())
-      .map(group => ({
-        ...group,
-        items: group.items.sort((a, b) => getDeadlineTime(a) - getDeadlineTime(b))
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-
-    console.timeEnd('Grouping logic')
-    return result
+    for (const key of Object.keys(grouped)) {
+      grouped[key] = grouped[key].sort((a, b) => toDeadlineTime(a) - toDeadlineTime(b))
+    }
+    return grouped
   }, [filteredSubtasks])
 
 
@@ -375,9 +368,6 @@ export default function StaffSubtasksPage() {
 
   const handleDeleteClick = useCallback((id) => setConfirmDeleteId(id), [])
   const handleSetLightboxUrl = useCallback((url) => setLightboxUrl(url), [])
-  const handlePageChange = useCallback((groupKey, newPage) => {
-    setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
-  }, [])
 
   async function deleteSubtask(subtaskId) {
     setConfirmDeleteId(null)
@@ -710,77 +700,39 @@ export default function StaffSubtasksPage() {
               </div>
             </div>
 
-            <div className="space-y-4">
-              {subtasksByProject.map(group => {
-                const currentPage = groupPages[group.key] || 1
-                const totalPages = Math.ceil(group.items.length / PAGE_SIZE)
-                const displayedItems = isMobileScreen
-                  ? group.items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-                  : group.items
-
-                return (
-                  <section
-                    key={group.key}
-                    id={`project-section-${group.key}`}
-                    className="bg-white border border-[#bec8d2]/18 rounded-xl p-3 shadow-sm scroll-mt-24 transition-all"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <h3 className="text-sm font-bold text-[#131b2e]">{group.name}</h3>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#f2f3ff] text-[#3e4850]">
-                        {group.items.length} subtask
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 border border-[#e2e8f0] rounded-[10px] p-2 shadow-sm bg-slate-50/20">
-                      {displayedItems.map((st) => (
-                        <StaffSubtaskCard
-                          key={st.subtask_id}
-                          st={st}
-                          userRole={userRole}
-                          isUpdatingStatus={updatingStatusId === st.subtask_id}
-                          isUpdatingWorkTime={updatingWorkTimeId === st.subtask_id}
-                          onUpdateStatus={updateSubtaskStatus}
-                          onUpdateWorkTime={updateSubtaskWorkTime}
-                          onSetLightboxUrl={handleSetLightboxUrl}
-                          onDeleteClick={handleDeleteClick}
-                          onUpdateEvaluation={updateSubtaskEvaluation}
-                        />
-                      ))}
-                    </div>
-
-                    {totalPages > 1 && isMobileScreen && (
-                      <div className="mt-4 flex items-center justify-center gap-3 border-t border-slate-100 pt-3 lg:hidden">
-                        <button
-                          type="button"
-                          onClick={() => handlePageChange(group.key, currentPage - 1)}
-                          disabled={currentPage === 1}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-[#e2e8f0] text-[#131b2e] hover:bg-[#f2f3ff] disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">chevron_left</span>
-                          <span>TRƯỚC</span>
-                        </button>
-
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f2f3ff] text-[#006591] text-[12px] font-black border border-[#dce4ff]">
-                          <span>TRANG</span>
-                          <span className="bg-[#006591] text-white w-5 h-5 flex items-center justify-center rounded-sm text-[11px]">{currentPage}</span>
-                          <span className="text-[#94a3b8]">/</span>
-                          <span>{totalPages}</span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handlePageChange(group.key, currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-[#e2e8f0] text-[#131b2e] hover:bg-[#f2f3ff] disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
-                        >
-                          <span>SAU</span>
-                          <span className="material-symbols-outlined text-[18px]">chevron_right</span>
-                        </button>
-                      </div>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+              {KANBAN_COLUMNS.map(col => (
+                <section
+                  key={col.key}
+                  className={`flex min-h-[260px] flex-col rounded-xl border border-[#bec8d2]/20 border-t-[3px] ${col.topBar} bg-white shadow-sm`}
+                >
+                  <div className="flex items-center justify-between border-b border-[#eef2f7] px-3 py-2.5">
+                    <h3 className="text-sm font-bold text-[#131b2e]">{col.title}</h3>
+                    <span className="rounded-full bg-[#f2f3ff] px-2 py-0.5 text-[11px] font-bold text-[#475569]">
+                      {subtasksByStatus[col.key]?.length || 0}
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-2 overflow-y-auto p-2.5 custom-scrollbar">
+                    {(subtasksByStatus[col.key] || []).map(st => (
+                      <StaffSubtaskCard
+                        key={st.subtask_id}
+                        st={st}
+                        userRole={userRole}
+                        isUpdatingStatus={updatingStatusId === st.subtask_id}
+                        isUpdatingWorkTime={updatingWorkTimeId === st.subtask_id}
+                        onUpdateStatus={updateSubtaskStatus}
+                        onUpdateWorkTime={updateSubtaskWorkTime}
+                        onSetLightboxUrl={handleSetLightboxUrl}
+                        onDeleteClick={handleDeleteClick}
+                        onUpdateEvaluation={updateSubtaskEvaluation}
+                      />
+                    ))}
+                    {(subtasksByStatus[col.key] || []).length === 0 && (
+                      <p className="py-8 text-center text-[11px] italic text-[#94a3b8]">Trống</p>
                     )}
-                  </section>
-                )
-              })}
+                  </div>
+                </section>
+              ))}
             </div>
 
             {filteredSubtasks.length === 0 && (
