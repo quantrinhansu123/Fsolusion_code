@@ -44,7 +44,7 @@ function StaffSubtaskCard({
           <p className="mt-1 text-[10px] text-slate-600 capitalize">{timeSummary}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 flex-col items-end gap-1">
           {userRole === 'admin' ? (
             <>
               {(() => {
