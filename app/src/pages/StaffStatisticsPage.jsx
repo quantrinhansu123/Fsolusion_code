@@ -103,7 +103,7 @@ export default function StaffStatisticsPage() {
         {/* Header & Filter */}
         <div className="mb-6 flex flex-col lg:flex-row lg:items-end justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
           <div>
-            <h1 className="text-xl font-bold text-[#131b2e]">Thống kê nhân sự</h1>
+            <h1 className="text-lg font-bold text-[#131b2e]">Thống kê nhân sự</h1>
             <p className="text-xs text-slate-500 mt-1">Tổng hợp kết quả đánh giá công việc</p>
           </div>
           

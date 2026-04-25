@@ -47,7 +47,7 @@ export default function ProgressReportPage() {
       if (error) throw error
 
       let filtered = data || []
-      if (authUser?.role === 'manager') {
+      if (authUser?.role !== 'admin') {
         filtered = filtered.filter(p =>
           p.project_assignments?.some(a => a.user_id === authUser.id)
         )
@@ -103,60 +103,55 @@ export default function ProgressReportPage() {
 
                 return (
                   <>
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {paginatedData.map(p => {
                         const progress = calculateProgress(p)
                         return (
                           <div key={p.project_id} className="bg-white rounded-xl shadow-sm border border-[#bec8d2]/20 overflow-hidden hover:shadow-md transition-shadow">
-                            <div className="p-3 md:p-4">
-                              <div className="flex justify-between items-start mb-2">
-                                <div>
-                                  <span className="text-[8px] md:text-[9px] font-bold text-[#006591] bg-[#dae2fd] px-1.5 py-0.5 rounded-md uppercase tracking-wider mb-1 inline-block">
-                                    {p.customers?.name}
-                                  </span>
-                                  <h3 className="text-sm md:text-base font-bold text-[#131b2e] leading-tight">{p.name}</h3>
+                            <div className="p-3">
+                              {/* Header: All in one line */}
+                              <div className="flex items-center justify-between gap-3 mb-2.5">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className="text-[8px] font-bold text-[#3e4850] bg-[#dae2fd] px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                                      {p.customers?.name || 'Khách lẻ'}
+                                    </span>
+                                    <h3 className="text-xs md:text-[13px] font-bold text-[#131b2e] truncate">{p.name}</h3>
+                                  </div>
+                                  <div className="w-full h-1 bg-[#f2f3ff] rounded-full relative overflow-hidden">
+                                    <div
+                                      className="absolute left-0 top-0 h-full primary-gradient transition-all duration-1000"
+                                      style={{ width: `${progress}%` }}
+                                    />
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="text-lg md:text-2xl font-black text-[#131b2e] leading-none">{progress}%</div>
-                                  <div className="text-[7px] md:text-[9px] font-bold text-[#3e4850] uppercase tracking-widest mt-1">Hoàn thành</div>
+                                <div className="shrink-0 text-right">
+                                  <span className="text-sm md:text-base font-black text-[#006591] leading-none">{progress}%</span>
                                 </div>
                               </div>
 
-                              {/* Progress Bar - Slimmer */}
-                              <div className="w-full h-2 bg-[#f2f3ff] rounded-full mb-3 relative overflow-hidden">
-                                <div
-                                  className="absolute left-0 top-0 h-full primary-gradient transition-all duration-1000 ease-out"
-                                  style={{ width: `${progress}%` }}
-                                />
-                              </div>
-
-                              {/* Tasks Detail */}
-                              <div className="space-y-1.5">
-                                <h4 className="text-[9px] md:text-[10px] font-bold text-[#3e4850] uppercase tracking-wider border-b border-[#bec8d2]/10 pb-1.5 flex justify-between">
-                                  Chi tiết nhiệm vụ
-                                  <span>Trạng thái</span>
-                                </h4>
-                                <div className="grid grid-cols-1 gap-1.5">
-                                  {p.features?.flatMap(f => f.tasks || []).map(t => (
-                                    <div key={t.task_id} className="flex justify-between items-center py-1.5 px-2.5 bg-[#faf8ff] rounded-lg border border-[#bec8d2]/5">
-                                      <div className="flex items-center gap-2">
-                                        <span className={`material-symbols-outlined text-[16px] ${t.status === 'completed' ? 'text-green-500' : 'text-[#6e7881]'}`}>
-                                          {t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked'}
-                                        </span>
-                                        <div className="leading-tight">
-                                          <div className="text-[11px] md:text-xs font-semibold text-[#131b2e]">{t.name}</div>
-                                          <div className="text-[8px] md:text-[9px] text-[#3e4850]">Phụ trách: <span className="font-bold">{t.users?.full_name || 'Chưa phân công'}</span></div>
-                                        </div>
-                                      </div>
-                                      <span className={`text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase ${t.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                          t.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                            'bg-gray-100 text-gray-700'
-                                        }`}>
-                                        {t.status === 'completed' ? 'Xong' : t.status === 'in_progress' ? 'Làm' : 'Chờ'}
+                              {/* Tasks Detail - Ultra Compact Row List */}
+                              <div className="space-y-1">
+                                {p.features?.flatMap(f => f.tasks || []).map(t => (
+                                  <div key={t.task_id} className="flex justify-between items-center py-1 px-1.5 hover:bg-[#faf8ff] rounded transition-all group border-b border-[#bec8d2]/5 last:border-0">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className={`material-symbols-outlined text-[14px] ${t.status === 'completed' ? 'text-green-500' : 'text-[#6e7881]'}`}>
+                                        {t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked'}
                                       </span>
+                                      <p className="text-[10px] font-medium text-[#131b2e] truncate">{t.name}</p>
+                                      <span className="text-[9px] text-[#3e4850] opacity-40 truncate">· {t.users?.full_name?.split(' ').pop() || 'N/A'}</span>
                                     </div>
-                                  ))}
-                                </div>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase ${t.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                        t.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-gray-100 text-gray-700'
+                                      }`}>
+                                      {t.status === 'completed' ? 'Xong' : t.status === 'in_progress' ? 'Làm' : 'Chờ'}
+                                    </span>
+                                  </div>
+                                ))}
+                                {p.features?.flatMap(f => f.tasks || []).length === 0 && (
+                                  <p className="text-[9px] text-[#3e4850] opacity-40 italic py-1 text-center">Không có nhiệm vụ</p>
+                                )}
                               </div>
                             </div>
                           </div>
