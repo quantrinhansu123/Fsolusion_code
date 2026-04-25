@@ -191,8 +191,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Recent activity */}
-          <div className="bg-[#f2f3ff] rounded-2xl p-4 md:p-5">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-[#f0f2ff]/50 backdrop-blur-sm rounded-[24px] p-4 md:p-6 border border-white/60 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)]">
+            <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-bold text-[#131b2e]">Hoạt động gần đây</h3>
               <button className="text-sm font-semibold text-[#006591] hover:text-[#0ea5e9] transition-colors flex items-center gap-1">
                 Xem tất cả
@@ -219,22 +219,25 @@ export default function DashboardPage() {
               </div>
 
               {/* MOBILE VIEW: Timeline */}
-              <div className="lg:hidden relative space-y-6 pl-6">
-                {/* Vertical Line */}
-                <div className="absolute left-[15px] top-2 bottom-2 w-px bg-[#bec8d2]/30" />
+              <div className="lg:hidden relative space-y-3.5 pl-7">
+                {/* Vertical Line - subtle gradient */}
+                <div className="absolute left-[13px] top-1 bottom-1 w-[1.5px] bg-gradient-to-b from-[#006591]/20 via-[#006591]/10 to-transparent" />
 
                 {activities.map((a, i) => (
-                  <div key={i} className="relative flex items-start gap-4">
+                  <div key={i} className="relative flex items-center gap-4">
                     {/* Timeline Dot/Icon */}
-                    <div className={`absolute -left-[27px] w-6 h-6 rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor} z-10 border-4 border-[#f2f3ff] shadow-sm`}>
+                    <div className={`absolute -left-[28px] w-[26px] h-[26px] rounded-full ${a.iconBg} flex items-center justify-center ${a.iconColor} z-10 border-[3px] border-[#faf8ff] shadow-sm`}>
                       <span className="material-symbols-outlined text-[12px] icon-fill">{a.icon}</span>
                     </div>
 
-                    <div className="bg-white/60 p-3 rounded-xl border border-white/50 shadow-sm flex-1">
-                      <p className="text-xs font-bold text-[#131b2e] leading-tight mb-1">{a.title}</p>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] text-[#3e4850] opacity-80">{a.meta}</p>
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-[#006591]/70">{a.tag}</span>
+                    <div className="bg-white p-3.5 rounded-[18px] border border-[#bec8d2]/15 shadow-[0_2px_12px_rgba(19,27,46,0.03)] flex-1 flex flex-col gap-1.5 hover:shadow-md transition-all duration-300">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[13px] font-bold text-[#131b2e] leading-snug line-clamp-2">{a.title}</p>
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${a.tagCls} bg-opacity-50`}>{a.tag}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 opacity-70">
+                        <span className="material-symbols-outlined text-[10px]">schedule</span>
+                        <p className="text-[10px] text-[#3e4850] font-medium">{a.meta}</p>
                       </div>
                     </div>
                   </div>
