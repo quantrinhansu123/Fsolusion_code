@@ -10,6 +10,13 @@ export default function ProgressReportPage() {
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024)
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const { user: authUser, loading: authLoading } = useAuth()
   const [hasFetched, setHasFetched] = useState(false)
@@ -99,12 +106,12 @@ export default function ProgressReportPage() {
                 const totalPages = Math.ceil(reportData.length / itemsPerPage)
                 const startIdx = (currentPage - 1) * itemsPerPage
                 const endIdx = startIdx + itemsPerPage
-                const paginatedData = reportData.slice(startIdx, endIdx)
+                const displayData = isMobile ? reportData.slice(startIdx, endIdx) : reportData
 
                 return (
                   <>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {paginatedData.map(p => {
+                      {displayData.map(p => {
                         const progress = calculateProgress(p)
                         return (
                           <div key={p.project_id} className="bg-white rounded-xl shadow-sm border border-[#bec8d2]/20 overflow-hidden hover:shadow-md transition-shadow">
@@ -160,7 +167,7 @@ export default function ProgressReportPage() {
                     </div>
 
                     {totalPages > 1 && reportData.length > 0 && (
-                      <div className="mt-6 flex items-center justify-center gap-1 flex-nowrap overflow-x-auto">
+                      <div className="mt-6 flex lg:hidden items-center justify-center gap-1 flex-nowrap overflow-x-auto">
                         <button
                           onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                           disabled={currentPage === 1}
