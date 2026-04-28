@@ -8,8 +8,10 @@ import { EntityFormModal, CUSTOMER_FIELDS, PROJECT_FIELDS } from '../components/
 import Modal from '../components/Modal'
 import StatusBadge from '../components/StatusBadge'
 import { formatDeadlineDisplay, normalizeDeadlineForSave } from '../utils/deadline'
+import { useAuth } from '../utils/AuthContext'
 
 export default function CustomerManagement() {
+  const { user } = useAuth()
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -30,14 +32,8 @@ export default function CustomerManagement() {
   }, [])
 
   useEffect(() => {
-    async function loadRole() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data: profile } = await supabase.from('users').select('role').eq('user_id', user.id).single()
-      setUserRole(profile?.role || 'employee')
-    }
-    loadRole()
-  }, [])
+    setUserRole(user?.role || 'employee')
+  }, [user])
 
   async function fetchCustomers() {
     setLoading(true)
@@ -74,8 +70,11 @@ export default function CustomerManagement() {
         setToast({ message: 'Đã cập nhật thông tin khách hàng', type: 'success' })
       }
     } else {
-      const { data: userData } = await supabase.auth.getUser()
-      const { error } = await supabase.from('customers').insert({ ...formData, user_id: userData.user.id })
+      if (!user?.user_id) {
+        setToast({ message: 'Bạn chưa đăng nhập.', type: 'error' })
+        return
+      }
+      const { error } = await supabase.from('customers').insert({ ...formData, user_id: user.user_id })
       if (error) setToast({ message: error.message, type: 'error' })
       else {
         setIsModalOpen(false)

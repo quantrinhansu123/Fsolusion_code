@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Tables (Using IF NOT EXISTS)
 CREATE TABLE IF NOT EXISTS public.users (
-    user_id      UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id      UUID PRIMARY KEY,
     full_name    TEXT        NOT NULL,
     email        TEXT        NOT NULL UNIQUE,
     role         TEXT        NOT NULL DEFAULT 'employee',
@@ -207,11 +207,6 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS content_blocks JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
-    avatar_url   TEXT,
-    password_updated_at TIMESTAMPTZ,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 -- Ensure the role constraint is correct even if table already existed
 ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
@@ -406,6 +401,7 @@ ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS work_time JSONB NOT NULL DEFAULT '
 
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMPTZ;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS department TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT;
 
 -- ============================================================
 -- 6. TỰ ĐỘNG CẤP QUYỀN KHI ĐƯỢC GÁN TASK/SUBTASK (An toàn - Chống đệ quy)
@@ -459,3 +455,43 @@ CREATE POLICY "features_select_assigned" ON features FOR SELECT USING (
 CREATE POLICY "projects_select_assigned" ON projects FOR SELECT USING (
   check_project_access_via_task(project_id, auth.uid())
 );
+
+-- ============================================================
+-- Internal-auth mode (no Supabase Auth session)
+-- ============================================================
+-- Keep RLS enabled but open policies for anon/authenticated roles.
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'users',
+        'customers',
+        'projects',
+        'project_assignments',
+        'features',
+        'tasks',
+        'subtasks',
+        'task_status_history',
+        'work_sessions'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', r.policyname, r.schemaname, r.tablename);
+  END LOOP;
+END $$;
+
+CREATE POLICY users_open_all ON public.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY customers_open_all ON public.customers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY projects_open_all ON public.projects FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY project_assignments_open_all ON public.project_assignments FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY features_open_all ON public.features FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY tasks_open_all ON public.tasks FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY subtasks_open_all ON public.subtasks FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY task_status_history_open_all ON public.task_status_history FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY work_sessions_open_all ON public.work_sessions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;

@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+  import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error(
-    'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the project root .env or app/.env.local (Supabase Dashboard → Project Settings → API), then restart the dev server.'
+    'Missing Supabase env vars. Set VITE_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in the project root .env or app/.env.local (Supabase Dashboard -> Project Settings -> API), then restart the dev server.'
   );
 }
 

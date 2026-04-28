@@ -17,6 +17,7 @@ import {
 import { EntityFormModal } from '../components/EntityFormModal'
 import { sanitizeTaskContentForSave, subtaskFormInitial } from '../utils/taskContent'
 import { normalizeDeadlineForSave } from '../utils/deadline'
+import { useAuth } from '../utils/AuthContext'
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Đang chờ' },
@@ -83,6 +84,7 @@ function matchesDeadlineFilter(st, deadlineFilter) {
 }
 
 export default function StaffSubtasksPage() {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [hasFetched, setHasFetched] = useState(false)
   const [staffUsers, setStaffUsers] = useState([])
@@ -96,6 +98,7 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [detailSubtask, setDetailSubtask] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
@@ -182,9 +185,6 @@ export default function StaffSubtasksPage() {
 
     const initialize = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const authUser = session?.user
-
         const { data: usersData, error: usersErr } = await supabase
           .from('users')
           .select('user_id, full_name, role')
@@ -196,13 +196,13 @@ export default function StaffSubtasksPage() {
         let currentRole = null
         let currentEmployeeUserId = null
 
-        if (authUser) {
-          const profile = (usersData || []).find(u => u.user_id === authUser.id)
-          currentRole = profile?.role || null
+        if (user?.user_id) {
+          const profile = (usersData || []).find(u => u.user_id === user.user_id)
+          currentRole = profile?.role || user.role || null
 
           if (currentRole === 'employee') {
-            currentEmployeeUserId = authUser.id
-            setSelectedAssignee(authUser.id)
+            currentEmployeeUserId = user.user_id
+            setSelectedAssignee(user.user_id)
           }
           setUserRole(currentRole)
         }
@@ -221,7 +221,7 @@ export default function StaffSubtasksPage() {
     }
 
     initialize()
-  }, [isActive, loadData])
+  }, [isActive, loadData, user])
 
   // Fetch subtasks when filters change (with stabilization)
   useEffect(() => {
@@ -368,6 +368,7 @@ export default function StaffSubtasksPage() {
 
   const handleDeleteClick = useCallback((id) => setConfirmDeleteId(id), [])
   const handleSetLightboxUrl = useCallback((url) => setLightboxUrl(url), [])
+  const handleOpenDetail = useCallback((st) => setDetailSubtask(st), [])
 
   async function deleteSubtask(subtaskId) {
     setConfirmDeleteId(null)
@@ -725,6 +726,7 @@ export default function StaffSubtasksPage() {
                         onSetLightboxUrl={handleSetLightboxUrl}
                         onDeleteClick={handleDeleteClick}
                         onUpdateEvaluation={updateSubtaskEvaluation}
+                        onOpenDetail={handleOpenDetail}
                       />
                     ))}
                     {(subtasksByStatus[col.key] || []).length === 0 && (
@@ -760,6 +762,71 @@ export default function StaffSubtasksPage() {
                   className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
                 />
               </div>
+            )}
+
+            {detailSubtask && (
+              <Modal
+                title={detailSubtask.name || 'Chi tiết tiểu mục'}
+                subtitle={`${detailSubtask.project_name || '—'} · ${detailSubtask.task_name || '—'}`}
+                onClose={() => setDetailSubtask(null)}
+                maxWidthClassName="max-w-2xl"
+                bodyClassName="px-5 py-4 space-y-3 overflow-y-auto max-h-[70vh]"
+                footer={
+                  <button
+                    type="button"
+                    onClick={() => setDetailSubtask(null)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold text-[#006591] hover:bg-[#eef4ff] transition-colors"
+                  >
+                    Đóng
+                  </button>
+                }
+              >
+                {(() => {
+                  const blocks = (subtaskFormInitial(detailSubtask).content_blocks || []).filter(
+                    b => (b.content && b.content.trim()) || (Array.isArray(b.image_urls) && b.image_urls.length > 0)
+                  )
+                  const statusLabel = STATUS_OPTIONS.find(s => s.value === (detailSubtask.status || 'pending'))?.label || detailSubtask.status
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px] text-[#3e4850]">
+                        <p><span className="font-semibold text-[#131b2e]">Trạng thái:</span> {statusLabel}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Deadline:</span> {formatDateTime(detailSubtask.deadline)}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Người phụ trách:</span> {detailSubtask.assigned_to_name || '—'}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Thời gian:</span> {formatSubtaskWorkTimeSummary(normalizeSubtaskWorkTime(detailSubtask.work_time))}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748b]">Nội dung & ảnh</p>
+                        {blocks.length === 0 ? (
+                          <p className="text-[12px] italic text-[#94a3b8]">Chưa có nội dung chi tiết.</p>
+                        ) : (
+                          blocks.map((b, i) => (
+                            <div key={i} className="rounded-lg border border-[#e2e8f0] bg-[#faf8ff]/60 p-3 space-y-2">
+                              {b.content?.trim() ? (
+                                <p className="whitespace-pre-wrap text-[13px] text-[#131b2e]">{b.content}</p>
+                              ) : null}
+                              {Array.isArray(b.image_urls) && b.image_urls.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {b.image_urls.map((url, idx) => (
+                                    <button
+                                      key={`${i}-${idx}`}
+                                      type="button"
+                                      onClick={() => setLightboxUrl(url)}
+                                      className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-100"
+                                      title="Xem ảnh"
+                                    >
+                                      <img src={url} alt="" className="h-full w-full object-cover" />
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </Modal>
             )}
           </div>
         </main>

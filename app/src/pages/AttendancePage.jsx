@@ -46,28 +46,24 @@ export default function AttendancePage() {
 
   // 1. Load user đang đăng nhập + khôi phục session checkin nếu hợp lệ
   useEffect(() => {
-    async function initUser() {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (!authUser) return
-      setCurrentUser(authUser)
+    if (!user?.user_id) return
+    setCurrentUser(user)
 
-      // Khôi phục session checkin chỉ khi session thuộc về user này
-      const storedSessionId = localStorage.getItem('checkin_session_id')
-      const storedUserId = localStorage.getItem('checkin_user_id')
-      const storedStartTime = localStorage.getItem('checkin_start_time')
-      if (storedSessionId && storedUserId === authUser.id && storedStartTime) {
-        setActiveSessionId(storedSessionId)
-        setIsWorking(true)
-        setSessionStartTime(Number(storedStartTime))
-      } else {
-        // Xóa session cũ không hợp lệ
-        localStorage.removeItem('checkin_session_id')
-        localStorage.removeItem('checkin_user_id')
-        localStorage.removeItem('checkin_start_time')
-      }
+    // Khôi phục session checkin chỉ khi session thuộc về user này
+    const storedSessionId = localStorage.getItem('checkin_session_id')
+    const storedUserId = localStorage.getItem('checkin_user_id')
+    const storedStartTime = localStorage.getItem('checkin_start_time')
+    if (storedSessionId && storedUserId === user.user_id && storedStartTime) {
+      setActiveSessionId(storedSessionId)
+      setIsWorking(true)
+      setSessionStartTime(Number(storedStartTime))
+    } else {
+      // Xóa session cũ không hợp lệ
+      localStorage.removeItem('checkin_session_id')
+      localStorage.removeItem('checkin_user_id')
+      localStorage.removeItem('checkin_start_time')
     }
-    initUser()
-  }, [])
+  }, [user])
 
   // 2. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
   useEffect(() => {
@@ -278,11 +274,11 @@ export default function AttendancePage() {
     }
     try {
       const today = new Date().toISOString().split('T')[0]
-      // Dùng currentUser.id (user đang đăng nhập), KHÔNG dùng filterUser
+      // Dùng currentUser.user_id (user đang đăng nhập), KHÔNG dùng filterUser
       const { data, error } = await supabase
         .from('work_sessions')
         .insert({
-          user_id: currentUser.id,
+          user_id: currentUser.user_id,
           work_date: today,
           status: 'working'
         })
@@ -291,7 +287,7 @@ export default function AttendancePage() {
       if (error) throw error
       const startTime = Date.now()
       localStorage.setItem('checkin_session_id', data.session_id)
-      localStorage.setItem('checkin_user_id', currentUser.id)  // Lưu thêm user_id để validate
+      localStorage.setItem('checkin_user_id', currentUser.user_id)  // Lưu thêm user_id để validate
       localStorage.setItem('checkin_start_time', String(startTime))
       setActiveSessionId(data.session_id)
       setIsWorking(true)

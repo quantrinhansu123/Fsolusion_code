@@ -2,59 +2,64 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
 const AuthContext = createContext({})
+const AUTH_USER_KEY = 'pm_auth_user_id'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // 1. Lấy session hiện tại
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchProfile(session.user)
-      } else {
-        setLoading(false)
-      }
-    })
-
-    // 2. Lắng nghe thay đổi auth
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        fetchProfile(session.user)
-      } else {
-        setUser(null)
-        setLoading(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
+    const storedUserId = localStorage.getItem(AUTH_USER_KEY)
+    if (!storedUserId) {
+      setLoading(false)
+      return
+    }
+    fetchProfileById(storedUserId)
   }, [])
 
-  async function fetchProfile(authUser) {
+  async function signInLocal(userId) {
+    localStorage.setItem(AUTH_USER_KEY, userId)
+    await fetchProfileById(userId)
+  }
+
+  function signOutLocal() {
+    localStorage.removeItem(AUTH_USER_KEY)
+    setUser(null)
+    setLoading(false)
+  }
+
+  async function fetchProfileById(userId) {
     try {
       const { data: profile, error } = await supabase
         .from('users')
         .select('*')
-        .eq('user_id', authUser.id)
+        .eq('user_id', userId)
         .single()
 
       if (error) {
         console.error('[AuthContext] Profile fetch error:', error)
-        setUser(authUser) // Vẫn giữ thông tin auth cơ bản
+        setUser(null)
+        localStorage.removeItem(AUTH_USER_KEY)
       } else {
-        console.log('[AuthContext] Role:', profile.role)
-        setUser({ ...authUser, ...profile })
+        setUser(profile)
       }
     } catch (err) {
       console.error('[AuthContext] System error:', err)
-      setUser(authUser)
+      setUser(null)
+      localStorage.removeItem(AUTH_USER_KEY)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, refreshProfile: () => user && fetchProfile(user) }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      signInLocal,
+      signOutLocal,
+      refreshProfile: () => user?.user_id && fetchProfileById(user.user_id),
+    }}>
       {children}
     </AuthContext.Provider>
   )
