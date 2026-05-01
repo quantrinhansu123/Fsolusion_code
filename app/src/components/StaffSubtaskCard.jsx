@@ -70,7 +70,7 @@ function StaffSubtaskCard({
       label: 'Tạm dừng',
       onClick: handlePauseClick,
     },
-    ...(userRole === 'admin'
+    ...(userRole === 'admin' || userRole === 'manager'
       ? [{
           icon: 'delete',
           label: 'Xóa',
@@ -80,21 +80,23 @@ function StaffSubtaskCard({
       : []),
   ]
 
+  const openDetail = () => onOpenDetail?.(st)
+
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpenDetail?.(st)}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onOpenDetail?.(st)
-        }
-      }}
-      className="rounded-md border border-slate-200 bg-[#fafafa] px-2 py-1.5 hover:bg-[#f2f3ff] transition-all shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#006591]/30"
-    >
+    <div className="rounded-md border border-slate-200 bg-[#fafafa] px-2 py-1.5 shadow-sm transition-colors hover:bg-[#f2f3ff]">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={openDetail}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              openDetail()
+            }
+          }}
+          className="min-w-0 flex-1 cursor-pointer rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-[#006591]/30"
+        >
           <p className="line-clamp-2 text-[10px] font-bold leading-tight text-[#131b2e]" title={st.name}>{st.name}</p>
           <p className="mt-0.5 truncate text-[9px] text-slate-500">{featureName} · {taskName}</p>
           {st.solution?.trim() ? (
@@ -103,14 +105,15 @@ function StaffSubtaskCard({
           <p className="mt-0.5 text-[9px] text-slate-600 capitalize">{timeSummary}</p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <div
+          className="flex shrink-0 flex-col items-end gap-1"
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+        >
           <span className={`px-1.5 py-0.5 rounded border text-[8px] font-bold uppercase tracking-wider ${colorClass}`}>
             {currentStatus?.label}
           </span>
-          <ThreeDotMenu
-            items={menuItems}
-            dropUp={false}
-          />
+          <ThreeDotMenu items={menuItems} dropUp={false} />
         </div>
       </div>
     </div>

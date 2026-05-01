@@ -219,6 +219,51 @@ function collectTasksFromProject(project) {
   return out
 }
 
+/** PostgREST giới hạn ~1000 dòng/request (mặc định server) — paginate để lấy hết task. */
+const REST_PAGE_SIZE = 1000
+
+async function fetchAllRowsForTaskProgress() {
+  const out = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('task_id, status, features!inner(project_id)')
+      .order('task_id', { ascending: true })
+      .range(from, from + REST_PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data?.length) break
+    out.push(...data)
+    if (data.length < REST_PAGE_SIZE) break
+    from += REST_PAGE_SIZE
+  }
+  return out
+}
+
+/** Tất cả task (kèm subtasks) của danh sách feature — không dùng 1 nested select (dễ bị cắt khi volume lớn). */
+async function fetchAllTasksWithSubtasks(featureIds) {
+  if (!featureIds.length) return []
+  const out = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select(`
+        *,
+        subtasks (*)
+      `)
+      .in('feature_id', featureIds)
+      .order('task_id', { ascending: true })
+      .range(from, from + REST_PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data?.length) break
+    out.push(...data)
+    if (data.length < REST_PAGE_SIZE) break
+    from += REST_PAGE_SIZE
+  }
+  return out
+}
+
 /** Options cho «Tính năng» khi thêm / sửa nhiệm vụ (cùng dự án), bỏ trùng theo feature_id */
 function projectFeatureOptionsForTaskModal(project) {
   const seen = new Set()
@@ -903,14 +948,11 @@ function ModalTaskCard({
     return () => window.removeEventListener('keydown', onKey)
   }, [imageLightboxUrl])
   const subs = task.subtasks || []
-  const activeSubs = useMemo(() => {
-    return subs.filter(s => (s.status || 'pending') !== 'completed')
-  }, [subs])
 
   const groupedSubs = useMemo(() => {
-    // Tự động ẩn các tiểu mục đã hoàn thành khỏi danh sách hiển thị
-    return groupSubtasksByDay(activeSubs)
-  }, [activeSubs])
+    // Luôn hiển thị mọi tiểu mục (kể cả đã hoàn thành) để xem lại khi nhiệm vụ ở cột Hoàn thành
+    return groupSubtasksByDay(subs)
+  }, [subs])
   /** Luôn dùng cỡ chữ đọc được trong modal tiểu mục (không phụ thuộc compact của thẻ Kanban) */
   const subModal = {
     blockWrap: 'space-y-2',
@@ -981,7 +1023,7 @@ function ModalTaskCard({
                       onClick={() => setShowSubtasksModal(true)}
                       className="hover:underline text-[#006591] font-semibold"
                     >
-                      {activeSubs.length > 0 ? `${activeSubs.length} mục` : 'Hoàn thành'}
+                      {subs.length} mục
                     </button>
                   )}
                 </div>
@@ -1305,7 +1347,7 @@ function ModalTaskCard({
           >
             <span className={`material-symbols-outlined ${compact ? 'text-[12px]' : 'text-[14px]'}`}>checklist</span>
             Xem tiểu mục
-            <span className="opacity-80">({activeSubs.length})</span>
+            <span className="opacity-80">({subs.length})</span>
           </button>
         </div>
       )}
@@ -2067,24 +2109,44 @@ export default function ProjectsPage() {
     if (loadingKanban) return
     setLoadingKanban(true)
     try {
-      const { data, error } = await supabase
+      const { data: featuresRaw, error } = await supabase
         .from('features')
-        .select(`
-          *,
-          tasks (*,
-            subtasks (*)
-          )
-        `)
+        .select('*')
         .eq('project_id', projectId)
         .order('created_at', { ascending: true })
 
       if (error) throw error
 
+      const featureRows = featuresRaw || []
+      const featureIds = featureRows.map(f => f.feature_id).filter(Boolean)
+      const tasksFlat = await fetchAllTasksWithSubtasks(featureIds)
+      const byFeature = new Map()
+      for (const fid of featureIds) byFeature.set(fid, [])
+      for (const t of tasksFlat) {
+        const fid = t.feature_id
+        if (!byFeature.has(fid)) byFeature.set(fid, [])
+        byFeature.get(fid).push(t)
+      }
+      const ts = ca => {
+        const t = ca?.created_at ? new Date(ca.created_at).getTime() : NaN
+        return Number.isFinite(t) ? t : 0
+      }
+      for (const arr of byFeature.values()) {
+        arr.sort((a, b) => {
+          const d = ts(a) - ts(b)
+          return d !== 0 ? d : String(a.task_id || '').localeCompare(String(b.task_id || ''))
+        })
+      }
+      const merged = featureRows.map(f => ({
+        ...f,
+        tasks: byFeature.get(f.feature_id) || [],
+      }))
+
       setCustomers(prev => prev.map(c => ({
         ...c,
         projects: c.projects?.map(p => {
           if (p.project_id === projectId) {
-            return { ...p, features: data || [] }
+            return { ...p, features: merged }
           }
           return p
         })
@@ -2155,7 +2217,7 @@ export default function ProjectsPage() {
       const [
         { data: custData, error: custErr },
         { data: projectData, error: projectErr },
-        { data: taskData, error: taskErr },
+        taskAgg,
       ] = await Promise.all([
         supabase
           .from('customers')
@@ -2166,11 +2228,9 @@ export default function ProjectsPage() {
             project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at, documents,
             project_assignments(user_id, users(full_name))
           `),
-        // Đếm theo Nhiệm vụ (Task) để khớp với số thẻ trong Kanban
-        supabase
-          .from('tasks')
-          .select('status, features!inner(project_id)'),
+        fetchAllRowsForTaskProgress().then(data => ({ data, error: null })).catch(err => ({ data: [], error: err })),
       ])
+      const { data: taskData, error: taskErr } = taskAgg
 
       if (custErr) throw custErr
       if (projectErr) throw projectErr
@@ -2822,6 +2882,7 @@ export default function ProjectsPage() {
     const taskStatus = task?.status || 'pending'
     return projectTaskStatusFilter.includes(taskStatus)
   })
+  /** Luôn giữ task khi khớp bộ lọc trạng thái nhiệm vụ — chỉ lọc các tiểu mục hiển thị (không ẩn cả card). */
   const entriesMatchingStatusFilters = tableFilteredTaskEntries
     .map(({ feature, task }) => {
       const allSubtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
@@ -2830,7 +2891,6 @@ export default function ProjectsPage() {
       )
       return { feature, task, subtasks }
     })
-    .filter(({ task, subtasks }) => subtasks.length > 0 || !Array.isArray(task?.subtasks) || task.subtasks.length === 0)
   const filteredProjectTableEntries = entriesMatchingStatusFilters
   const kanbanTaskEntries = entriesMatchingStatusFilters.map(({ feature, task, subtasks }) => ({
     feature,
