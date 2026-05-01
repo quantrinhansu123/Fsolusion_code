@@ -115,3 +115,4 @@ export function formatSubtaskWorkTimeSummary(sessions) {
   if (parts.length === 0) return 'Chưa ghi thời gian'
   return parts.join(' · ')
 }
+

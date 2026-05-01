@@ -288,25 +288,27 @@ const DASH_STATUS_META = {
   late: { label: 'Trễ hạn', pill: 'border-red-200 bg-red-50/50 text-red-700', bar: '#ef4444' },
 }
 
-/** 3 cột Kanban: chờ | đang làm (+ trễ) | hoàn thành */
+/** 4 cột Kanban — khớp trạng thái task trong form / bộ lọc */
 function taskKanbanColumnKey(status) {
   const s = status || 'pending'
   if (s === 'pending') return 'pending'
-  if (s === 'in_progress' || s === 'overdue') return 'active'
-  if (s === 'completed') return 'done'
+  if (s === 'in_progress') return 'in_progress'
+  if (s === 'overdue') return 'overdue'
+  if (s === 'completed') return 'completed'
   return 'pending'
 }
 
 const KANBAN_COLUMNS = [
   { key: 'pending', title: 'Đang chờ', topBar: 'border-t-[#8b9dc3]' },
-  { key: 'active', title: 'Đang làm', topBar: 'border-t-[#006591]' },
-  { key: 'done', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
+  { key: 'in_progress', title: 'Đang làm', topBar: 'border-t-[#006591]' },
+  { key: 'overdue', title: 'Trễ hạn', topBar: 'border-t-[#f59e0b]' },
+  { key: 'completed', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
 ]
 
 function groupTaskEntriesForKanban(entries) {
-  const grouped = { pending: [], active: [], done: [] }
+  const grouped = { pending: [], in_progress: [], overdue: [], completed: [] }
   for (const item of entries) {
-    grouped[taskKanbanColumnKey(item.task.status)].push(item)
+    grouped[taskKanbanColumnKey(item.task?.status)].push(item)
   }
   return grouped
 }
@@ -392,6 +394,20 @@ function formatSubtaskGroupDayHeading(dateKey) {
   })
 }
 
+/** Hạn sớm nhất / ngày tạo sớm nhất lên đầu (dùng cột Tiểu mục & Kanban). */
+function sortSubtasksByNearestDateFirst(subtasks) {
+  const list = Array.isArray(subtasks) ? [...subtasks] : []
+  const rank = st => {
+    const dl = st.deadline ? new Date(st.deadline).getTime() : NaN
+    if (Number.isFinite(dl)) return dl
+    const cr = st.created_at ? new Date(st.created_at).getTime() : NaN
+    if (Number.isFinite(cr)) return cr
+    return Number.POSITIVE_INFINITY
+  }
+  list.sort((a, b) => rank(a) - rank(b))
+  return list
+}
+
 /**
  * Nhóm tiểu mục theo ngày: ưu tiên ngày của hạn chót; không có hạn thì theo ngày tạo (mốc giao).
  */
@@ -415,7 +431,7 @@ function groupSubtasksByDay(subtasks) {
     return ta - tb
   }
   for (const arr of buckets.values()) arr.sort(sortInBucket)
-  const keys = [...buckets.keys()].filter(k => k !== '_nodate').sort()
+  const keys = [...buckets.keys()].filter(k => k !== '_nodate').sort((a, b) => a.localeCompare(b))
   const out = keys.map(k => ({
     dateKey: k,
     label: formatSubtaskGroupDayHeading(k),
@@ -1355,7 +1371,7 @@ function ModalTaskCard({
                 </div>
 
                 {/* HEADER BẢNG - Ẩn trên Mobile */}
-                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
+                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(130px,_1fr)_minmax(110px,_1fr)_minmax(100px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
                     {(() => {
                       const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
@@ -1384,6 +1400,7 @@ function ModalTaskCard({
                   </div>
                   <div>Tiểu mục & Trạng thái</div>
                   <div>Ghi chú & Hướng dẫn</div>
+                  <div>Phương án giải quyết</div>
                   <div>Phản hồi nghiệm thu</div>
                   <div className="text-center">Đính kèm</div>
                   <div>Thống kê thời gian</div>
@@ -1420,7 +1437,7 @@ function ModalTaskCard({
 
                     {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */ }
                     return (
-                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(130px,_1fr)_minmax(110px,_1fr)_minmax(100px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
                         {/* 1. Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
@@ -1477,6 +1494,20 @@ function ModalTaskCard({
                           ) : (
                             <div className="bg-slate-50 p-2.5 lg:p-1.5 rounded-md text-[13px] lg:text-[11px] whitespace-pre-wrap break-words w-full text-slate-400 italic lg:block hidden">
                               Không có ghi chú
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Phương án giải quyết (solution) */}
+                        <div className="flex flex-col min-w-0 w-full lg:h-full pl-6 lg:pl-0">
+                          <span className="lg:hidden text-[10px] font-bold uppercase tracking-wide text-[#64748b] mb-1">Phương án giải quyết</span>
+                          {st.solution?.trim() ? (
+                            <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-2.5 lg:p-1.5 text-[13px] lg:text-[11px] whitespace-pre-wrap break-words text-[#131b2e] w-full">
+                              {st.solution.trim()}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-2 lg:p-1.5 text-[13px] lg:text-[11px] text-slate-400 italic w-full">
+                              Chưa có phương án — Sửa tiểu mục để nhập
                             </div>
                           )}
                         </div>
@@ -2387,6 +2418,15 @@ export default function ProjectsPage() {
           }
           if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
           if (cleanData.feedback) row.feedback = cleanData.feedback
+          if (Object.prototype.hasOwnProperty.call(data, 'solution')) {
+            row.solution =
+              data.solution != null && String(data.solution).trim() !== ''
+                ? String(data.solution).trim()
+                : null
+          }
+          if (Object.prototype.hasOwnProperty.call(data, 'plan_target_at')) {
+            row.plan_target_at = normalizeDeadlineForSave(data.plan_target_at)
+          }
 
           res = await supabase.from('subtasks').insert(row)
           if (res?.error) throw res.error
@@ -2420,8 +2460,6 @@ export default function ProjectsPage() {
             ...sanitized,
             status: cleanData.status || 'pending',
           }
-          if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
-          else patch.deadline = null
           patch.assigned_to = cleanData.assigned_to || null
           if (patch.status !== 'completed') {
             patch.completed_at = null
@@ -2429,6 +2467,18 @@ export default function ProjectsPage() {
             patch.completed_at = cleanData.completed_at || new Date().toISOString()
           }
           if (cleanData.feedback !== undefined) patch.feedback = cleanData.feedback
+          if (Object.prototype.hasOwnProperty.call(data, 'solution')) {
+            patch.solution =
+              data.solution != null && String(data.solution).trim() !== ''
+                ? String(data.solution).trim()
+                : null
+          }
+          if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
+          else patch.deadline = null
+          if (Object.prototype.hasOwnProperty.call(data, 'plan_target_at')) {
+            patch.plan_target_at = normalizeDeadlineForSave(data.plan_target_at)
+          }
+
           res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
@@ -2704,17 +2754,9 @@ export default function ProjectsPage() {
       await fetchData(true)
     }
 
-    const featureOptions = projectFeatureOptionsForTaskModal({ features })
+    const defaultFeature = features.find(f => (f.name || '').trim() === 'Chung') || features[0]
     const emptyBlocks = { content_blocks: [{ content: '', image_urls: [] }] }
-    if (features.length === 1) {
-      m.open('add_task', { featureId: features[0].feature_id, initial: emptyBlocks })
-    } else {
-      m.open('add_task', {
-        featureId: features[0].feature_id,
-        featureOptions,
-        initial: { feature_id: features[0].feature_id, ...emptyBlocks },
-      })
-    }
+    m.open('add_task', { featureId: defaultFeature.feature_id, initial: emptyBlocks })
   }
 
   function modalConfig() {
@@ -2735,19 +2777,7 @@ export default function ProjectsPage() {
           ? { ...f, options: allUsers.map(u => ({ value: u.user_id, label: u.full_name })) }
           : f
       )
-      if (t === 'add_task' && m.modal?.featureOptions?.length > 1) {
-        flds = [
-          {
-            name: 'feature_id',
-            label: 'Tính năng',
-            type: 'searchable_select',
-            options: m.modal.featureOptions,
-            placeholder: 'Gõ để tìm tính năng…',
-            emptyMessage: 'Không tìm thấy tính năng…',
-          },
-          ...flds,
-        ]
-      } else if (t === 'edit_task' && Array.isArray(m.modal?.featureOptions) && m.modal.featureOptions.length > 0) {
+      if (t === 'edit_task' && Array.isArray(m.modal?.featureOptions) && m.modal.featureOptions.length > 0) {
         flds = [
           {
             name: 'feature_id',
@@ -2788,19 +2818,24 @@ export default function ProjectsPage() {
     setter([...currentValues, value])
   }
   const projectTasksModalEntries = projectInTasksView ? collectTasksFromProject(projectInTasksView) : []
-  // Bộ lọc task/subtask chỉ áp dụng cho view Bảng.
   const tableFilteredTaskEntries = projectTasksModalEntries.filter(({ task }) => {
     const taskStatus = task?.status || 'pending'
     return projectTaskStatusFilter.includes(taskStatus)
   })
-  const filteredProjectTableEntries = tableFilteredTaskEntries
+  const entriesMatchingStatusFilters = tableFilteredTaskEntries
     .map(({ feature, task }) => {
       const allSubtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
-      const subtasks = allSubtasks.filter(st => projectSubtaskStatusFilter.includes(st?.status || 'pending'))
+      const subtasks = sortSubtasksByNearestDateFirst(
+        allSubtasks.filter(st => projectSubtaskStatusFilter.includes(st?.status || 'pending'))
+      )
       return { feature, task, subtasks }
     })
     .filter(({ task, subtasks }) => subtasks.length > 0 || !Array.isArray(task?.subtasks) || task.subtasks.length === 0)
-  const kanbanTaskEntries = projectTasksModalEntries
+  const filteredProjectTableEntries = entriesMatchingStatusFilters
+  const kanbanTaskEntries = entriesMatchingStatusFilters.map(({ feature, task, subtasks }) => ({
+    feature,
+    task: { ...task, subtasks },
+  }))
   const taskKanbanGrouped = projectInTasksView ? groupTaskEntriesForKanban(kanbanTaskEntries) : null
 
   const displayedCustomerProjects = useMemo(() => {
@@ -2849,6 +2884,18 @@ export default function ProjectsPage() {
     ),
     [paginatedCustomerProjects]
   )
+
+  /** Danh sách dự án trên /projects — nhóm theo trạng thái cho chế độ Kanban (Thẻ dự án) */
+  const projectListKanbanGrouped = useMemo(() => {
+    const entries = paginatedCustomerProjects.flatMap(({ customer: c, projects: projectsFiltered }) =>
+      projectsFiltered.map(p => ({ customer: c, project: p }))
+    )
+    const grouped = { pending: [], in_progress: [], overdue: [], completed: [] }
+    for (const item of entries) {
+      grouped[taskKanbanColumnKey(item.project?.status)].push(item)
+    }
+    return grouped
+  }, [paginatedCustomerProjects])
 
   /** Stats luôn tính từ TOÀN BỘ dữ liệu, không bị ảnh hưởng bởi filter đang chọn */
   const projectListStats = useMemo(() => {
@@ -2991,7 +3038,7 @@ export default function ProjectsPage() {
                 <div className="ml-1 h-6 w-px bg-[#e2e8f0]" />
                 {[
                   { id: 'kanban', label: 'Kanban', icon: 'view_kanban' },
-                  { id: 'table', label: 'Table', icon: 'table_rows' },
+                  { id: 'table', label: 'Bảng dự án', icon: 'table_rows' },
                 ].map(view => (
                   <button
                     key={view.id}
@@ -3018,94 +3065,110 @@ export default function ProjectsPage() {
                 </p>
               ) : null}
               {projectViewMode === 'kanban' ? (
-                paginatedCustomerProjects.flatMap(({ customer: c, projects: projectsFiltered }) =>
-                  projectsFiltered.map(p => {
-                    const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
-                    const dashKey = projectDashboardKey(p)
-                    const sm = DASH_STATUS_META[dashKey]
-                    const assignments = p.project_assignments || []
-                    const memberChips = assignments.slice(0, 3).map((a, idx) => {
-                      const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
-                      const ini = userInitials(nm)
-                      return (
-                        <div
-                          key={a.user_id}
-                          className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
-                          style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
-                          title={nm}
-                        >
-                          {ini.slice(0, 2)}
-                        </div>
-                      )
-                    })
-
-                    return (
-                      <div
-                        key={p.project_id}
-                        onClick={() => {
-                          setProjectsModalCustomerId(c.customer_id)
-                          setProjectTasksViewId(p.project_id)
-                        }}
-                        className="w-full rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
-                      >
-                        <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                          <span className="flex-1 min-w-0 truncate text-[14px] font-bold text-[#131b2e]" title={p.name}>
-                            {p.name}
-                          </span>
-                          {memberChips.length > 0 && <div className="flex items-center shrink-0">{memberChips}</div>}
-                          <div className="shrink-0"><StatusBadge status={p.status} /></div>
-                          {isManagerOrAdmin && (
-                            <div className="relative shrink-0" data-project-dd onClick={e => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={e => {
-                                  e.stopPropagation()
-                                  setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
-                                }}
-                                className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
-                                aria-label="Thao tác dự án"
-                              >
-                                <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                              </button>
-                              {openProjectMenuId === p.project_id && (
-                                <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
-                                  <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                    onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
-                                    <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem Kanban & Chi tiết
-                                  </button>
-                                  <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                    onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
-                                    <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
-                                  </button>
-                                  <div className="my-1 h-px bg-[#e2e8f0]" />
-                                  <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
-                                    onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
-                                    <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 px-4 pb-3 text-[11px] text-[#94a3b8]">
-                          <div className="flex items-center gap-1 shrink-0 min-w-[90px]">
-                            <span className="material-symbols-outlined text-[12px]">schedule</span>
-                            <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
-                          </div>
-                          <span className="tabular-nums text-[#94a3b8]">{pct}%</span>
-                          <div className="flex-1 h-[4px] overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : sm.bar }}
-                            />
-                          </div>
-                          <span className={`tabular-nums font-semibold ${pct === 100 ? 'text-emerald-600' : 'text-[#475569]'}`}>{pct}%</span>
-                          <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
-                        </div>
+                <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full items-stretch pb-2">
+                  {KANBAN_COLUMNS.map(col => (
+                    <div
+                      key={col.key}
+                      className={`flex min-w-0 flex-col max-h-[min(78vh,52rem)] rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-md overflow-hidden`}
+                    >
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[#e8ecf0] bg-white shrink-0">
+                        <p className="text-[13px] font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                        <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
+                          {projectListKanbanGrouped[col.key].length}
+                        </span>
                       </div>
-                    )
-                  })
-                )
+                      <div className="flex-1 min-h-0 p-2 space-y-2 overflow-y-auto custom-scrollbar touch-pan-y">
+                        {projectListKanbanGrouped[col.key].map(({ customer: c, project: p }) => {
+                          const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
+                          const dashKey = projectDashboardKey(p)
+                          const sm = DASH_STATUS_META[dashKey]
+                          const assignments = p.project_assignments || []
+                          const memberChips = assignments.slice(0, 3).map((a, idx) => {
+                            const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
+                            const ini = userInitials(nm)
+                            return (
+                              <div
+                                key={a.user_id}
+                                className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
+                                style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
+                                title={nm}
+                              >
+                                {ini.slice(0, 2)}
+                              </div>
+                            )
+                          })
+                          return (
+                            <div
+                              key={p.project_id}
+                              onClick={() => {
+                                setProjectsModalCustomerId(c.customer_id)
+                                setProjectTasksViewId(p.project_id)
+                              }}
+                              className="w-full rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
+                            >
+                              <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+                                <span className="flex-1 min-w-0 truncate text-[13px] font-bold text-[#131b2e]" title={p.name}>
+                                  {p.name}
+                                </span>
+                                {memberChips.length > 0 && <div className="flex items-center shrink-0">{memberChips}</div>}
+                                {isManagerOrAdmin && (
+                                  <div className="relative shrink-0" data-project-dd onClick={e => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={e => {
+                                        e.stopPropagation()
+                                        setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
+                                      }}
+                                      className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
+                                      aria-label="Thao tác dự án"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                                    </button>
+                                    {openProjectMenuId === p.project_id && (
+                                      <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                          onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
+                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem nhiệm vụ
+                                        </button>
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                          onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
+                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
+                                        </button>
+                                        <div className="my-1 h-px bg-[#e2e8f0]" />
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
+                                          onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
+                                          <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <p className="px-3 pb-1 text-[10px] text-[#64748b] truncate" title={c.name}>{c.name}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2.5 text-[10px] text-[#94a3b8]">
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <span className="material-symbols-outlined text-[11px]">schedule</span>
+                                  <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
+                                </div>
+                                <span className="tabular-nums">{pct}%</span>
+                                <div className="min-w-[48px] flex-1 h-[3px] overflow-hidden rounded-full bg-slate-100">
+                                  <div
+                                    className="h-full rounded-full transition-all"
+                                    style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : sm.bar }}
+                                  />
+                                </div>
+                                <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {projectListKanbanGrouped[col.key].length === 0 && (
+                          <p className="text-[11px] text-[#94a3b8] italic text-center py-4">Chưa có dự án</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
                   <table className="w-full min-w-[760px] text-left">
@@ -3393,8 +3456,7 @@ export default function ProjectsPage() {
                 </div>
               </div>
 
-              {projectTaskViewMode === 'table' && (
-                <div className="mb-3 shrink-0 rounded-xl border border-[#dbe4ee] bg-white p-2.5 shadow-sm">
+              <div className="mb-3 shrink-0 rounded-xl border border-[#dbe4ee] bg-white p-2.5 shadow-sm">
                   <div className="flex flex-wrap items-start gap-4">
                     <div className="min-w-[300px] space-y-1.5">
                       <div className="text-[10px] font-bold uppercase tracking-wide text-[#64748b]">Lọc trạng thái task</div>
@@ -3448,21 +3510,20 @@ export default function ProjectsPage() {
                     </div>
                   </div>
                 </div>
-              )}
 
               {loadingKanban ? (
                 <div className="flex h-40 w-full items-center justify-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006591]"></div>
                 </div>
-              ) : (projectTaskViewMode === 'table' ? filteredProjectTableEntries.length === 0 : kanbanTaskEntries.length === 0) ? (
+              ) : filteredProjectTableEntries.length === 0 ? (
                 <p className="text-sm text-[#3e4850] py-12 text-center italic">
-                  {projectTaskViewMode === 'table'
-                    ? 'Không có task/tiểu mục phù hợp bộ lọc.'
-                    : 'Không có task trong dự án.'}
+                  {projectTasksModalEntries.length === 0
+                    ? 'Không có task trong dự án.'
+                    : 'Không có task/tiểu mục phù hợp bộ lọc.'}
                 </p>
               ) : projectTaskViewMode === 'table' ? (
                 <div className="overflow-x-auto rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
-                  <table className="w-full min-w-[1180px] text-left">
+                  <table className="w-full min-w-[1420px] text-left">
                     <thead className="bg-[#f8fafc] border-b border-[#e2e8f0]">
                       <tr className="text-[11px] uppercase tracking-wide text-[#64748b]">
                         <th className="px-3 py-2.5">Tính năng</th>
@@ -3470,7 +3531,9 @@ export default function ProjectsPage() {
                         <th className="px-3 py-2.5">Người phụ trách</th>
                         <th className="px-3 py-2.5">Trạng thái</th>
                         <th className="px-3 py-2.5">Deadline</th>
-                        <th className="px-3 py-2.5 min-w-[300px]">Tiểu mục</th>
+                        <th className="px-3 py-2.5 min-w-[220px]">Tiểu mục</th>
+                        <th className="px-3 py-2.5 min-w-[128px]">Mốc dự kiến</th>
+                        <th className="px-3 py-2.5 min-w-[200px]">Phương án giải quyết</th>
                         <th className="px-3 py-2.5 text-right">Thao tác</th>
                       </tr>
                     </thead>
@@ -3576,6 +3639,44 @@ export default function ProjectsPage() {
                               <span className="text-[12px] text-[#94a3b8] italic">Chưa có tiểu mục</span>
                             )}
                           </td>
+                          <td className="px-3 py-2.5 align-top">
+                            {Array.isArray(subtasks) && subtasks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {subtasks.map(st => (
+                                  <div
+                                    key={`plan-${st.subtask_id}`}
+                                    className="rounded-lg border border-[#e8ecf0] bg-white px-2 py-1 text-[10px] sm:text-[11px] text-[#3e4850] leading-snug min-h-[2.25rem] flex items-center tabular-nums"
+                                    title="Mốc dự kiến (so sánh), không liên hệ timer/deadline"
+                                  >
+                                    {st.plan_target_at ? formatDeadlineDisplay(st.plan_target_at) : '—'}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[12px] text-[#94a3b8] italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 align-top">
+                            {Array.isArray(subtasks) && subtasks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {subtasks.map(st => (
+                                  <div
+                                    key={`sol-${st.subtask_id}`}
+                                    className="rounded-lg border border-[#e8ecf0] bg-[#fafafa]/80 px-2 py-1 text-[11px] text-[#3e4850] leading-snug min-h-[2.25rem]"
+                                    title={st.solution?.trim() || ''}
+                                  >
+                                    {st.solution?.trim() ? (
+                                      <span className="line-clamp-3 whitespace-pre-wrap break-words">{st.solution.trim()}</span>
+                                    ) : (
+                                      <span className="text-[#94a3b8] italic">—</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[12px] text-[#94a3b8] italic">—</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
                               <ThreeDotMenu
@@ -3615,7 +3716,7 @@ export default function ProjectsPage() {
                 </div>
               ) : (
                 taskKanbanGrouped && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 w-full h-full items-stretch pb-6 pt-1 px-1">
+                  <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full h-full items-stretch pb-6 pt-1 px-1">
                     {KANBAN_COLUMNS.map(col => (
                       <div
                         key={col.key}
@@ -3775,11 +3876,23 @@ export default function ProjectsPage() {
                     <span className="text-[#64748b]">Hạn: </span>
                     <span className="font-medium text-[#131b2e]">{formatDeadlineDisplay(st.deadline)}</span>
                   </p>
+                  <p className="sm:col-span-2">
+                    <span className="text-[#64748b]">Mốc dự kiến (so sánh): </span>
+                    <span className="font-medium text-[#131b2e] tabular-nums">
+                      {formatDeadlineDisplay(st.plan_target_at)}
+                    </span>
+                  </p>
                 </div>
                 {st.feedback ? (
                   <div className="rounded-lg border border-amber-200/60 bg-amber-50/80 px-3 py-2 text-[12px]">
                     <span className="font-bold text-amber-900">Ghi chú / phản hồi: </span>
                     <span className="whitespace-pre-wrap text-[#131b2e]">{st.feedback}</span>
+                  </div>
+                ) : null}
+                {st.solution?.trim() ? (
+                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 px-3 py-2 text-[12px]">
+                    <span className="font-bold text-emerald-900">Phương án giải quyết: </span>
+                    <span className="whitespace-pre-wrap text-[#131b2e]">{st.solution.trim()}</span>
                   </div>
                 ) : null}
                 <div>

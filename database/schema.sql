@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS subtasks (
     work_time     JSONB       NOT NULL DEFAULT '[]'::jsonb,
     evaluation_rating TEXT,
     evaluation_note   TEXT,
+    solution      TEXT,
+    allocated_minutes INTEGER,
+    plan_target_at TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -287,6 +290,9 @@ CREATE TABLE IF NOT EXISTS subtasks (
     work_time     JSONB       NOT NULL DEFAULT '[]'::jsonb,
     evaluation_rating TEXT,
     evaluation_note   TEXT,
+    solution      TEXT,
+    allocated_minutes INTEGER,
+    plan_target_at TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

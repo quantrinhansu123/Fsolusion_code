@@ -97,6 +97,9 @@ function StaffSubtaskCard({
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-[10px] font-bold leading-tight text-[#131b2e]" title={st.name}>{st.name}</p>
           <p className="mt-0.5 truncate text-[9px] text-slate-500">{featureName} · {taskName}</p>
+          {st.solution?.trim() ? (
+            <p className="mt-0.5 line-clamp-2 text-[9px] text-[#006591]" title={st.solution.trim()}>{st.solution.trim()}</p>
+          ) : null}
           <p className="mt-0.5 text-[9px] text-slate-600 capitalize">{timeSummary}</p>
         </div>
 

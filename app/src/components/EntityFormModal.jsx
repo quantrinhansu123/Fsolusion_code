@@ -583,7 +583,9 @@ export function EntityFormModal({
                       type={child.type || 'text'}
                       className={inputCls}
                       placeholder={child.placeholder}
-                      value={data[child.name] || ''}
+                      min={child.min}
+                      step={child.step}
+                      value={data[child.name] === 0 || data[child.name] ? data[child.name] : ''}
                       onChange={e => onChange(child.name, e.target.value)}
                     />
                   )}
@@ -680,8 +682,19 @@ export const SUBTASK_FIELDS = [
     placeholderContent: 'Chi tiết tiểu mục...',
   },
   {
-    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
+    name: 'solution',
+    label: 'Phương án giải quyết',
+    type: 'textarea',
+    placeholder: 'Mô tả phương án / cách xử lý…',
+  },
+  {
+    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', children: [
       { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
+      {
+        name: 'plan_target_at',
+        label: 'Mốc dự kiến (so sánh)',
+        type: 'datetime-local',
+      },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
       { 
         name: 'work_type', 

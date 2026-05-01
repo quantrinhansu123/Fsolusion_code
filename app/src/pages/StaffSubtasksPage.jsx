@@ -278,10 +278,16 @@ export default function StaffSubtasksPage() {
       completed: [],
       overdue: [],
     }
-    const toDeadlineTime = st => {
-      if (!st?.deadline) return Number.MAX_SAFE_INTEGER
-      const t = new Date(st.deadline).getTime()
-      return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER
+    const toSortTime = st => {
+      if (st?.deadline) {
+        const t = new Date(st.deadline).getTime()
+        if (Number.isFinite(t)) return t
+      }
+      if (st?.created_at) {
+        const t = new Date(st.created_at).getTime()
+        if (Number.isFinite(t)) return t
+      }
+      return Number.MAX_SAFE_INTEGER
     }
     for (const st of filteredSubtasks) {
       const key = (st.status || 'pending')
@@ -289,7 +295,7 @@ export default function StaffSubtasksPage() {
       else grouped[key].push(st)
     }
     for (const key of Object.keys(grouped)) {
-      grouped[key] = grouped[key].sort((a, b) => toDeadlineTime(a) - toDeadlineTime(b))
+      grouped[key] = grouped[key].sort((a, b) => toSortTime(a) - toSortTime(b))
     }
     return grouped
   }, [filteredSubtasks])
@@ -388,6 +394,8 @@ export default function StaffSubtasksPage() {
     setAssignForm({
       status: 'pending',
       name: '',
+      solution: '',
+      plan_target_at: '',
       content_blocks: [{ content: '', image_urls: [] }],
       description: '',
       image_url: '',
@@ -435,6 +443,11 @@ export default function StaffSubtasksPage() {
         content_blocks: sanitizeTaskContentForSave(assignForm.content_blocks),
         deadline: normalizeDeadlineForSave(assignForm.deadline),
         status: assignForm.status || 'pending',
+        solution:
+          assignForm.solution != null && String(assignForm.solution).trim() !== ''
+            ? String(assignForm.solution).trim()
+            : null,
+        plan_target_at: normalizeDeadlineForSave(assignForm.plan_target_at),
       }
 
       const { error } = await supabase.from('subtasks').insert([payload])
@@ -471,10 +484,12 @@ export default function StaffSubtasksPage() {
         type: 'content_image_pairs',
         placeholderContent: 'Chi tiết tiểu mục...',
       },
+      { name: 'solution', label: 'Phương án giải quyết', type: 'textarea', placeholder: 'Mô tả phương án / cách xử lý…' },
       {
-        name: 'meta', type: 'grid', children: [
+        name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
           { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
-          { name: 'status', label: 'Trạng thái', type: 'select' }
+          { name: 'plan_target_at', label: 'Mốc dự kiến (so sánh)', type: 'datetime-local' },
+          { name: 'status', label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
         ]
       },
     ]
@@ -794,6 +809,18 @@ export default function StaffSubtasksPage() {
                         <p><span className="font-semibold text-[#131b2e]">Người phụ trách:</span> {detailSubtask.assigned_to_name || '—'}</p>
                         <p><span className="font-semibold text-[#131b2e]">Thời gian:</span> {formatSubtaskWorkTimeSummary(normalizeSubtaskWorkTime(detailSubtask.work_time))}</p>
                       </div>
+                      {detailSubtask.solution?.trim() ? (
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 text-[12px] text-[#131b2e]">
+                          <span className="font-bold text-emerald-900">Phương án giải quyết: </span>
+                          <span className="whitespace-pre-wrap">{detailSubtask.solution.trim()}</span>
+                        </div>
+                      ) : null}
+                      {detailSubtask.plan_target_at ? (
+                        <p className="text-[12px] text-[#3e4850]">
+                          <span className="font-semibold text-[#131b2e]">Mốc dự kiến (so sánh): </span>
+                          {formatDateTime(detailSubtask.plan_target_at)}
+                        </p>
+                      ) : null}
                       <div className="space-y-2">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748b]">Nội dung & ảnh</p>
                         {blocks.length === 0 ? (
