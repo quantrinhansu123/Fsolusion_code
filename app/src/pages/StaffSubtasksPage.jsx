@@ -499,7 +499,7 @@ export default function StaffSubtasksPage() {
             <div className="max-w-7xl mx-auto space-y-5 pb-20">
               <div className="flex items-center justify-between py-2 lg:py-6 border-b lg:border-none border-[#bec8d2]/10 mb-2 lg:mb-0">
                 <div>
-                  <h2 className="text-lg lg:text-3xl font-bold tracking-tight text-[#131b2e]">Task theo nhân sự</h2>
+                  <h2 className="text-base lg:text-3xl font-bold tracking-tight text-[#131b2e]">Task theo nhân sự</h2>
                   <p className="hidden lg:block text-[#3e4850] text-sm mt-1">
                     Lọc theo nhân sự, trạng thái, dự án và deadline để thao tác nhanh các subtask phụ trách.
                   </p>
@@ -528,7 +528,7 @@ export default function StaffSubtasksPage() {
           <div className="max-w-7xl mx-auto space-y-5 pb-20">
             <div className="flex items-center justify-between py-2 lg:py-6 border-b lg:border-none border-[#bec8d2]/10 mb-2 lg:mb-0">
               <div>
-                <h2 className="text-lg lg:text-3xl font-bold tracking-tight text-[#131b2e]">Task theo nhân sự</h2>
+                <h2 className="text-base lg:text-3xl font-bold tracking-tight text-[#131b2e]">Task theo nhân sự</h2>
                 <p className="hidden lg:block text-[#3e4850] text-sm mt-1">
                   Lọc theo nhân sự, trạng thái, dự án và deadline để thao tác nhanh các subtask phụ trách.
                 </p>

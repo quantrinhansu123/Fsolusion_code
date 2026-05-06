@@ -32,27 +32,38 @@ export function AuthProvider({ children }) {
 
   async function fetchProfile(authUser) {
     try {
+      // 1. Kiểm tra chính xác dữ liệu trả về
       const { data: profile, error } = await supabase
         .from('users')
         .select('*')
         .eq('user_id', authUser.id)
-        .single()
+        .maybeSingle(); // Dùng maybeSingle để tránh báo lỗi đỏ khi không tìm thấy dòng
 
       if (error) {
-        console.error('[AuthContext] Profile fetch error:', error)
-        setUser(authUser) // Vẫn giữ thông tin auth cơ bản
+        console.error('[AuthContext] SQL Error:', error.message);
+        setUser(authUser);
+        return;
+      }
+
+      if (!profile) {
+        console.warn('[AuthContext] No profile found for:', authUser.email);
+        setUser(authUser);
       } else {
-        console.log('[AuthContext] Role:', profile.role)
-        setUser({ ...authUser, ...profile })
+        // Log để ông soi xem dữ liệu cũ có bị NULL chỗ nào không
+        console.log('[AuthContext] Profile Loaded:', profile);
+
+        // Đảm bảo không có password cũ gây nhiễu (vì nó luôn NULL)
+        const { password, ...cleanProfile } = profile;
+
+        setUser({ ...authUser, ...cleanProfile });
       }
     } catch (err) {
-      console.error('[AuthContext] System error:', err)
-      setUser(authUser)
+      console.error('[AuthContext] Crash:', err);
+      setUser(authUser);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
-
   return (
     <AuthContext.Provider value={{ user, loading, refreshProfile: () => user && fetchProfile(user) }}>
       {children}

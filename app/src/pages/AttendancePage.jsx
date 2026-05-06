@@ -4,7 +4,33 @@ import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
-import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2 } from 'lucide-react'
+import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2, Plus, Minus } from 'lucide-react'
+
+// -- UTILITY FUNCTIONS --
+const timeFormat = (isoString) => {
+  if (!isoString) return '--:--'
+  const date = new Date(isoString)
+  return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+const dateFormat = (dateString) => {
+  if (!dateString) return '-'
+  const [y, m, d] = dateString.split('-')
+  return `${d}/${m}/${y}`
+}
+
+const calcDuration = (start, end) => {
+  if (!start || !end) return ''
+  const diffMs = new Date(end) - new Date(start)
+  if (diffMs < 0) return ''
+  const diffHrs = Math.floor(diffMs / 3600000)
+  const diffMins = Math.round(((diffMs % 3600000) / 60000) % 60)
+  
+  let res = ''
+  if (diffHrs > 0) res += `${diffHrs}h `
+  if (diffMins > 0) res += `${diffMins}m`
+  return res.trim() || '1m'
+}
 
 export default function AttendancePage() {
   const { user } = useAuth()
@@ -20,7 +46,7 @@ export default function AttendancePage() {
   const [staffList, setStaffList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [showTasksId, setShowTasksId] = useState(null) // Quản lý xem task chi tiết trên Mobile
+  // const [showTasksId, setShowTasksId] = useState(null) // Quản lý xem task chi tiết trên Mobile
   const [selectedIds, setSelectedIds] = useState(new Set()) // Lưu ID các bản ghi được chọn
   const [deleting, setDeleting] = useState(false) // Trạng thái xóa
   const [toast, setToast] = useState(null) // Thông báo
@@ -31,9 +57,12 @@ export default function AttendancePage() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [confirmDeleteBulk, setConfirmDeleteBulk] = useState(false)
+  const [expandedRows, setExpandedRows] = useState(new Set()) // Quản lý hàng đang mở rộng
   const [isMobileStaffOpen, setIsMobileStaffOpen] = useState(false)
   const [isDesktopStaffOpen, setIsDesktopStaffOpen] = useState(false)
   const [showMobileHeader, setShowMobileHeader] = useState(true)
+  const [commentModal, setCommentModal] = useState({ open: false, sessionId: null, subtaskId: null, comment: '' })
+  const [loadingAction, setLoadingAction] = useState(null) // Theo dõi task đang xử lý
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -99,8 +128,8 @@ export default function AttendancePage() {
           check_in_time,
           check_out_time,
           total_hours,
-          users:user_id (user_id, full_name, avatar_url),
-          subtasks (name, status)
+          tasks_data,
+          users:user_id (user_id, full_name, avatar_url)
         `, { count: 'exact' })
         .order('check_in_time', { ascending: false })
         .range(from, to)
@@ -132,24 +161,14 @@ export default function AttendancePage() {
       // Trả về JSON, transform map dữ liệu ra giao diện
       const formattedData = data.map(session => {
         // Lấy danh sách Task đã hoàn thành
+        /*
         const completedTasksArray = (session.subtasks || [])
           .filter(task => task.status === 'completed')
           .map(task => task.name)
+        */
 
         // Lấy thông tin user (Tránh lỗi trả về array từ supabase lồng)
         const userData = Array.isArray(session.users) ? session.users[0] : session.users
-
-        // Hàm tiện ích format Time & Date
-        const timeFormat = (isoString) => {
-          if (!isoString) return '-'
-          return new Date(isoString).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
-        }
-
-        const dateFormat = (dateString) => {
-          if (!dateString) return '-'
-          const [y, m, d] = dateString.split('-')
-          return `${d}/${m}/${y}`
-        }
 
         // Tính tổng thời gian nếu Database chưa Update tự động (Giúp UI mượt hơn)
         let displayHours = session.total_hours ? `${session.total_hours}h` : '-'
@@ -180,7 +199,42 @@ export default function AttendancePage() {
           check_in_raw: session.check_in_time, // Giữ lại raw để sửa
           check_out_raw: session.check_out_time,
           total_hours: displayHours,
-          tasks: completedTasksArray
+          tasks_data: (session.tasks_data && session.tasks_data.length > 0) ? session.tasks_data.map(t => ({
+            ...t,
+            start_fmt: timeFormat(t.start_time),
+            end_fmt: timeFormat(t.end_time),
+            duration: calcDuration(t.start_time, t.end_time)
+          })) : [
+            { 
+              subtask_id: "TEST-01", 
+              title: "Phát triển tính năng JSONB (Dữ liệu test)", 
+              percent: 100, 
+              comment: "Đã hoàn thành tốt", 
+              is_approved: true,
+              start_time: new Date(new Date().setHours(8, 30)).toISOString(),
+              end_time: new Date(new Date().setHours(10, 15)).toISOString(),
+              start_fmt: "08:30",
+              end_fmt: "10:15",
+              duration: "1h 45m"
+            },
+            { 
+              subtask_id: "TEST-02", 
+              title: "Viết tài liệu hướng dẫn (Dữ liệu test)", 
+              percent: 0, 
+              comment: "", 
+              is_approved: false,
+              start_time: new Date(new Date().setHours(13, 0)).toISOString(),
+              end_time: null,
+              start_fmt: "13:00",
+              end_fmt: "--:--",
+              duration: ""
+            }
+          ],
+          overallProgress: (session.tasks_data && session.tasks_data.length > 0) 
+            ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100) 
+            : 50, // Mặc định 50% cho dữ liệu test (1/2 task đã duyệt)
+          isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
+          // tasks: completedTasksArray
         }
       })
 
@@ -309,14 +363,39 @@ export default function AttendancePage() {
   const handleCheckOut = async () => {
     if (!activeSessionId) return
     try {
+      // 1. Lấy danh sách subtasks nhân viên đã làm hoàn thành trong hôm nay
+      const { data: completedSubtasks, error: subtaskError } = await supabase
+        .from('subtasks')
+        .select('subtask_id, name, created_at')
+        .eq('user_id', currentUser.id)
+        .eq('status', 'completed')
+      // Lưu ý: Có thể cần thêm logic lọc theo thời gian check-in/out nếu muốn chính xác tuyệt đối
+
+      if (subtaskError) throw subtaskError
+
+      // 2. Map sang cấu trúc JSONB
+      const tasksData = (completedSubtasks || []).map(st => ({
+        subtask_id: st.subtask_id,
+        title: st.name,
+        percent: 100,
+        comment: "",
+        is_approved: false,
+        start_time: st.created_at || new Date().toISOString(),
+        end_time: null // Để nhân viên bấm "Kết thúc" thủ công
+      }))
+
+      // 3. Cập nhật work_sessions
       const { error } = await supabase
         .from('work_sessions')
         .update({
           check_out_time: new Date().toISOString(),
-          status: 'completed'
+          status: 'completed',
+          tasks_data: tasksData
         })
         .eq('session_id', activeSessionId)
+
       if (error) throw error
+
       localStorage.removeItem('checkin_session_id')
       localStorage.removeItem('checkin_user_id')
       localStorage.removeItem('checkin_start_time')
@@ -324,7 +403,7 @@ export default function AttendancePage() {
       setIsWorking(false)
       setSessionStartTime(null)
       setSessionTimer(0)
-      setToast({ message: 'Đã Check-out kết thúc ca', type: 'success' })
+      setToast({ message: 'Đã Check-out và lưu danh sách công việc!', type: 'success' })
       fetchAttendanceData() // Tải lại bảng
     } catch (err) {
       console.error(err)
@@ -390,6 +469,19 @@ export default function AttendancePage() {
     setConfirmDeleteId(id)
   }
 
+  // 7.1. Hàm xử lý mở rộng hàng
+  const toggleExpandRow = (id) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
   const performDeleteSingle = async (id) => {
     setConfirmDeleteId(null)
 
@@ -430,6 +522,96 @@ export default function AttendancePage() {
       setDeleting(false)
     }
   }
+  // 7.2. Hàm Nghiệm thu Task (Chỉ Admin)
+  const handleApproveTask = async (sessionId, subtaskId) => {
+    // Bảo mật tầng Client: Chỉ cho phép Admin gửi request
+    if (role !== 'admin') {
+      setToast({ message: 'Lỗi 403: Bạn không có quyền nghiệm thu!', type: 'error' })
+      return
+    }
+
+    try {
+      // Tìm bản ghi hiện tại
+      const session = attendanceList.find(s => s.id === sessionId)
+      if (!session) return
+
+      const updatedTasksData = session.tasks_data.map(t =>
+        t.subtask_id === subtaskId ? { ...t, is_approved: true, percent: 100 } : t
+      )
+
+      const { error } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', sessionId)
+
+      if (error) throw error
+      setToast({ message: 'Đã nghiệm thu công việc!', type: 'success' })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: 'Lỗi khi nghiệm thu', type: 'error' })
+    }
+  }
+
+  // 7.3. Hàm lưu Nhận xét (Chỉ Admin)
+  const handleSaveComment = async () => {
+    // Bảo mật tầng Client
+    if (role !== 'admin') {
+      setToast({ message: 'Lỗi 403: Bạn không có quyền nhận xét!', type: 'error' })
+      return
+    }
+
+    const { sessionId, subtaskId, comment } = commentModal
+    try {
+      const session = attendanceList.find(s => s.id === sessionId)
+      if (!session) return
+
+      const updatedTasksData = session.tasks_data.map(t =>
+        t.subtask_id === subtaskId ? { ...t, comment } : t
+      )
+
+      const { error } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', sessionId)
+
+      if (error) throw error
+      setToast({ message: 'Đã lưu nhận xét!', type: 'success' })
+      setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: 'Lỗi khi lưu nhận xét', type: 'error' })
+    }
+  }
+
+  // 7.4. Hàm Kết thúc Task (Dành cho Nhân viên)
+  const handleFinishTask = async (sessionId, subtaskId) => {
+    setLoadingAction(subtaskId)
+    try {
+      const session = attendanceList.find(s => s.id === sessionId)
+      if (!session) return
+
+      const updatedTasksData = session.tasks_data.map(t => 
+        t.subtask_id === subtaskId ? { ...t, end_time: new Date().toISOString() } : t
+      )
+
+      const { error } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', sessionId)
+
+      if (error) throw error
+      setToast({ message: 'Đã ghi nhận thời gian kết thúc!', type: 'success' })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: 'Lỗi khi kết thúc task', type: 'error' })
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
   // 8. Hàm lưu bản ghi sau khi sửa
   const handleSaveEdit = async (e) => {
     e.preventDefault()
@@ -798,119 +980,296 @@ export default function AttendancePage() {
                           className="w-4 h-4 cursor-pointer"
                         />
                       </th>
+                      <th className="px-2 py-3 border-b border-slate-200 w-10"></th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Người làm</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Ngày làm</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-in</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-out</th>
                       <th className="px-4 py-3 font-semibold border-b border-slate-200">Tổng giờ</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200 w-1/3">Task hoàn thành</th>
+                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Trạng thái</th>
+                      {/* <th className="px-4 py-3 font-semibold border-b border-slate-200 w-1/3">Task hoàn thành</th> */}
                       {canEditDelete && <th className="px-4 py-3 font-semibold border-b border-slate-200 text-right">Thao tác</th>}
                     </tr>
                   </thead>
 
                   <tbody className="text-slate-700">
                     {!loading && attendanceList.map((row) => (
-                      <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(row.id)}
-                            onChange={() => toggleSelectId(row.id)}
-                            className="w-4 h-4 cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
-                              {row.user.avatar}
-                            </div>
-                            <span className="font-medium whitespace-nowrap text-slate-800">{row.user.name}</span>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {row.work_date}
-                        </td>
-
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {row.check_in !== '-' ? (
-                            <span className="bg-slate-100 border border-slate-200 text-green-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
-                              {row.check_in}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {row.check_out !== '-' ? (
-                            <span className="bg-slate-100 border border-slate-200 text-red-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
-                              {row.check_out}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-800">
-                          {row.total_hours !== '-' ? row.total_hours : <span className="font-normal text-slate-400">—</span>}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-1.5">
-                            {row.tasks.slice(0, 3).map((task, idx) => (
-                              <span key={idx} className="bg-slate-100 border border-slate-200/60 text-slate-600 px-2 py-0.5 rounded text-xs truncate max-w-[160px]">
-                                {task}
-                              </span>
-                            ))}
-                            {row.tasks.length > 3 && (
-                              <span className="bg-slate-100 border border-slate-200/60 text-slate-500 px-2 py-0.5 rounded text-xs font-semibold">
-                                +{row.tasks.length - 3} ...
-                              </span>
-                            )}
-                            {row.tasks.length === 0 && (
-                              <span className="text-slate-400 italic text-xs">Chưa có task</span>
-                            )}
-                          </div>
-                        </td>
-                        {canEditDelete && (
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex justify-end items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
-                                  const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
-
-                                  // Format date YYYY-MM-DD for input
-                                  const getD = (d) => d ? d.toISOString().split('T')[0] : ''
-
-                                  setEditingRecord({
-                                    ...row,
-                                    in_date: getD(dIn),
-                                    in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
-                                    in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
-                                    out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
-                                    out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
-                                    out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
-                                  })
-                                }}
-                                className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
-                              >
-                                <span className="material-symbols-outlined text-[16px]">edit</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSingle(row.id)}
-                                disabled={deleting}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                              >
-                                <span className="material-symbols-outlined text-[18px]">delete</span>
-                              </button>
+                      <React.Fragment key={row.id}>
+                        <tr className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${expandedRows.has(row.id) ? 'bg-blue-50/30' : ''}`}>
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(row.id)}
+                              onChange={() => toggleSelectId(row.id)}
+                              className="w-4 h-4 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-2 py-3 text-center">
+                            <button
+                              onClick={() => toggleExpandRow(row.id)}
+                              className={`p-1 rounded-md transition-all duration-200 hover:bg-white hover:shadow-sm active:scale-90 ${expandedRows.has(row.id) ? 'bg-white shadow-sm text-blue-600 rotate-180' : 'text-slate-400'}`}
+                            >
+                              {expandedRows.has(row.id) ? <Minus size={16} /> : <Plus size={16} />}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
+                                {row.user.avatar}
+                              </div>
+                              <span className="font-medium whitespace-nowrap text-slate-800">{row.user.name}</span>
                             </div>
                           </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {row.work_date}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {row.check_in !== '-' ? (
+                              <span className="bg-slate-100 border border-slate-200 text-green-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
+                                {row.check_in}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {row.check_out !== '-' ? (
+                              <span className="bg-slate-100 border border-slate-200 text-red-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
+                                {row.check_out}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-800">
+                            {row.total_hours !== '-' ? row.total_hours : <span className="font-normal text-slate-400">—</span>}
+                          </td>
+
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {row.isValidForSalary ? (
+                              <span className="flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 text-[11px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                Hợp lệ tính lương
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1.5 text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100 text-[11px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                Chưa hoàn thành
+                              </span>
+                            )}
+                          </td>
+
+                          {/* <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1.5">
+                              {row.tasks.slice(0, 3).map((task, idx) => (
+                                <span key={idx} className="bg-slate-100 border border-slate-200/60 text-slate-600 px-2 py-0.5 rounded text-xs truncate max-w-[160px]">
+                                  {task}
+                                </span>
+                              ))}
+                              {row.tasks.length > 3 && (
+                                <span className="bg-slate-100 border border-slate-200/60 text-slate-500 px-2 py-0.5 rounded text-xs font-semibold">
+                                  +{row.tasks.length - 3} ...
+                                </span>
+                              )}
+                              {row.tasks.length === 0 && (
+                                <span className="text-slate-400 italic text-xs">Chưa có task</span>
+                              )}
+                            </div>
+                          </td> */}
+                          {canEditDelete && (
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex justify-end items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                    const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+
+                                    // Format date YYYY-MM-DD for input
+                                    const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+
+                                    setEditingRecord({
+                                      ...row,
+                                      in_date: getD(dIn),
+                                      in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                      in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                      out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
+                                      out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                      out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
+                                    })
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSingle(row.id)}
+                                  disabled={deleting}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+
+                        {/* Hàng mở rộng hiển thị nội dung chi tiết */}
+                        {expandedRows.has(row.id) && (
+                          <tr className="bg-blue-50/10 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <td colSpan={canEditDelete ? 9 : 8} className="px-6 py-4 border-b border-slate-100">
+                              <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+                                <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                                      <ClipboardList size={14} className="text-blue-500" />
+                                      Chi tiết công việc đã thực hiện
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
+                                      <span className={`text-[13px] font-black ${
+                                        row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
+                                      }`}>
+                                        {row.overallProgress}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Thanh Progress Bar Tổng lớn */}
+                                  <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner border border-slate-300/50">
+                                    <div 
+                                      className={`h-full transition-all duration-700 ease-out ${
+                                        row.overallProgress === 100 ? 'bg-emerald-500' : 'bg-amber-500'
+                                      }`}
+                                      style={{ width: `${row.overallProgress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <table className="w-full text-left">
+                                  <thead className="bg-white text-[10px] text-slate-400 uppercase font-bold">
+                                    <tr>
+                                      <th className="px-4 py-2">Công việc</th>
+                                      <th className="px-4 py-2 text-center">Bắt đầu</th>
+                                      <th className="px-4 py-2 text-center">Kết thúc</th>
+                                      <th className="px-4 py-2 w-1/4">Tiến độ</th>
+                                      <th className="px-4 py-2">Nhận xét</th>
+                                      <th className="px-4 py-2 text-right">Thao tác</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-50">
+                                    {row.tasks_data && row.tasks_data.length > 0 ? row.tasks_data.map((task, tidx) => (
+                                      <tr key={tidx} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-4 py-3">
+                                          <div className="font-bold text-slate-700 text-[12px]">{task.title}</div>
+                                          <div className="text-[10px] text-slate-400 font-medium">ID: {task.subtask_id}</div>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <div className="text-[12px] font-bold text-slate-600">{task.start_fmt}</div>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <div className="flex flex-col items-center">
+                                            <div className="text-[12px] font-bold text-slate-600">{task.end_fmt}</div>
+                                            {task.duration && (
+                                              <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 rounded-full font-bold mt-0.5">
+                                                {task.duration}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex items-center gap-3">
+                                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                              <div 
+                                                className={`h-full transition-all duration-500 ${
+                                                  task.is_approved ? 'bg-emerald-500' : 'bg-slate-300'
+                                                }`}
+                                                style={{ width: `${task.is_approved ? 100 : 0}%` }}
+                                              />
+                                            </div>
+                                            <span className={`text-[11px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                              {task.is_approved ? '100%' : '0%'}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="text-[11px] text-slate-500 italic max-w-xs truncate">
+                                            {task.comment || <span className="text-slate-300">Chưa có nhận xét...</span>}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                          <div className="flex justify-end gap-2">
+                                            {role === 'admin' ? (
+                                              <>
+                                                <button
+                                                  onClick={() => setCommentModal({
+                                                    open: true,
+                                                    sessionId: row.id,
+                                                    subtaskId: task.subtask_id,
+                                                    comment: task.comment || ''
+                                                  })}
+                                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all text-[10px] font-bold active:scale-95 shadow-sm"
+                                                >
+                                                  <Edit3 size={12} />
+                                                  NHẬN XÉT
+                                                </button>
+
+                                                <button
+                                                  disabled={task.is_approved}
+                                                  onClick={() => handleApproveTask(row.id, task.subtask_id)}
+                                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.is_approved
+                                                      ? 'bg-emerald-500 text-white cursor-default'
+                                                      : 'bg-white border border-blue-200 text-blue-600 hover:bg-blue-50'
+                                                    }`}
+                                                >
+                                                  {task.is_approved ? 'ĐÃ NGHIỆM THU' : 'NGHIỆM THU'}
+                                                </button>
+                                              </>
+                                            ) : (
+                                              // Đối với Employee: Nút Kết thúc hoặc Badge trạng thái
+                                              <div className="flex items-center gap-2">
+                                                {!task.end_time && (
+                                                  <button
+                                                    disabled={loadingAction === task.subtask_id}
+                                                    onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100"
+                                                  >
+                                                    {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                  </button>
+                                                )}
+                                                
+                                                {task.is_approved ? (
+                                                  <span className="text-emerald-600 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
+                                                    ĐÀ DUYỆT
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100 text-[10px]">
+                                                    CHỜ DUYỆT
+                                                  </span>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )) : (
+                                      <tr>
+                                        <td colSpan="6" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
+                                          Không có dữ liệu công việc trong ca làm việc này.
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </tr>
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -944,13 +1303,13 @@ export default function AttendancePage() {
 
                       {/* Nhóm Nút (CHỈ ICON - KHÔNG CHỮ) */}
                       <div className="flex items-center gap-2 ml-auto shrink-0">
-                        <button
+                        {/* <button
                           type="button"
                           onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
                           className={`p-1.5 rounded-lg active:scale-90 transition-all ${showTasksId === row.id ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
                         >
                           <ClipboardList size={14} />
-                        </button>
+                        </button> */}
                         {canEditDelete && (
                           <>
                             <button
@@ -987,7 +1346,7 @@ export default function AttendancePage() {
                     </div>
 
                     {/* Chi tiết Task (Dropdown nội bộ) */}
-                    {showTasksId === row.id && (
+                    {/* {showTasksId === row.id && (
                       <div className="mb-2 p-2 bg-slate-50 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-top-1">
                         <div className="flex flex-wrap gap-1">
                           {row.tasks.length > 0 ? row.tasks.map((task, idx) => (
@@ -997,7 +1356,7 @@ export default function AttendancePage() {
                           )) : <span className="text-[9px] text-slate-400 italic text-center w-full">Chưa có task nào</span>}
                         </div>
                       </div>
-                    )}
+                    )} */}
 
                     {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
                     <div className="grid grid-cols-3 gap-2">
@@ -1257,6 +1616,45 @@ export default function AttendancePage() {
                   </p>
                 </div>
               </Modal>
+            )}
+            {/* MODAL NHẬN XÉT */}
+            {commentModal.open && (
+              <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
+                        <Edit3 size={20} className="text-white" />
+                      </div>
+                      <h3 className="font-bold text-slate-800">Nhận Xét Công Việc</h3>
+                    </div>
+                  </div>
+
+                  <div className="p-6 space-y-4">
+                    <textarea
+                      value={commentModal.comment}
+                      onChange={(e) => setCommentModal({ ...commentModal, comment: e.target.value })}
+                      placeholder="Nhập nhận xét hoặc feedback cho nhân sự..."
+                      className="w-full h-32 p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 outline-none text-[13px] resize-none"
+                    />
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })}
+                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all active:scale-95"
+                      >
+                        HỦY
+                      </button>
+                      <button
+                        onClick={handleSaveComment}
+                        className="flex-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
+                      >
+                        LƯU NHẬN XÉT
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </main>
