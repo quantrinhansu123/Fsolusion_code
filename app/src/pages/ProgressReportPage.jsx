@@ -149,8 +149,8 @@ export default function ProgressReportPage() {
                                       <span className="text-[9px] text-[#3e4850] opacity-40 truncate">· {t.users?.full_name?.split(' ').pop() || 'N/A'}</span>
                                     </div>
                                     <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase ${t.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                        t.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                          'bg-gray-100 text-gray-700'
+                                      t.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                        'bg-gray-100 text-gray-700'
                                       }`}>
                                       {t.status === 'completed' ? 'Xong' : t.status === 'in_progress' ? 'Làm' : 'Chờ'}
                                     </span>
@@ -181,11 +181,10 @@ export default function ProgressReportPage() {
                           <button
                             key={page}
                             onClick={() => setCurrentPage(page)}
-                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                              currentPage === page
+                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                                 ? 'bg-[#006591] text-white border border-[#006591]'
                                 : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                            }`}
+                              }`}
                           >
                             {page}
                           </button>
@@ -201,11 +200,10 @@ export default function ProgressReportPage() {
                           <button
                             key={page}
                             onClick={() => setCurrentPage(page)}
-                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                              currentPage === page
+                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                                 ? 'bg-[#006591] text-white border border-[#006591]'
                                 : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                            }`}
+                              }`}
                           >
                             {page}
                           </button>
@@ -216,11 +214,10 @@ export default function ProgressReportPage() {
                           <button
                             key={page}
                             onClick={() => setCurrentPage(page)}
-                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                              currentPage === page
+                            className={`px-2 md:px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${currentPage === page
                                 ? 'bg-[#006591] text-white border border-[#006591]'
                                 : 'border border-[#bec8d2]/40 text-[#131b2e] hover:bg-[#f2f3ff]'
-                            }`}
+                              }`}
                           >
                             {page}
                           </button>

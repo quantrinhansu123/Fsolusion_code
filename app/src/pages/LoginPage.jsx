@@ -30,36 +30,42 @@ export default function LoginPage() {
     }
 
     try {
-      const { data: profile, error: signInError } = await supabase
+      const { data: userRecord, error: fetchError } = await supabase
         .from('users')
-        .select('user_id')
+        .select('user_id, password, email')
         .eq('email', signInId)
-        .eq('password', password)
         .maybeSingle()
 
+      console.log('[LoginPage] Debug Query:', { signInId, userRecord, fetchError })
 
-      if (signInError) {
-        console.error('[LoginPage] Login failed:', signInError)
-        setError(humanizeAuthError(signInError.message))
-        setLoading(false)
+      if (fetchError) {
+        console.error('[LoginPage] Login failed:', fetchError)
+        setError(humanizeAuthError(fetchError.message))
+      } else if (!userRecord) {
+        console.warn('[LoginPage] User not found:', signInId)
+        setError('Tài khoản không tồn tại.')
+      } else if (userRecord.password !== password) {
+        console.warn('[LoginPage] Password mismatch for:', signInId)
+        console.log(`[Debug] DB pass: "${userRecord.password}", Input pass: "${password}"`)
+        setError('Sai mật khẩu.')
       } else {
-        setLoading(false)
-
-        if (signInError || !profile?.user_id) {
-          setError('Sai tên đăng nhập hoặc mật khẩu.')
-          return
-        }
-
-        await signInLocal(profile.user_id)
-
+        await signInLocal(userRecord.user_id)
         navigate('/dashboard')
-      } catch (err) {
-        console.error('[LoginPage] Sign-in request failed:', err)
-        setError('Không thể kết nối máy chủ. Kiểm tra mạng hoặc cấu hình Supabase rồi thử lại.')
-      } finally {
-        setLoading(false)
+        return
       }
+    } catch (err) {
+      console.error('[LoginPage] Sign-in request failed:', err)
+      setError('Không thể kết nối máy chủ. Kiểm tra mạng hoặc cấu hình Supabase rồi thử lại.')
+    } finally {
+      setLoading(false)
     }
+  }
+
+function humanizeAuthError(message) {
+  if (!message) return 'Lỗi không xác định'
+  if (message.includes('Invalid login credentials')) return 'Sai tên đăng nhập hoặc mật khẩu.'
+  return message
+}
 
   return (
       <div className="min-h-screen w-full flex bg-[#0f172a] overflow-hidden relative font-['Inter']">

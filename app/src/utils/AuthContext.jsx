@@ -34,32 +34,23 @@ export function AuthProvider({ children }) {
       const { data: profile, error } = await supabase
         .from('users')
         .select('*')
-
-        .eq('user_id', authUser.id)
-        .maybeSingle(); // Dùng maybeSingle để tránh báo lỗi đỏ khi không tìm thấy dòng
+        .eq('user_id', userId)
+        .maybeSingle();
 
       if (error) {
         console.error('[AuthContext] SQL Error:', error.message);
-        setUser(authUser);
         return;
       }
 
       if (!profile) {
-        console.warn('[AuthContext] No profile found for:', authUser.email);
-        setUser(authUser);
+        console.warn('[AuthContext] No profile found for ID:', userId);
       } else {
-        // Log để ông soi xem dữ liệu cũ có bị NULL chỗ nào không
         console.log('[AuthContext] Profile Loaded:', profile);
-
-        // Đảm bảo không có password cũ gây nhiễu (vì nó luôn NULL)
         const { password, ...cleanProfile } = profile;
-
-        setUser({ ...authUser, ...cleanProfile });
+        setUser(cleanProfile);
       }
     } catch (err) {
       console.error('[AuthContext] Crash:', err);
-      setUser(authUser);
-
     } finally {
       setLoading(false);
     }
