@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
@@ -32,8 +33,18 @@ import {
 import { formatDeadlineDisplay, formatDeadlineShort, normalizeDeadlineForSave } from '../utils/deadline'
 import { isHttpUrl, shouldTryImageFirst, hostBlocksIframeEmbedding } from '../utils/linkEmbed'
 import IframeBlockedFallback from '../components/IframeBlockedFallback'
+import { useAuth } from '../utils/AuthContext'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+/**
+ * Tên người phụ trách: luôn tra theo user_id từ bảng users đã tải.
+ */
+function assigneeDisplayName(userId, roster) {
+  if (!userId || !Array.isArray(roster)) return ''
+  const u = roster.find(x => x.user_id === userId)
+  return u?.full_name || ''
+}
+
 /** ISO timestamptz → hiển thị ngày giờ (giờ địa phương) */
 function formatDateTime(iso) {
   if (!iso) return '—'
@@ -208,6 +219,64 @@ function collectTasksFromProject(project) {
   return out
 }
 
+/** PostgREST giới hạn ~1000 dòng/request (mặc định server) — paginate để lấy hết task. */
+const REST_PAGE_SIZE = 1000
+
+async function fetchAllRowsForTaskProgress() {
+  const out = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('task_id, status, features!inner(project_id)')
+      .order('task_id', { ascending: true })
+      .range(from, from + REST_PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data?.length) break
+    out.push(...data)
+    if (data.length < REST_PAGE_SIZE) break
+    from += REST_PAGE_SIZE
+  }
+  return out
+}
+
+/** Tất cả task (kèm subtasks) của danh sách feature — không dùng 1 nested select (dễ bị cắt khi volume lớn). */
+async function fetchAllTasksWithSubtasks(featureIds) {
+  if (!featureIds.length) return []
+  const out = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select(`
+        *,
+        subtasks (*)
+      `)
+      .in('feature_id', featureIds)
+      .order('task_id', { ascending: true })
+      .range(from, from + REST_PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data?.length) break
+    out.push(...data)
+    if (data.length < REST_PAGE_SIZE) break
+    from += REST_PAGE_SIZE
+  }
+  return out
+}
+
+/** Options cho «Tính năng» khi thêm / sửa nhiệm vụ (cùng dự án), bỏ trùng theo feature_id */
+function projectFeatureOptionsForTaskModal(project) {
+  const seen = new Set()
+  const out = []
+  for (const f of project?.features || []) {
+    const id = f?.feature_id
+    if (id == null || id === '' || seen.has(id)) continue
+    seen.add(id)
+    out.push({ value: id, label: f.name || 'Tính năng' })
+  }
+  return out
+}
+
 /** Đếm task hoàn thành / tổng trong toàn dự án (Kanban) */
 const countTasksInProject = (p) => {
   if (p._progress) return { ...p._progress, pct: p._progress.total === 0 ? 0 : Math.round((p._progress.done / p._progress.total) * 100) }
@@ -264,25 +333,27 @@ const DASH_STATUS_META = {
   late: { label: 'Trễ hạn', pill: 'border-red-200 bg-red-50/50 text-red-700', bar: '#ef4444' },
 }
 
-/** 3 cột Kanban: chờ | đang làm (+ trễ) | hoàn thành */
+/** 4 cột Kanban — khớp trạng thái task trong form / bộ lọc */
 function taskKanbanColumnKey(status) {
   const s = status || 'pending'
   if (s === 'pending') return 'pending'
-  if (s === 'in_progress' || s === 'overdue') return 'active'
-  if (s === 'completed') return 'done'
+  if (s === 'in_progress') return 'in_progress'
+  if (s === 'overdue') return 'overdue'
+  if (s === 'completed') return 'completed'
   return 'pending'
 }
 
 const KANBAN_COLUMNS = [
   { key: 'pending', title: 'Đang chờ', topBar: 'border-t-[#8b9dc3]' },
-  { key: 'active', title: 'Đang làm', topBar: 'border-t-[#006591]' },
-  { key: 'done', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
+  { key: 'in_progress', title: 'Đang làm', topBar: 'border-t-[#006591]' },
+  { key: 'overdue', title: 'Trễ hạn', topBar: 'border-t-[#f59e0b]' },
+  { key: 'completed', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
 ]
 
 function groupTaskEntriesForKanban(entries) {
-  const grouped = { pending: [], active: [], done: [] }
+  const grouped = { pending: [], in_progress: [], overdue: [], completed: [] }
   for (const item of entries) {
-    grouped[taskKanbanColumnKey(item.task.status)].push(item)
+    grouped[taskKanbanColumnKey(item.task?.status)].push(item)
   }
   return grouped
 }
@@ -368,6 +439,20 @@ function formatSubtaskGroupDayHeading(dateKey) {
   })
 }
 
+/** Hạn sớm nhất / ngày tạo sớm nhất lên đầu (dùng cột Tiểu mục & Kanban). */
+function sortSubtasksByNearestDateFirst(subtasks) {
+  const list = Array.isArray(subtasks) ? [...subtasks] : []
+  const rank = st => {
+    const dl = st.deadline ? new Date(st.deadline).getTime() : NaN
+    if (Number.isFinite(dl)) return dl
+    const cr = st.created_at ? new Date(st.created_at).getTime() : NaN
+    if (Number.isFinite(cr)) return cr
+    return Number.POSITIVE_INFINITY
+  }
+  list.sort((a, b) => rank(a) - rank(b))
+  return list
+}
+
 /**
  * Nhóm tiểu mục theo ngày: ưu tiên ngày của hạn chót; không có hạn thì theo ngày tạo (mốc giao).
  */
@@ -391,7 +476,7 @@ function groupSubtasksByDay(subtasks) {
     return ta - tb
   }
   for (const arr of buckets.values()) arr.sort(sortInBucket)
-  const keys = [...buckets.keys()].filter(k => k !== '_nodate').sort()
+  const keys = [...buckets.keys()].filter(k => k !== '_nodate').sort((a, b) => a.localeCompare(b))
   const out = keys.map(k => ({
     dateKey: k,
     label: formatSubtaskGroupDayHeading(k),
@@ -461,7 +546,7 @@ function SubtaskModalWorkClock({ workTimeRaw, actions }) {
 }
 
 /** Tổng thời lượng phiên (đếm live khi có phiên đang mở) */
-function SubtaskLiveSessionTotal({ workTimeRaw }) {
+function SubtaskLiveSessionTotal({ workTimeRaw, compact = false }) {
   const sessions = useMemo(() => normalizeSubtaskWorkTime(workTimeRaw), [workTimeRaw])
   const running = useMemo(() => subtaskHasOpenWorkSession(sessions), [sessions])
   const [tick, setTick] = useState(0)
@@ -476,12 +561,23 @@ function SubtaskLiveSessionTotal({ workTimeRaw }) {
   }, [sessions, tick])
   return (
     <span
-      className="inline-flex items-center gap-1 font-semibold tabular-nums text-[#006591]"
+      className={
+        compact
+          ? 'inline-flex max-w-full min-w-0 items-center gap-0.5 font-medium tabular-nums text-[#006591] text-[8px] sm:text-[9px] leading-tight'
+          : 'inline-flex items-center gap-1 font-semibold tabular-nums text-[#006591]'
+      }
       title="Cộng các khoảng giữa Bắt đầu và Tạm dừng; phiên đang chạy tính đến giây hiện tại"
     >
-      {formatDurationVi(ms)}
+      <span className="min-w-0 truncate">{formatDurationVi(ms)}</span>
       {running ? (
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#1e8e3e]" title="Đang đếm" />
+        <span
+          className={
+            compact
+              ? 'inline-block h-1 w-1 shrink-0 animate-pulse rounded-full bg-[#1e8e3e]'
+              : 'inline-block h-2 w-2 animate-pulse rounded-full bg-[#1e8e3e]'
+          }
+          title="Đang đếm"
+        />
       ) : null}
     </span>
   )
@@ -527,6 +623,243 @@ const SUBTASK_STATUS_PILLS = [
   { value: 'overdue', label: 'Trễ hạn' },
 ]
 
+const SUBTASK_STATUS_MENU_ICONS = {
+  pending: 'schedule',
+  in_progress: 'play_circle',
+  completed: 'check_circle',
+  overdue: 'warning',
+}
+
+const TASK_STATUS_FILTER_OPTIONS = [
+  { value: 'pending', label: 'Đang chờ' },
+  { value: 'in_progress', label: 'Đang làm' },
+  { value: 'completed', label: 'Hoàn thành' },
+  { value: 'overdue', label: 'Trễ hạn' },
+]
+
+const SUBTASK_STATUS_FILTER_OPTIONS = [
+  { value: 'pending', label: 'Đang chờ' },
+  { value: 'in_progress', label: 'Đang làm' },
+  { value: 'completed', label: 'Hoàn thành' },
+  { value: 'overdue', label: 'Trễ hạn' },
+]
+
+/** Ảnh đính kèm tiểu mục để hiển thị trong bảng (data URL + http hợp lệ là ảnh) */
+function collectSubtaskTableImageUrls(st) {
+  const blocks = normalizeTaskContentBlocks(st)
+  const urls = []
+  for (const b of blocks) {
+    if (b.image_url?.trim()) urls.push(b.image_url.trim())
+    if (Array.isArray(b.image_urls)) {
+      b.image_urls.forEach(u => {
+        const t = u?.trim()
+        if (t && !urls.includes(t)) urls.push(t)
+      })
+    }
+  }
+  return urls.filter(
+    u => u.startsWith('data:image/') || (isHttpUrl(u) && shouldTryImageFirst(u))
+  )
+}
+
+const SUBTASK_TABLE_MENU_W = 224
+
+/** Menu tiểu mục (bảng): Trạng thái + Sửa / Xóa. Dùng portal + fixed để không bị cắt bởi overflow bảng. */
+function SubtaskTableActionsMenu({
+  subBusy,
+  currentStatus,
+  onPickStatus,
+  /** @deprecated ưu tiên dựa vào onEdit / onDelete; giữ tương thích khi cần ẩn */
+  showEdit = true,
+  showDelete = true,
+  onEdit,
+  onDelete,
+  /** Thu nhỏ nút ⋮ trên hàng bảng */
+  compact = false,
+}) {
+  const [open, setOpen] = useState(false)
+  const [panel, setPanel] = useState('root')
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, maxH: 360 })
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+  const stSel = currentStatus || 'pending'
+
+  const placeMenu = useCallback(() => {
+    const el = btnRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const pad = 8
+    const w = SUBTASK_TABLE_MENU_W
+    let left = r.right - w
+    if (left < pad) left = pad
+    if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad
+    const gap = 4
+    let top = r.bottom + gap
+    const maxH = Math.min(360, window.innerHeight - top - pad)
+    if (maxH < 120 && r.top > window.innerHeight - r.bottom) {
+      top = Math.max(pad, r.top - gap - 280)
+    }
+    setMenuPos({ top, left, maxH: Math.max(120, maxH) })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    placeMenu()
+  }, [open, panel, placeMenu])
+
+  useEffect(() => {
+    if (!open) return
+    const onScrollOrResize = () => placeMenu()
+    window.addEventListener('scroll', onScrollOrResize, true)
+    window.addEventListener('resize', onScrollOrResize)
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true)
+      window.removeEventListener('resize', onScrollOrResize)
+    }
+  }, [open, placeMenu])
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e) {
+      const t = e.target
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      setOpen(false)
+      setPanel('root')
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) setPanel('root')
+  }, [open])
+
+  const menuBody = open ? (
+    <div
+      ref={menuRef}
+      style={{
+        position: 'fixed',
+        top: menuPos.top,
+        left: menuPos.left,
+        width: SUBTASK_TABLE_MENU_W,
+        maxHeight: menuPos.maxH,
+        zIndex: 200,
+      }}
+      className="flex flex-col overflow-y-auto overflow-x-hidden bg-white rounded-xl shadow-[0_8px_32px_rgba(19,27,46,0.2)] border border-[#bec8d2]/20 py-2"
+    >
+      {panel === 'root' && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPanel('status')}
+            className="w-full text-left px-4 py-2.5 text-sm flex items-center justify-between gap-2 text-[#006591] hover:bg-[#f2f3ff] font-medium shrink-0"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="material-symbols-outlined text-[18px] shrink-0">tune</span>
+              <span>Trạng thái</span>
+            </span>
+            <span className="material-symbols-outlined text-[18px] text-[#64748b] shrink-0">chevron_right</span>
+          </button>
+          {onEdit && showEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onEdit()
+              }}
+              disabled={subBusy}
+              className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 text-[#131b2e] hover:bg-[#f2f3ff] disabled:opacity-50 shrink-0"
+            >
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+              Sửa
+            </button>
+          )}
+          {onDelete && showDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onDelete()
+              }}
+              disabled={subBusy}
+              className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 text-[#ba1a1a] hover:bg-[#ffdad6] disabled:opacity-50 shrink-0"
+            >
+              <span className="material-symbols-outlined text-[18px]">delete</span>
+              Xóa
+            </button>
+          )}
+        </>
+      )}
+      {panel === 'status' && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPanel('root')}
+            className="w-full text-left px-3 py-2 text-sm flex items-center gap-1.5 text-[#64748b] hover:bg-slate-50 border-b border-slate-100 mb-1 shrink-0"
+          >
+            <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+            Trở lại
+          </button>
+          {SUBTASK_STATUS_PILLS.map(opt => {
+            const isCurrent = stSel === opt.value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={subBusy}
+                onClick={() => {
+                  if (subBusy) return
+                  if (isCurrent) {
+                    setOpen(false)
+                    setPanel('root')
+                    return
+                  }
+                  onPickStatus(opt.value)
+                  setOpen(false)
+                  setPanel('root')
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 shrink-0 ${
+                  isCurrent
+                    ? 'text-[#006591] bg-sky-50 font-semibold'
+                    : 'text-[#131b2e] hover:bg-[#f2f3ff]'
+                } ${subBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {SUBTASK_STATUS_MENU_ICONS[opt.value] || 'label'}
+                </span>
+                {opt.label}
+                {isCurrent && <span className="ml-auto text-[11px] font-medium text-[#006591]">hiện tại</span>}
+              </button>
+            )
+          })}
+        </>
+      )}
+    </div>
+  ) : null
+
+  return (
+    <div className="relative" onClick={e => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={e => {
+          e.stopPropagation()
+          setOpen(v => !v)
+        }}
+        className={`text-[#3e4850] hover:text-[#131b2e] rounded-md hover:bg-[#eaedff] transition-colors ${compact ? 'p-px' : 'p-1'}`}
+        aria-label="Thao tác tiểu mục"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <span className={compact ? 'material-symbols-outlined text-[12px] leading-none' : 'material-symbols-outlined text-xl'}>
+          more_vert
+        </span>
+      </button>
+      {open && createPortal(menuBody, document.body)}
+    </div>
+  )
+}
+
 function ModalTaskCard({
   feature,
   task,
@@ -546,7 +879,12 @@ function ModalTaskCard({
   hideStatusBadge = false,
   /** Kanban: chọn trạng thái + meta cùng hàng với «Xem tiểu mục» ở đáy thẻ */
   statusActionsOutside = false,
+  /** Select «Tính năng» khi sửa nhiệm vụ (cùng dự án) */
+  taskFeatureOptions = null,
+  /** Danh sách users (nhân sự) — dự phòng khi API không trả lồng users */
+  assigneeRoster = [],
 }) {
+  const taskAssigneeName = assigneeDisplayName(task?.assigned_to, assigneeRoster)
   const [blockPreview, setBlockPreview] = useState(null)
   /** true = đang hiển thị iframe (hoặc sau khi ảnh lỗi) */
   const [previewShowIframe, setPreviewShowIframe] = useState(false)
@@ -562,6 +900,37 @@ function ModalTaskCard({
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
   const [showPrintModal, setShowPrintModal] = useState(false)
   const canModify = userRole !== 'employee'
+  const taskEditInitial = () => ({
+    ...taskFormInitial(task),
+    feature_id: task.feature_id ?? feature?.feature_id,
+  })
+  const openEditTask = () => {
+    const opts = Array.isArray(taskFeatureOptions) ? taskFeatureOptions : []
+    m.open('edit_task', {
+      id: task.task_id,
+      ...(opts.length > 0 ? { featureOptions: opts } : {}),
+      initial: taskEditInitial(),
+    })
+  }
+  const taskActionItems = [
+    {
+      icon: 'add_circle',
+      label: 'Thêm tiểu mục',
+      primary: true,
+      onClick: () => m.open('add_subtask', { taskId: task.task_id }),
+    },
+    {
+      icon: 'edit',
+      label: 'Sửa nhiệm vụ',
+      onClick: openEditTask,
+    },
+    {
+      icon: 'delete',
+      label: 'Xóa nhiệm vụ',
+      danger: true,
+      onClick: () => deleteEntity('tasks', 'task_id', task.task_id),
+    },
+  ]
 
   useEffect(() => {
     if (showSubtasksModal) {
@@ -579,14 +948,11 @@ function ModalTaskCard({
     return () => window.removeEventListener('keydown', onKey)
   }, [imageLightboxUrl])
   const subs = task.subtasks || []
-  const activeSubs = useMemo(() => {
-    return subs.filter(s => (s.status || 'pending') !== 'completed')
-  }, [subs])
 
   const groupedSubs = useMemo(() => {
-    // Tự động ẩn các tiểu mục đã hoàn thành khỏi danh sách hiển thị
-    return groupSubtasksByDay(activeSubs)
-  }, [activeSubs])
+    // Luôn hiển thị mọi tiểu mục (kể cả đã hoàn thành) để xem lại khi nhiệm vụ ở cột Hoàn thành
+    return groupSubtasksByDay(subs)
+  }, [subs])
   /** Luôn dùng cỡ chữ đọc được trong modal tiểu mục (không phụ thuộc compact của thẻ Kanban) */
   const subModal = {
     blockWrap: 'space-y-2',
@@ -657,7 +1023,7 @@ function ModalTaskCard({
                       onClick={() => setShowSubtasksModal(true)}
                       className="hover:underline text-[#006591] font-semibold"
                     >
-                      {activeSubs.length > 0 ? `${activeSubs.length} mục` : 'Hoàn thành'}
+                      {subs.length} mục
                     </button>
                   )}
                 </div>
@@ -665,8 +1031,8 @@ function ModalTaskCard({
             ) : (
               <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full border-2 border-[#eef1f6]" aria-hidden />
             )}
-            <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-1 lg:mt-0">
-              <div className="flex items-center gap-2 mb-1">
+            <div className="min-w-0 w-full lg:w-auto lg:flex-1 order-last lg:order-none mt-0.5 lg:mt-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0 ${task.work_type === 'ngoai_hd'
                   ? 'bg-orange-100 text-orange-700 border border-orange-200'
                   : 'bg-blue-50 text-blue-600 border border-blue-100'
@@ -676,22 +1042,22 @@ function ModalTaskCard({
                 <p className="text-sm font-bold leading-snug text-[#131b2e] truncate" title={task.name}>{task.name}</p>
               </div>
               {task.description || displayBlocks.length > 0 ? (
-                <div className="mt-1.5 text-xs leading-relaxed text-[#475569] whitespace-pre-wrap">
+                <div className="mt-1 text-[11px] leading-snug text-[#475569] whitespace-pre-wrap line-clamp-2">
                   {task.description || displayBlocks[0]?.content}
                 </div>
               ) : null}
               {showFeatureLabel ? (
-                <p className="mt-2 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
+                <p className="mt-1 text-[10px] font-semibold text-[#006591]/90">{feature.name}</p>
               ) : null}
             </div>
             <div className="flex w-auto shrink-0 flex-col items-end gap-1">
               <div className="flex items-center gap-2">
-                {task.users?.full_name ? (
+                {taskAssigneeName ? (
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#5b8fd8] to-[#3d6fb0] text-[11px] font-bold text-white shadow-sm"
-                    title={task.users.full_name}
+                    title={taskAssigneeName}
                   >
-                    {userInitials(task.users.full_name)}
+                    {userInitials(taskAssigneeName)}
                   </span>
                 ) : (
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e8edf4] text-[10px] font-bold text-[#94a3b8]">
@@ -703,14 +1069,14 @@ function ModalTaskCard({
           </div>
           {subProgress ? (
             <div
-              className="mt-2 w-full min-w-0"
+              className="mt-1 w-full min-w-0"
               title={
                 subProgress.total > 0
                   ? `${subProgress.done}/${subProgress.total} hoàn thành.`
                   : 'Chưa có tiểu mục.'
               }
             >
-              <div className="mb-0.5 flex items-center justify-between gap-2 text-[9px] text-[#64748b]">
+              <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px] text-[#64748b]">
                 <span className="font-semibold uppercase tracking-wide">Tiến độ</span>
                 <span className="tabular-nums font-bold text-[#334155]">
                   {subProgress.total > 0 ? `${subProgress.done}/${subProgress.total} · ${subProgress.pct}%` : '—'}
@@ -734,43 +1100,9 @@ function ModalTaskCard({
                 <span className="material-symbols-outlined text-[14px]">notes</span>
                 Chi tiết ({displayBlocks.length})
               </button>
-              {canModify && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    title="Thêm tiểu mục"
-                    onClick={() => m.open('add_subtask', { taskId: task.task_id })}
-                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#bec8d2]/40 bg-white px-2 text-[10px] font-semibold text-[#006591] shadow-sm hover:bg-[#eae8ff] transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">add_circle</span>
-                    Tiểu mục
-                  </button>
-                  <button
-                    type="button"
-                    title="Chỉnh sửa"
-                    onClick={() => {
-                      setShowTaskDetailModal(false)
-                      m.open('edit_task', { id: task.task_id, initial: taskFormInitial(task) })
-                    }}
-                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#bec8d2]/40 bg-white px-2 text-[10px] font-semibold text-[#131b2e] shadow-sm hover:bg-[#f2f3ff] transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">edit</span>
-                    Sửa
-                  </button>
-                  <button
-                    type="button"
-                    title="Xóa"
-                    onClick={() => {
-                      setShowTaskDetailModal(false)
-                      deleteEntity('tasks', 'task_id', task.task_id)
-                    }}
-                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#fecaca] bg-[#fff5f5] px-2 text-[10px] font-semibold text-[#b91c1c] shadow-sm hover:bg-[#ffe4e4] transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">delete</span>
-                    Xóa
-                  </button>
-                </div>
-              )}
+              <div onClick={e => e.stopPropagation()}>
+                <ThreeDotMenu items={taskActionItems} />
+              </div>
             </div>
           ) : null}
           {showTaskDetailModal ? (
@@ -864,40 +1196,9 @@ function ModalTaskCard({
                   <StatusBadge status={task.status} />
                 </div>
               )}
-              {canModify && (
-                <>
-                  <button
-                    type="button"
-                    title="Nhập tiểu mục"
-                    onClick={() => m.open('add_subtask', { taskId: task.task_id })}
-                    className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded border border-[#bec8d2]/30 bg-[#eae8ff] font-semibold text-[#006591] transition-colors hover:bg-[#dae2fd] ${compact ? 'px-1 py-px text-[7px]' : 'px-1.5 py-0.5 text-[8px]'
-                      }`}
-                  >
-                    <span className={`material-symbols-outlined ${compact ? 'text-[11px]' : 'text-[13px]'}`}>add_circle</span>
-                    <span className={compact ? 'hidden min-[380px]:inline' : ''}>Tiểu mục</span>
-                  </button>
-                  <button
-                    type="button"
-                    title="Chỉnh sửa"
-                    onClick={() => m.open('edit_task', { id: task.task_id, initial: taskFormInitial(task) })}
-                    className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded border border-[#bec8d2]/30 bg-white font-semibold text-[#131b2e] transition-colors hover:bg-[#f2f3ff] ${compact ? 'px-1 py-px text-[7px]' : 'px-1.5 py-0.5 text-[8px]'
-                      }`}
-                  >
-                    <span className={`material-symbols-outlined ${compact ? 'text-[11px]' : 'text-[13px]'}`}>edit</span>
-                    <span className={compact ? 'hidden min-[380px]:inline' : ''}>Sửa</span>
-                  </button>
-                  <button
-                    type="button"
-                    title="Xóa"
-                    onClick={() => deleteEntity('tasks', 'task_id', task.task_id)}
-                    className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded border border-[#fecaca] bg-[#fff8f8] font-semibold text-[#b91c1c] transition-colors hover:bg-[#ffecec] ${compact ? 'px-1 py-px text-[7px]' : 'px-1.5 py-0.5 text-[8px]'
-                      }`}
-                  >
-                    <span className={`material-symbols-outlined ${compact ? 'text-[11px]' : 'text-[13px]'}`}>delete</span>
-                    <span className={compact ? 'hidden min-[380px]:inline' : ''}>Xóa</span>
-                  </button>
-                </>
-              )}
+              <div onClick={e => e.stopPropagation()}>
+                <ThreeDotMenu items={taskActionItems} />
+              </div>
             </div>
           </div>
           {displayBlocks.length === 0 ? (
@@ -994,7 +1295,7 @@ function ModalTaskCard({
             <span className={`material-symbols-outlined text-[#6e7881] ${c.icon}`}>event</span>
             {formatDeadlineDisplay(task.deadline)}
           </span>
-          {task.users?.full_name && (
+          {taskAssigneeName && (
             <span
               className={`inline-flex items-center gap-0.5 rounded-full bg-[#dae2fd] text-[#006591] font-medium truncate ${compact
                 ? 'px-0.5 py-px text-[8px] max-w-[100px]'
@@ -1002,7 +1303,7 @@ function ModalTaskCard({
                 }`}
             >
               <span className={`material-symbols-outlined shrink-0 ${compact ? 'text-[9px]' : 'text-[11px]'}`}>person</span>
-              {task.users.full_name}
+              {taskAssigneeName}
             </span>
           )}
           {onTaskStatusChange ? (
@@ -1046,7 +1347,7 @@ function ModalTaskCard({
           >
             <span className={`material-symbols-outlined ${compact ? 'text-[12px]' : 'text-[14px]'}`}>checklist</span>
             Xem tiểu mục
-            <span className="opacity-80">({activeSubs.length})</span>
+            <span className="opacity-80">({subs.length})</span>
           </button>
         </div>
       )}
@@ -1066,14 +1367,26 @@ function ModalTaskCard({
               </p>
               <div className="flex items-center justify-between pr-4 mt-1">
                 <h3 className="text-base font-medium tracking-tight text-[#131b2e]">Tiểu mục</h3>
-                <button
-                  type="button"
-                  disabled={selectedTaskIds.length === 0}
-                  onClick={() => setShowPrintModal(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#006591] bg-[#eef4ff] px-3 py-1.5 text-xs font-bold text-[#006591] hover:bg-[#dae2fd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Giao việc {selectedTaskIds.length > 0 && `(${selectedTaskIds.length})`}
-                </button>
+                <div className="flex items-center gap-2">
+                  {canModify ? (
+                    <button
+                      type="button"
+                      onClick={() => m.open('add_subtask', { taskId: task.task_id })}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-100 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">add</span>
+                      Thêm tiểu mục
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={selectedTaskIds.length === 0}
+                    onClick={() => setShowPrintModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#006591] bg-[#eef4ff] px-3 py-1.5 text-xs font-bold text-[#006591] hover:bg-[#dae2fd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Giao việc {selectedTaskIds.length > 0 && `(${selectedTaskIds.length})`}
+                  </button>
+                </div>
               </div>
             </div>
           }
@@ -1100,7 +1413,7 @@ function ModalTaskCard({
                 </div>
 
                 {/* HEADER BẢNG - Ẩn trên Mobile */}
-                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
+                <div className="hidden lg:grid grid-cols-[30px_180px_minmax(130px,_1fr)_minmax(110px,_1fr)_minmax(100px,_1fr)_70px_130px_80px_200px_70px] lg:gap-2 px-0 lg:py-1.5 pb-3 text-[10px] uppercase tracking-wider text-[#64748b] font-semibold border-b border-slate-200 mt-2 w-full">
                   <div className="flex items-center justify-center">
                     {(() => {
                       const allSelected = group.items.length > 0 && group.items.every(st => selectedTaskIds.includes(st.subtask_id))
@@ -1129,6 +1442,7 @@ function ModalTaskCard({
                   </div>
                   <div>Tiểu mục & Trạng thái</div>
                   <div>Ghi chú & Hướng dẫn</div>
+                  <div>Phương án giải quyết</div>
                   <div>Phản hồi nghiệm thu</div>
                   <div className="text-center">Đính kèm</div>
                   <div>Thống kê thời gian</div>
@@ -1138,6 +1452,7 @@ function ModalTaskCard({
                 </div>
                 <ul className="space-y-0">
                   {group.items.map(st => {
+                    const subAssigneeName = assigneeDisplayName(st.assigned_to, assigneeRoster)
                     const workSessions = normalizeSubtaskWorkTime(st.work_time)
                     const workRunning = subtaskHasOpenWorkSession(workSessions)
                     const subDisplayBlocks = normalizeTaskContentBlocks(st).filter(
@@ -1164,7 +1479,7 @@ function ModalTaskCard({
 
                     {/* CẤU TRÚC: Card (Mobile) | Grid (Desktop) */ }
                     return (
-                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(150px,_1fr)_minmax(120px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
+                      <li key={st.subtask_id} className={`flex flex-col lg:grid lg:grid-cols-[30px_180px_minmax(130px,_1fr)_minmax(110px,_1fr)_minmax(100px,_1fr)_70px_130px_80px_200px_70px] gap-3 lg:gap-2 items-start border-b border-slate-200 py-4 lg:py-2 min-w-0 w-full transition-all ${isSelected ? 'bg-blue-50/80 border-b-blue-200' : ''}`}>
 
                         {/* 1. Checkbox + Tên + Badge Trạng thái */}
                         <div className="flex items-start gap-2 w-full lg:contents">
@@ -1199,11 +1514,11 @@ function ModalTaskCard({
                                 </select>
                               ) : <StatusBadge status={st.status} />}
                               <div className="lg:hidden text-[11px] text-slate-500 flex items-center gap-1 min-w-0 truncate">
-                                <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
+                                <span className="truncate">{subAssigneeName ? `${userInitials(subAssigneeName)} ${subAssigneeName}` : 'Chưa gán'}</span>
                               </div>
                             </div>
                             <div className="hidden lg:flex text-[11px] text-slate-500 mt-auto items-center gap-1 min-w-0 truncate">
-                              <span className="truncate">{st.users?.full_name ? `${userInitials(st.users.full_name)} ${st.users.full_name}` : 'Chưa gán'}</span>
+                              <span className="truncate">{subAssigneeName ? `${userInitials(subAssigneeName)} ${subAssigneeName}` : 'Chưa gán'}</span>
                             </div>
                           </div>
                         </div>
@@ -1221,6 +1536,20 @@ function ModalTaskCard({
                           ) : (
                             <div className="bg-slate-50 p-2.5 lg:p-1.5 rounded-md text-[13px] lg:text-[11px] whitespace-pre-wrap break-words w-full text-slate-400 italic lg:block hidden">
                               Không có ghi chú
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Phương án giải quyết (solution) */}
+                        <div className="flex flex-col min-w-0 w-full lg:h-full pl-6 lg:pl-0">
+                          <span className="lg:hidden text-[10px] font-bold uppercase tracking-wide text-[#64748b] mb-1">Phương án giải quyết</span>
+                          {st.solution?.trim() ? (
+                            <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-2.5 lg:p-1.5 text-[13px] lg:text-[11px] whitespace-pre-wrap break-words text-[#131b2e] w-full">
+                              {st.solution.trim()}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-2 lg:p-1.5 text-[13px] lg:text-[11px] text-slate-400 italic w-full">
+                              Chưa có phương án — Sửa tiểu mục để nhập
                             </div>
                           )}
                         </div>
@@ -1352,7 +1681,7 @@ function ModalTaskCard({
   )
 
   const taskCardWrapClass = statusActionsOutside
-    ? 'rounded-xl border border-[#e5e8ef] bg-white p-3 shadow-sm transition-all duration-200 hover:border-[#cfd6e6] hover:shadow-md'
+    ? 'rounded-xl border border-[#e5e8ef] bg-white p-2 shadow-sm transition-all duration-200 hover:border-[#cfd6e6] hover:shadow-md'
     : c.wrap
 
   return (
@@ -1408,8 +1737,8 @@ function ModalTaskCard({
 
               {/* HEADER THEO PHONG CÁCH GIẤY A4 */}
               <div className="w-full px-10 pt-10 pb-6 border-b border-slate-100 bg-white">
-                <h1 className="text-[24px] font-bold text-slate-800 tracking-tight">DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ</h1>
-                <p className="text-sm text-slate-500 mt-2">Dự án: {feature.name || 'Chung'} • Khối lượng: {selectedTaskIds.length} việc</p>
+                <h1 className="text-[28px] font-extrabold text-slate-800 tracking-tight">DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ</h1>
+                <p className="text-[15px] font-semibold text-slate-600 mt-2">Dự án: {feature.name || 'Chung'} • Khối lượng: {selectedTaskIds.length} việc</p>
               </div>
 
               {/* LIST TASK CARDS */}
@@ -1450,7 +1779,7 @@ function ModalTaskCard({
 
                         {/* Title & Tags */}
                         <div className="flex flex-col gap-2 min-w-0 h-full">
-                          <h2 className={`text-[16px] font-bold leading-snug tracking-tight break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#3e4850]'}`}>
+                          <h2 className={`text-[19px] font-extrabold leading-snug tracking-tight break-words ${isCompleted ? 'line-through text-slate-400' : 'text-[#3e4850]'}`}>
                             {st.name}
                           </h2>
 
@@ -1470,7 +1799,7 @@ function ModalTaskCard({
                       {/* CỘT 2: GHI CHÚ & HƯỚNG DẪN */}
                       <div className="w-full lg:w-[35%] flex-1">
                         <div className={`h-full lg:border-l lg:border-slate-100 lg:pl-8 flex flex-col justify-center ${isCompleted ? 'opacity-60' : ''}`}>
-                          <ul className={`list-outside ml-4 space-y-3 text-[13.5px] leading-relaxed text-[#3e4850] marker:text-[#6e7881] ${isCompleted ? 'line-through text-slate-400' : ''}`} style={{ listStyleType: 'disc' }}>
+                          <ul className={`list-outside ml-4 space-y-3 text-[18px] font-bold leading-relaxed text-[#334155] marker:text-[#6e7881] ${isCompleted ? 'line-through text-slate-400' : ''}`} style={{ listStyleType: 'disc' }}>
                             {subDisplayBlocks.filter(b => b.content?.trim()).map((b, bIdx) => {
                               const lines = b.content.trim().split('\n').filter(l => l.trim())
                               return lines.map((line, lIndex) => {
@@ -1486,7 +1815,7 @@ function ModalTaskCard({
                       </div>
 
                       {/* CỘT 3: HÌNH ẢNH MINH HỌA (GALLERY) */}
-                      <div className="w-full lg:w-[280px] shrink-0 flex flex-col gap-3">
+                      <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-3">
                         {allMedia.length > 0 ? (
                           <div className={`grid gap-2 ${allMedia.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                             {allMedia.map((url, mIdx) => {
@@ -1494,16 +1823,16 @@ function ModalTaskCard({
                               return isImg ? (
                                 <div
                                   key={mIdx}
-                                  className="w-full rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 aspect-[4/3] flex items-center justify-center cursor-zoom-in group hover:opacity-90 transition-all"
+                                  className="w-full h-[220px] rounded-[12px] overflow-hidden shadow-sm border border-slate-200 bg-slate-50 flex items-center justify-center cursor-zoom-in group hover:opacity-90 transition-all"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setImageLightboxUrl(url);
                                   }}
                                 >
-                                  <img src={url} alt="Preview" className="w-full h-full object-cover" />
+                                  <img src={url} alt="Preview" className="w-full h-full object-contain p-1.5" />
                                 </div>
                               ) : (
-                                <div key={mIdx} className="w-full rounded-[12px] bg-white border border-slate-200 aspect-[4/3] flex flex-col items-center justify-center gap-1 text-[#006591]">
+                                <div key={mIdx} className="w-full h-[220px] rounded-[12px] bg-white border border-slate-200 flex flex-col items-center justify-center gap-1 text-[#006591]">
                                   <span className="material-symbols-outlined text-[20px]">attach_file</span>
                                   <span className="text-[8px] font-bold uppercase truncate px-2 w-full text-center">Link tài liệu</span>
                                 </div>
@@ -1511,14 +1840,14 @@ function ModalTaskCard({
                             })}
                           </div>
                         ) : (
-                          <div className="w-full rounded-[12px] bg-slate-50 border border-slate-100 aspect-[4/3] flex flex-col items-center justify-center gap-2 text-slate-300">
+                          <div className="w-full h-[220px] rounded-[12px] bg-slate-50 border border-slate-100 flex flex-col items-center justify-center gap-2 text-slate-300">
                             <span className="material-symbols-outlined text-[32px]">image</span>
                             <span className="text-[9px] uppercase font-bold tracking-wider">No preview available</span>
                           </div>
                         )}
                         {allMedia.length > 0 && (
                           <div className="text-[10px] text-slate-400 italic text-center w-full truncate px-2">
-                            {userInitials(st.users?.full_name)} {st.users?.full_name ? st.users.full_name.split(' ').slice(-2).join(' ') : 'Chưa gán'} — {allMedia.length} ảnh
+                            {userInitials(subAssigneeName || '?')} {subAssigneeName ? subAssigneeName.split(' ').slice(-2).join(' ') : 'Chưa gán'} — {allMedia.length} ảnh
                           </div>
                         )}
                       </div>
@@ -1614,6 +1943,7 @@ function AssignTeamModal({ allUsers, selectedIds, onToggle, onSave, onClose, sav
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [customers, setCustomers] = useState([])
   const customersRef = useRef([])
   const [fadingTaskIds, setFadingTaskIds] = useState(new Set())
@@ -1654,6 +1984,17 @@ export default function ProjectsPage() {
   const [savingTask, setSavingTask] = useState(false)
   const [savingFeature, setSavingFeature] = useState(false)
   const [toast, setToast] = useState(null)
+  const [tableSubtaskLightboxUrl, setTableSubtaskLightboxUrl] = useState(null)
+  /** Bảng dự án: xem chi tiết tiểu mục (mở khi nhấn thẻ — thẻ chỉ còn tiêu đề + action) */
+  const [projectTableSubtaskDetail, setProjectTableSubtaskDetail] = useState(null)
+  useEffect(() => {
+    if (!tableSubtaskLightboxUrl) return
+    const onKey = e => {
+      if (e.key === 'Escape') setTableSubtaskLightboxUrl(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tableSubtaskLightboxUrl])
   const [updatingTaskId, setUpdatingTaskId] = useState(null)
   const [updatingSubtaskId, setUpdatingSubtaskId] = useState(null)
   const [updatingSubtaskWorkTimeId, setUpdatingSubtaskWorkTimeId] = useState(null)
@@ -1661,6 +2002,8 @@ export default function ProjectsPage() {
   const [projectSearch, setProjectSearch] = useState('')
   /** Tất cả | Đang làm (active) | Sắp hạn (due) — theo mock dashboard */
   const [projectListFilter, setProjectListFilter] = useState('all')
+  /** Chế độ hiển thị danh sách dự án ở trang /projects */
+  const [projectViewMode, setProjectViewMode] = useState('kanban')
   /** customer_id → true = đang thu gọn danh sách dự án */
   const [collapsedCustomerIds, setCollapsedCustomerIds] = useState({})
   const [openProjectMenuId, setOpenProjectMenuId] = useState(null)
@@ -1721,10 +2064,33 @@ export default function ProjectsPage() {
     }
   }, [customers, projectsModalCustomerId])
 
+  useEffect(() => {
+    if (!projectTasksViewId) setProjectTaskViewMode('kanban')
+  }, [projectTasksViewId])
+
 
   const [loadingKanban, setLoadingKanban] = useState(false)
-  const [showKanbanDocs, setShowKanbanDocs] = useState(true)
-  const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager'
+  const [showKanbanDocs, setShowKanbanDocs] = useState(false)
+  const [projectTaskViewMode, setProjectTaskViewMode] = useState('kanban')
+  const [projectTaskStatusFilter, setProjectTaskStatusFilter] = useState(TASK_STATUS_FILTER_OPTIONS.map(opt => opt.value))
+  const [projectSubtaskStatusFilter, setProjectSubtaskStatusFilter] = useState(SUBTASK_STATUS_FILTER_OPTIONS.map(opt => opt.value))
+  const roleLower = (userRole || '').toLowerCase()
+  const isManagerOrAdmin = ['admin', 'administrator', 'manager', 'superadmin'].includes(roleLower)
+  /** Sửa tiểu mục: admin/manager; hoặc không phải employee; hoặc employee nhưng có trong phân công dự án */
+  const canEditSubtaskInTable = useMemo(() => {
+    if (!user?.user_id) return false
+    if (isManagerOrAdmin) return true
+    if (roleLower && roleLower !== 'employee') return true
+    return (projectInTasksView?.project_assignments || []).some(a => a?.user_id === user.user_id)
+  }, [user?.user_id, userRole, isManagerOrAdmin, roleLower, projectInTasksView?.project_assignments])
+
+  useEffect(() => {
+    if (!projectTasksViewId) setProjectTaskStatusFilter(TASK_STATUS_FILTER_OPTIONS.map(opt => opt.value))
+  }, [projectTasksViewId])
+
+  useEffect(() => {
+    if (!projectTasksViewId) setProjectSubtaskStatusFilter(SUBTASK_STATUS_FILTER_OPTIONS.map(opt => opt.value))
+  }, [projectTasksViewId])
 
   useEffect(() => {
     if (!projectsModalCustomer || !projectTasksViewId || loadingKanban) return
@@ -1743,24 +2109,44 @@ export default function ProjectsPage() {
     if (loadingKanban) return
     setLoadingKanban(true)
     try {
-      const { data, error } = await supabase
+      const { data: featuresRaw, error } = await supabase
         .from('features')
-        .select(`
-          *,
-          tasks (*, users:assigned_to(full_name),
-            subtasks (*, users:assigned_to(full_name))
-          )
-        `)
+        .select('*')
         .eq('project_id', projectId)
         .order('created_at', { ascending: true })
 
       if (error) throw error
 
+      const featureRows = featuresRaw || []
+      const featureIds = featureRows.map(f => f.feature_id).filter(Boolean)
+      const tasksFlat = await fetchAllTasksWithSubtasks(featureIds)
+      const byFeature = new Map()
+      for (const fid of featureIds) byFeature.set(fid, [])
+      for (const t of tasksFlat) {
+        const fid = t.feature_id
+        if (!byFeature.has(fid)) byFeature.set(fid, [])
+        byFeature.get(fid).push(t)
+      }
+      const ts = ca => {
+        const t = ca?.created_at ? new Date(ca.created_at).getTime() : NaN
+        return Number.isFinite(t) ? t : 0
+      }
+      for (const arr of byFeature.values()) {
+        arr.sort((a, b) => {
+          const d = ts(a) - ts(b)
+          return d !== 0 ? d : String(a.task_id || '').localeCompare(String(b.task_id || ''))
+        })
+      }
+      const merged = featureRows.map(f => ({
+        ...f,
+        tasks: byFeature.get(f.feature_id) || [],
+      }))
+
       setCustomers(prev => prev.map(c => ({
         ...c,
         projects: c.projects?.map(p => {
           if (p.project_id === projectId) {
-            return { ...p, features: data || [] }
+            return { ...p, features: merged }
           }
           return p
         })
@@ -1808,17 +2194,15 @@ export default function ProjectsPage() {
   async function init(showSpinner = true) {
     if (showSpinner) setLoading(true)
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
+      if (user?.user_id) {
         // Run profile + allUsers in parallel to avoid sequential round-trips
         const [{ data: profile }, { data: usersData }] = await Promise.all([
-          supabase.from('users').select('role').eq('user_id', authUser.id).single(),
+          supabase.from('users').select('role').eq('user_id', user.user_id).single(),
           supabase.from('users').select('user_id, full_name, role'),
         ])
         setUserRole(profile?.role || 'employee')
-        if (profile?.role !== 'employee') {
-          setAllUsers(usersData || [])
-        }
+        // Danh sách nhân sự: cần cho form Người phụ trách và khi embed users thiếu tên
+        setAllUsers(usersData || [])
       }
       await fetchData(true) // always silent — init manages its own loading state
     } finally {
@@ -1832,24 +2216,24 @@ export default function ProjectsPage() {
     try {
       const [
         { data: custData, error: custErr },
-        { data: taskData, error: taskErr },
+        { data: projectData, error: projectErr },
+        taskAgg,
       ] = await Promise.all([
         supabase
           .from('customers')
-          .select(`
-            customer_id, name, created_at, updated_at,
-            projects (
-              project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at, documents,
-              project_assignments(user_id, users(full_name))
-            )
-          `),
-        // Đếm theo Nhiệm vụ (Task) để khớp với số thẻ trong Kanban
+          .select('customer_id, name, created_at, updated_at'),
         supabase
-          .from('tasks')
-          .select('status, features!inner(project_id)'),
+          .from('projects')
+          .select(`
+            project_id, name, description, status, deadline, pricing, customer_id, created_at, updated_at, documents,
+            project_assignments(user_id, users(full_name))
+          `),
+        fetchAllRowsForTaskProgress().then(data => ({ data, error: null })).catch(err => ({ data: [], error: err })),
       ])
+      const { data: taskData, error: taskErr } = taskAgg
 
       if (custErr) throw custErr
+      if (projectErr) throw projectErr
       if (taskErr) console.warn('Task fetch error:', taskErr)
 
       const progressMap = {}
@@ -1866,12 +2250,20 @@ export default function ProjectsPage() {
         })
       }
 
+      const projectsByCustomer = (projectData || []).reduce((acc, p) => {
+        const key = p.customer_id
+        if (!key) return acc
+        if (!acc[key]) acc[key] = []
+        acc[key].push({
+          ...p,
+          _progress: progressMap[p.project_id] || { total: 0, done: 0 },
+        })
+        return acc
+      }, {})
+
       const finalData = (custData || []).map(c => ({
         ...c,
-        projects: c.projects?.map(p => ({
-          ...p,
-          _progress: progressMap[p.project_id] || { total: 0, done: 0 }
-        }))
+        projects: projectsByCustomer[c.customer_id] || [],
       }))
 
       setCustomers(finalData)
@@ -1924,10 +2316,15 @@ export default function ProjectsPage() {
       delete cleanData.user_ids
       delete cleanData.featureOptions
       delete cleanData._progress
+      delete cleanData.feature
 
       Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === '') delete cleanData[key]
       })
+      // assigned_to cần cho phép set NULL (bỏ người phụ trách), nên không xoá theo rule chuỗi rỗng.
+      if (Object.prototype.hasOwnProperty.call(data, 'assigned_to')) {
+        cleanData.assigned_to = data.assigned_to || null
+      }
 
       if (Object.prototype.hasOwnProperty.call(cleanData, 'deadline')) {
         cleanData.deadline = normalizeDeadlineForSave(cleanData.deadline)
@@ -1936,8 +2333,8 @@ export default function ProjectsPage() {
       let res = { error: null }
 
       if (type === 'add_customer') {
-        const { data: userData } = await supabase.auth.getUser()
-        res = await supabase.from('customers').insert({ ...cleanData, user_id: userData.user.id })
+        if (!user?.user_id) throw new Error('Bạn chưa đăng nhập')
+        res = await supabase.from('customers').insert({ ...cleanData, user_id: user.user_id })
       } else if (type === 'edit_customer') {
         res = await supabase.from('customers').update(cleanData).eq('customer_id', id)
       } else if (type === 'add_project') {
@@ -1983,13 +2380,34 @@ export default function ProjectsPage() {
         m.close()
         return // Save & Stay
       } else if (type === 'add_feature') {
-        res = await supabase.from('features').insert({ ...cleanData, project_id: projectId })
+        if (!projectId) throw new Error('Thiếu mã dự án. Đóng form và mở lại từ dự án.')
+        if (!String(cleanData.name || '').trim()) throw new Error('Vui lòng nhập tên tính năng')
+        setSavingFeature(true)
+        try {
+          res = await supabase
+            .from('features')
+            .insert({ ...cleanData, project_id: projectId })
+            .select()
+          if (res?.error) throw res.error
+          await fetchData(true)
+          if (projectTasksViewId && projectId === projectTasksViewId) {
+            await fetchProjectDetails(projectTasksViewId)
+          }
+          setToast({ message: 'Đã thêm tính năng thành công!', type: 'success' })
+        } finally {
+          setSavingFeature(false)
+        }
+        m.close()
+        return
       } else if (type === 'edit_feature') {
         setSavingFeature(true)
         try {
           res = await supabase.from('features').update(cleanData).eq('feature_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
+          if (projectTasksViewId) {
+            await fetchProjectDetails(projectTasksViewId)
+          }
           setToast({ message: 'Đã cập nhật tính năng thành công!', type: 'success' })
         } finally {
           setSavingFeature(false)
@@ -2034,6 +2452,9 @@ export default function ProjectsPage() {
           res = await supabase.from('tasks').update(cleanData).eq('task_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
+          if (projectTasksViewId) {
+            await fetchProjectDetails(projectTasksViewId)
+          }
           setToast({ message: 'Đã cập nhật nhiệm vụ thành công!', type: 'success' })
         } finally {
           setSavingTask(false)
@@ -2053,10 +2474,19 @@ export default function ProjectsPage() {
             ...sanitized,
             status: cleanData.status || 'pending',
             work_time: [],
+            assigned_to: cleanData.assigned_to || null,
           }
           if (cleanData.deadline != null && cleanData.deadline !== '') row.deadline = cleanData.deadline
-          if (cleanData.assigned_to) row.assigned_to = cleanData.assigned_to
           if (cleanData.feedback) row.feedback = cleanData.feedback
+          if (Object.prototype.hasOwnProperty.call(data, 'solution')) {
+            row.solution =
+              data.solution != null && String(data.solution).trim() !== ''
+                ? String(data.solution).trim()
+                : null
+          }
+          if (Object.prototype.hasOwnProperty.call(data, 'plan_target_at')) {
+            row.plan_target_at = normalizeDeadlineForSave(data.plan_target_at)
+          }
 
           res = await supabase.from('subtasks').insert(row)
           if (res?.error) throw res.error
@@ -2090,15 +2520,25 @@ export default function ProjectsPage() {
             ...sanitized,
             status: cleanData.status || 'pending',
           }
-          if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
-          else patch.deadline = null
-          if (cleanData.assigned_to) patch.assigned_to = cleanData.assigned_to
+          patch.assigned_to = cleanData.assigned_to || null
           if (patch.status !== 'completed') {
             patch.completed_at = null
           } else {
             patch.completed_at = cleanData.completed_at || new Date().toISOString()
           }
           if (cleanData.feedback !== undefined) patch.feedback = cleanData.feedback
+          if (Object.prototype.hasOwnProperty.call(data, 'solution')) {
+            patch.solution =
+              data.solution != null && String(data.solution).trim() !== ''
+                ? String(data.solution).trim()
+                : null
+          }
+          if (cleanData.deadline != null && cleanData.deadline !== '') patch.deadline = cleanData.deadline
+          else patch.deadline = null
+          if (Object.prototype.hasOwnProperty.call(data, 'plan_target_at')) {
+            patch.plan_target_at = normalizeDeadlineForSave(data.plan_target_at)
+          }
+
           res = await supabase.from('subtasks').update(patch).eq('subtask_id', id)
           if (res?.error) throw res.error
           await fetchData(true)
@@ -2374,17 +2814,9 @@ export default function ProjectsPage() {
       await fetchData(true)
     }
 
-    const featureOptions = features.map(f => ({ value: f.feature_id, label: f.name }))
+    const defaultFeature = features.find(f => (f.name || '').trim() === 'Chung') || features[0]
     const emptyBlocks = { content_blocks: [{ content: '', image_urls: [] }] }
-    if (features.length === 1) {
-      m.open('add_task', { featureId: features[0].feature_id, initial: emptyBlocks })
-    } else {
-      m.open('add_task', {
-        featureId: features[0].feature_id,
-        featureOptions,
-        initial: { feature_id: features[0].feature_id, ...emptyBlocks },
-      })
-    }
+    m.open('add_task', { featureId: defaultFeature.feature_id, initial: emptyBlocks })
   }
 
   function modalConfig() {
@@ -2405,9 +2837,16 @@ export default function ProjectsPage() {
           ? { ...f, options: allUsers.map(u => ({ value: u.user_id, label: u.full_name })) }
           : f
       )
-      if (t === 'add_task' && m.modal?.featureOptions?.length > 1) {
+      if (t === 'edit_task' && Array.isArray(m.modal?.featureOptions) && m.modal.featureOptions.length > 0) {
         flds = [
-          { name: 'feature_id', label: 'Tính năng', type: 'select', options: m.modal.featureOptions },
+          {
+            name: 'feature_id',
+            label: 'Tính năng',
+            type: 'searchable_select',
+            options: m.modal.featureOptions,
+            placeholder: 'Gõ để tìm tính năng…',
+            emptyMessage: 'Không tìm thấy tính năng…',
+          },
           ...flds,
         ]
       }
@@ -2425,8 +2864,39 @@ export default function ProjectsPage() {
   }
 
   const cfg = m.modal ? modalConfig() : null
+  const allTaskFilterValues = TASK_STATUS_FILTER_OPTIONS.map(opt => opt.value)
+  const allSubtaskFilterValues = SUBTASK_STATUS_FILTER_OPTIONS.map(opt => opt.value)
+  const toggleFilterValue = (currentValues, setter, value, allValues) => {
+    if (value === 'all') {
+      setter(allValues)
+      return
+    }
+    if (currentValues.includes(value)) {
+      setter(currentValues.filter(v => v !== value))
+      return
+    }
+    setter([...currentValues, value])
+  }
   const projectTasksModalEntries = projectInTasksView ? collectTasksFromProject(projectInTasksView) : []
-  const taskKanbanGrouped = projectInTasksView ? groupTaskEntriesForKanban(projectTasksModalEntries) : null
+  const tableFilteredTaskEntries = projectTasksModalEntries.filter(({ task }) => {
+    const taskStatus = task?.status || 'pending'
+    return projectTaskStatusFilter.includes(taskStatus)
+  })
+  /** Luôn giữ task khi khớp bộ lọc trạng thái nhiệm vụ — chỉ lọc các tiểu mục hiển thị (không ẩn cả card). */
+  const entriesMatchingStatusFilters = tableFilteredTaskEntries
+    .map(({ feature, task }) => {
+      const allSubtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
+      const subtasks = sortSubtasksByNearestDateFirst(
+        allSubtasks.filter(st => projectSubtaskStatusFilter.includes(st?.status || 'pending'))
+      )
+      return { feature, task, subtasks }
+    })
+  const filteredProjectTableEntries = entriesMatchingStatusFilters
+  const kanbanTaskEntries = entriesMatchingStatusFilters.map(({ feature, task, subtasks }) => ({
+    feature,
+    task: { ...task, subtasks },
+  }))
+  const taskKanbanGrouped = projectInTasksView ? groupTaskEntriesForKanban(kanbanTaskEntries) : null
 
   const displayedCustomerProjects = useMemo(() => {
     const ql = projectSearch.trim().toLowerCase()
@@ -2467,6 +2937,25 @@ export default function ProjectsPage() {
   const paginatedCustomerProjects = (isMobileScreen && !projectTasksViewId)
     ? displayedCustomerProjects.slice((currentPageMain - 1) * PAGE_SIZE_MAIN, currentPageMain * PAGE_SIZE_MAIN)
     : displayedCustomerProjects
+
+  const tableRows = useMemo(
+    () => paginatedCustomerProjects.flatMap(({ customer, projects }) =>
+      projects.map(project => ({ customer, project }))
+    ),
+    [paginatedCustomerProjects]
+  )
+
+  /** Danh sách dự án trên /projects — nhóm theo trạng thái cho chế độ Kanban (Thẻ dự án) */
+  const projectListKanbanGrouped = useMemo(() => {
+    const entries = paginatedCustomerProjects.flatMap(({ customer: c, projects: projectsFiltered }) =>
+      projectsFiltered.map(p => ({ customer: c, project: p }))
+    )
+    const grouped = { pending: [], in_progress: [], overdue: [], completed: [] }
+    for (const item of entries) {
+      grouped[taskKanbanColumnKey(item.project?.status)].push(item)
+    }
+    return grouped
+  }, [paginatedCustomerProjects])
 
   /** Stats luôn tính từ TOÀN BỘ dữ liệu, không bị ảnh hưởng bởi filter đang chọn */
   const projectListStats = useMemo(() => {
@@ -2606,6 +3095,24 @@ export default function ProjectsPage() {
                     {f.label}
                   </button>
                 ))}
+                <div className="ml-1 h-6 w-px bg-[#e2e8f0]" />
+                {[
+                  { id: 'kanban', label: 'Kanban', icon: 'view_kanban' },
+                  { id: 'table', label: 'Bảng dự án', icon: 'table_rows' },
+                ].map(view => (
+                  <button
+                    key={view.id}
+                    type="button"
+                    onClick={() => setProjectViewMode(view.id)}
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-colors ${projectViewMode === view.id
+                      ? 'border border-sky-200 bg-sky-50 text-sky-900'
+                      : 'border border-transparent text-[#64748b] hover:bg-slate-100'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-[14px]">{view.icon}</span>
+                    {view.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -2617,124 +3124,153 @@ export default function ProjectsPage() {
                     : 'Chưa có dự án nào.'}
                 </p>
               ) : null}
-              {paginatedCustomerProjects.flatMap(({ customer: c, projects: projectsFiltered }) =>
-                projectsFiltered.map(p => {
-                  const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
-                  const dashKey = projectDashboardKey(p)
-                  const sm = DASH_STATUS_META[dashKey]
-                  const assignments = p.project_assignments || []
-                  const memberChips = assignments.slice(0, 3).map((a, idx) => {
-                    const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
-                    const ini = userInitials(nm)
-                    return (
-                      <div
-                        key={a.user_id}
-                        className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
-                        style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
-                        title={nm}
-                      >
-                        {ini.slice(0, 2)}
-                      </div>
-                    )
-                  })
-
-                  return (
+              {projectViewMode === 'kanban' ? (
+                <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full items-stretch pb-2">
+                  {KANBAN_COLUMNS.map(col => (
                     <div
-                      key={p.project_id}
-                      onClick={() => {
-                        setProjectsModalCustomerId(c.customer_id)
-                        setProjectTasksViewId(p.project_id)
-                      }}
-                      className="rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
+                      key={col.key}
+                      className={`flex min-w-0 flex-col max-h-[min(78vh,52rem)] rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-md overflow-hidden`}
                     >
-                      {/* ─── Hàng 1: Tên + Avatars + Badge + Menu ─── */}
-                      <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                        <span className="flex-1 min-w-0 truncate text-[14px] font-bold text-[#131b2e]" title={p.name}>
-                          {p.name}
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[#e8ecf0] bg-white shrink-0">
+                        <p className="text-[13px] font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                        <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
+                          {projectListKanbanGrouped[col.key].length}
                         </span>
-
-                        {/* Avatars */}
-                        {memberChips.length > 0 && (
-                          <div className="flex items-center shrink-0">
-                            {memberChips}
-                          </div>
-                        )}
-
-                        {/* Status badge */}
-                        <div className="shrink-0">
-                          <StatusBadge status={p.status} />
-                        </div>
-
-                        {/* 3-dot menu */}
-                        {isManagerOrAdmin && (
-                          <div
-                            className="relative shrink-0"
-                            data-project-dd
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation()
-                                setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
-                              }}
-                              className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
-                              aria-label="Thao tác dự án"
-                            >
-                              <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                            </button>
-                            {openProjectMenuId === p.project_id && (
-                              <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
-                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                  onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
-                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem Kanban & Chi tiết
-                                </button>
-                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                  onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
-                                  <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
-                                </button>
-                                <div className="my-1 h-px bg-[#e2e8f0]" />
-                                <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
-                                  onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
-                                  <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
-
-                      {/* ─── Hàng 2: Ngày | % text | Progress bar | % | Task count ─── */}
-                      <div className="flex items-center gap-3 px-4 pb-3 text-[11px] text-[#94a3b8]">
-                        {/* Deadline */}
-                        <div className="flex items-center gap-1 shrink-0 min-w-[90px]">
-                          <span className="material-symbols-outlined text-[12px]">schedule</span>
-                          <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
-                        </div>
-
-                        {/* % text */}
-                        <span className="tabular-nums text-[#94a3b8]">{pct}%</span>
-
-                        {/* Progress bar */}
-                        <div className="flex-1 h-[4px] overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${pct}%`,
-                              background: pct === 100 ? '#10b981' : sm.bar
-                            }}
-                          />
-                        </div>
-
-                        {/* % right */}
-                        <span className={`tabular-nums font-semibold ${pct === 100 ? 'text-emerald-600' : 'text-[#475569]'}`}>{pct}%</span>
-
-                        {/* Task count */}
-                        <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
+                      <div className="flex-1 min-h-0 p-2 space-y-2 overflow-y-auto custom-scrollbar touch-pan-y">
+                        {projectListKanbanGrouped[col.key].map(({ customer: c, project: p }) => {
+                          const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
+                          const dashKey = projectDashboardKey(p)
+                          const sm = DASH_STATUS_META[dashKey]
+                          const assignments = p.project_assignments || []
+                          const memberChips = assignments.slice(0, 3).map((a, idx) => {
+                            const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
+                            const ini = userInitials(nm)
+                            return (
+                              <div
+                                key={a.user_id}
+                                className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
+                                style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
+                                title={nm}
+                              >
+                                {ini.slice(0, 2)}
+                              </div>
+                            )
+                          })
+                          return (
+                            <div
+                              key={p.project_id}
+                              onClick={() => {
+                                setProjectsModalCustomerId(c.customer_id)
+                                setProjectTasksViewId(p.project_id)
+                              }}
+                              className="w-full rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
+                            >
+                              <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+                                <span className="flex-1 min-w-0 truncate text-[13px] font-bold text-[#131b2e]" title={p.name}>
+                                  {p.name}
+                                </span>
+                                {memberChips.length > 0 && <div className="flex items-center shrink-0">{memberChips}</div>}
+                                {isManagerOrAdmin && (
+                                  <div className="relative shrink-0" data-project-dd onClick={e => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={e => {
+                                        e.stopPropagation()
+                                        setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
+                                      }}
+                                      className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
+                                      aria-label="Thao tác dự án"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
+                                    </button>
+                                    {openProjectMenuId === p.project_id && (
+                                      <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                          onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
+                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem nhiệm vụ
+                                        </button>
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                          onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
+                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
+                                        </button>
+                                        <div className="my-1 h-px bg-[#e2e8f0]" />
+                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
+                                          onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
+                                          <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <p className="px-3 pb-1 text-[10px] text-[#64748b] truncate" title={c.name}>{c.name}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2.5 text-[10px] text-[#94a3b8]">
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <span className="material-symbols-outlined text-[11px]">schedule</span>
+                                  <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
+                                </div>
+                                <span className="tabular-nums">{pct}%</span>
+                                <div className="min-w-[48px] flex-1 h-[3px] overflow-hidden rounded-full bg-slate-100">
+                                  <div
+                                    className="h-full rounded-full transition-all"
+                                    style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : sm.bar }}
+                                  />
+                                </div>
+                                <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {projectListKanbanGrouped[col.key].length === 0 && (
+                          <p className="text-[11px] text-[#94a3b8] italic text-center py-4">Chưa có dự án</p>
+                        )}
                       </div>
                     </div>
-                  )
-                })
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+                  <table className="w-full min-w-[760px] text-left">
+                    <thead className="bg-[#f8fafc] border-b border-[#e2e8f0]">
+                      <tr className="text-[11px] uppercase tracking-wide text-[#64748b]">
+                        <th className="px-4 py-3">Dự án</th>
+                        <th className="px-4 py-3">Khách hàng</th>
+                        <th className="px-4 py-3">Trạng thái</th>
+                        <th className="px-4 py-3">Deadline</th>
+                        <th className="px-4 py-3">Tiến độ</th>
+                        <th className="px-4 py-3 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#eef2f7]">
+                      {tableRows.map(({ customer: c, project: p }) => {
+                        const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
+                        return (
+                          <tr key={p.project_id} className="hover:bg-[#f8fbff]">
+                            <td className="px-4 py-3 text-[13px] font-semibold text-[#131b2e]">{p.name}</td>
+                            <td className="px-4 py-3 text-[12px] text-[#3e4850]">{c.name}</td>
+                            <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                            <td className="px-4 py-3 text-[12px] text-[#3e4850]">{formatDeadlineDisplay(p.deadline)}</td>
+                            <td className="px-4 py-3 text-[12px] text-[#3e4850] tabular-nums">{pct}% ({taskDone}/{taskTotal})</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProjectsModalCustomerId(c.customer_id)
+                                  setProjectTasksViewId(p.project_id)
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[12px] font-medium text-sky-900 hover:bg-sky-100"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                Xem
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
 
 
@@ -2792,10 +3328,30 @@ export default function ProjectsPage() {
               : 'px-4 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-5 overflow-y-auto max-h-[80vh]'
           }
           title={projectInTasksView ? `Dự án — ${projectInTasksView.name}` : `Dự án — ${projectsModalCustomer?.name || '...'}`}
-          subtitle={projectTasksViewId ? 'Bảng điều khiển nhiệm vụ & Kanban' : null}
+          subtitle={projectTasksViewId ? `Bảng điều khiển nhiệm vụ (${projectTaskViewMode === 'kanban' ? 'Kanban' : 'Bảng'})` : null}
           headerActions={
             projectTasksViewId ? (
               <div className="flex items-center gap-2 flex-wrap justify-end">
+                <div className="inline-flex items-center rounded-lg border border-[#dbe4ee] bg-white p-0.5">
+                  {[
+                    { id: 'kanban', label: 'Kanban', icon: 'view_kanban' },
+                    { id: 'table', label: 'Bảng', icon: 'table_rows' },
+                  ].map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setProjectTaskViewMode(v.id)}
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                        projectTaskViewMode === v.id
+                          ? 'bg-sky-50 text-sky-900 border border-sky-200'
+                          : 'text-[#64748b] hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">{v.icon}</span>
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
                 {(userRole === 'admin' || userRole === 'manager') && (
                   <button
                     type="button"
@@ -2838,22 +3394,22 @@ export default function ProjectsPage() {
           {projectTasksViewId && projectInTasksView ? (
             <div className="flex flex-col h-full overflow-hidden">
               {/* KANBAN VIEW HEADER - Bám sát thiết kế card cũ của sếp */}
-              <div className="mb-6 shrink-0 rounded-xl border border-[#bec8d2]/30 bg-[#faf8ff]/50 p-4 space-y-3 shadow-md">
+              <div className="mb-3 shrink-0 rounded-xl border border-[#bec8d2]/25 bg-[#faf8ff]/40 p-2.5 space-y-2 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-[#131b2e]">{projectInTasksView.name}</p>
                       <StatusBadge status={projectInTasksView.status} />
                     </div>
-                    <p className="text-xs text-[#3e4850] line-clamp-2">{projectInTasksView.description || '—'}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#3e4850]">
+                    <p className="text-[11px] text-[#3e4850] line-clamp-1">{projectInTasksView.description || '—'}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[#3e4850]">
                       <span>Ngân sách: {projectInTasksView.pricing ? `${Number(projectInTasksView.pricing).toLocaleString('vi-VN')} ₫` : '—'}</span>
                       <span>Hạn: {formatDeadlineDisplay(projectInTasksView.deadline)}</span>
                     </div>
                   </div>
 
                   {/* BẢNG TÀI LIỆU "HẠT TIÊU" - Đúng ý sếp */}
-                  <div className="hidden lg:block w-[320px] shrink-0 px-4 border-l border-slate-100 self-stretch flex flex-col justify-center">
+                  <div className="hidden 2xl:block w-[280px] shrink-0 px-3 border-l border-slate-100 self-stretch flex flex-col justify-center">
                     {(() => {
                       const docs = (Array.isArray(projectInTasksView.documents) ? projectInTasksView.documents : []).filter(d => d.link?.trim())
                       return (
@@ -2917,7 +3473,7 @@ export default function ProjectsPage() {
                 </div>
 
                 {/* NHÂN SỰ COLLAPSIBLE */}
-                <div className="border-t border-[#bec8d2]/15 pt-2">
+                <div className="border-t border-[#bec8d2]/15 pt-1.5">
                   <button
                     type="button"
                     onClick={() => setShowKanbanDocs(!showKanbanDocs)}
@@ -2936,7 +3492,7 @@ export default function ProjectsPage() {
                     </span>
                   </button>
                   {showKanbanDocs && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-0.5">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-0.5">
                       {(projectInTasksView.project_assignments || []).map(a => {
                         const u = allUsers.find(x => x.user_id === a.user_id)
                         return (
@@ -2960,36 +3516,291 @@ export default function ProjectsPage() {
                 </div>
               </div>
 
+              <div className="mb-3 shrink-0 rounded-xl border border-[#dbe4ee] bg-white p-2.5 shadow-sm">
+                  <div className="flex flex-wrap items-start gap-4">
+                    <div className="min-w-[300px] space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-[#64748b]">Lọc trạng thái task</div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="inline-flex items-center gap-1.5 rounded-md border border-[#dbe4ee] bg-[#f8fafc] px-2 py-1 text-[11px] font-semibold text-[#334155]">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 accent-[#006591]"
+                            checked={projectTaskStatusFilter.length === allTaskFilterValues.length}
+                            onChange={() => setProjectTaskStatusFilter(allTaskFilterValues)}
+                          />
+                          Tất cả
+                        </label>
+                        {TASK_STATUS_FILTER_OPTIONS.map(opt => (
+                          <label key={opt.value} className="inline-flex items-center gap-1.5 rounded-md border border-[#dbe4ee] bg-white px-2 py-1 text-[11px] font-medium text-[#334155]">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-[#006591]"
+                              checked={projectTaskStatusFilter.includes(opt.value)}
+                              onChange={() => toggleFilterValue(projectTaskStatusFilter, setProjectTaskStatusFilter, opt.value, allTaskFilterValues)}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="min-w-[320px] space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-[#64748b]">Lọc trạng thái tiểu mục</div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="inline-flex items-center gap-1.5 rounded-md border border-[#dbe4ee] bg-[#f8fafc] px-2 py-1 text-[11px] font-semibold text-[#334155]">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 accent-[#006591]"
+                            checked={projectSubtaskStatusFilter.length === allSubtaskFilterValues.length}
+                            onChange={() => setProjectSubtaskStatusFilter(allSubtaskFilterValues)}
+                          />
+                          Tất cả
+                        </label>
+                        {SUBTASK_STATUS_FILTER_OPTIONS.map(opt => (
+                          <label key={opt.value} className="inline-flex items-center gap-1.5 rounded-md border border-[#dbe4ee] bg-white px-2 py-1 text-[11px] font-medium text-[#334155]">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-[#006591]"
+                              checked={projectSubtaskStatusFilter.includes(opt.value)}
+                              onChange={() => toggleFilterValue(projectSubtaskStatusFilter, setProjectSubtaskStatusFilter, opt.value, allSubtaskFilterValues)}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               {loadingKanban ? (
                 <div className="flex h-40 w-full items-center justify-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006591]"></div>
                 </div>
-              ) : projectTasksModalEntries.length === 0 ? (
-                <p className="text-sm text-[#3e4850] py-12 text-center italic">Chưa có task trong dự án này.</p>
+              ) : filteredProjectTableEntries.length === 0 ? (
+                <p className="text-sm text-[#3e4850] py-12 text-center italic">
+                  {projectTasksModalEntries.length === 0
+                    ? 'Không có task trong dự án.'
+                    : 'Không có task/tiểu mục phù hợp bộ lọc.'}
+                </p>
+              ) : projectTaskViewMode === 'table' ? (
+                <div className="overflow-x-auto rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+                  <table className="w-full min-w-[1420px] text-left">
+                    <thead className="bg-[#f8fafc] border-b border-[#e2e8f0]">
+                      <tr className="text-[11px] uppercase tracking-wide text-[#64748b]">
+                        <th className="px-3 py-2.5">Tính năng</th>
+                        <th className="px-3 py-2.5">Task</th>
+                        <th className="px-3 py-2.5">Người phụ trách</th>
+                        <th className="px-3 py-2.5">Trạng thái</th>
+                        <th className="px-3 py-2.5">Deadline</th>
+                        <th className="px-3 py-2.5 min-w-[220px]">Tiểu mục</th>
+                        <th className="px-3 py-2.5 min-w-[128px]">Mốc dự kiến</th>
+                        <th className="px-3 py-2.5 min-w-[200px]">Phương án giải quyết</th>
+                        <th className="px-3 py-2.5 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#eef2f7]">
+                      {filteredProjectTableEntries.map(({ feature, task, subtasks }) => (
+                        <tr key={task.task_id} className="align-top hover:bg-[#f8fbff]">
+                          <td className="px-3 py-2.5 text-[12px] text-[#3e4850]">{feature?.name || '—'}</td>
+                          <td className="px-3 py-2.5 text-[13px] font-semibold text-[#131b2e]">{task?.name || '—'}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-[#3e4850]">
+                            {assigneeDisplayName(task?.assigned_to, allUsers) || '—'}
+                          </td>
+                          <td className="px-3 py-2.5"><StatusBadge status={task?.status} /></td>
+                          <td className="px-3 py-2.5 text-[12px] text-[#3e4850]">{formatDeadlineDisplay(task?.deadline)}</td>
+                          <td className="px-3 py-2.5">
+                            {Array.isArray(subtasks) && subtasks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {subtasks.map(st => {
+                                  const workSessions = normalizeSubtaskWorkTime(st.work_time)
+                                  const workRunning = subtaskHasOpenWorkSession(workSessions)
+                                  const subBusy =
+                                    updatingSubtaskId === st.subtask_id || updatingSubtaskWorkTimeId === st.subtask_id
+                                  return (
+                                  <div
+                                    key={st.subtask_id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setProjectTableSubtaskDetail({ subtask: st, task, feature })}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        setProjectTableSubtaskDetail({ subtask: st, task, feature })
+                                      }
+                                    }}
+                                    className="group flex w-full min-w-0 max-w-full items-center justify-between gap-1 rounded-lg border border-[#dbe4ee] bg-white px-1.5 py-1 text-left transition-colors hover:border-[#006591]/35 hover:bg-[#f8fbff] focus:outline-none focus:ring-2 focus:ring-[#006591]/30 cursor-pointer"
+                                  >
+                                    <div className="min-w-0 flex-1 text-[10px] sm:text-[11px] font-semibold text-[#131b2e] break-words line-clamp-2 pr-0.5 leading-snug">
+                                      {st.name || 'Tiểu mục không tên'}
+                                    </div>
+                                    <div
+                                      className="shrink-0 flex items-center gap-0.5"
+                                      onClick={e => e.stopPropagation()}
+                                      onKeyDown={e => e.stopPropagation()}
+                                    >
+                                      <span
+                                        className="hidden min-[380px]:inline-flex max-w-[4.5rem] min-w-0 items-center justify-end"
+                                        title="Tổng thời gian làm việc"
+                                      >
+                                        <SubtaskLiveSessionTotal workTimeRaw={st.work_time} compact />
+                                      </span>
+                                      <button
+                                        type="button"
+                                        disabled={subBusy || workRunning}
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          saveSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterStart(workSessions))
+                                        }}
+                                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#1e8e3e]/25 bg-[#1e8e3e]/8 text-[#1e8e3e] hover:bg-[#1e8e3e]/15 disabled:opacity-40 transition-colors"
+                                        title="Bắt đầu (ghi nhận thời gian)"
+                                      >
+                                        <span className="material-symbols-outlined text-[12px] leading-none">play_arrow</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={subBusy || !workRunning}
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          saveSubtaskWorkTime(st.subtask_id, subtaskWorkTimeAfterPause(workSessions))
+                                        }}
+                                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#b06000]/30 bg-[#b06000]/8 text-[#b06000] hover:bg-[#b06000]/15 disabled:opacity-40 transition-colors"
+                                        title="Tạm dừng"
+                                      >
+                                        <span className="material-symbols-outlined text-[12px] leading-none">pause</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={subBusy || workSessions.length === 0}
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          if (!window.confirm('Đặt lại toàn bộ thời gian đã ghi cho tiểu mục này?')) return
+                                          saveSubtaskWorkTime(st.subtask_id, [])
+                                        }}
+                                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300/90 bg-slate-50/90 text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+                                        title="Đặt lại thời gian"
+                                      >
+                                        <span className="material-symbols-outlined text-[11px] leading-none">restart_alt</span>
+                                      </button>
+                                      <SubtaskTableActionsMenu
+                                        compact
+                                        subBusy={subBusy}
+                                        currentStatus={st.status}
+                                        onPickStatus={v => updateSubtaskStatus(st.subtask_id, v)}
+                                        showEdit={!!user?.user_id}
+                                        showDelete={!!user?.user_id}
+                                        onEdit={() => m.open('edit_subtask', { id: st.subtask_id, initial: subtaskFormInitial(st) })}
+                                        onDelete={user?.user_id ? () => deleteSubtask(st.subtask_id) : undefined}
+                                      />
+                                    </div>
+                                  </div>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <span className="text-[12px] text-[#94a3b8] italic">Chưa có tiểu mục</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 align-top">
+                            {Array.isArray(subtasks) && subtasks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {subtasks.map(st => (
+                                  <div
+                                    key={`plan-${st.subtask_id}`}
+                                    className="rounded-lg border border-[#e8ecf0] bg-white px-2 py-1 text-[10px] sm:text-[11px] text-[#3e4850] leading-snug min-h-[2.25rem] flex items-center tabular-nums"
+                                    title="Mốc dự kiến (so sánh), không liên hệ timer/deadline"
+                                  >
+                                    {st.plan_target_at ? formatDeadlineDisplay(st.plan_target_at) : '—'}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[12px] text-[#94a3b8] italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 align-top">
+                            {Array.isArray(subtasks) && subtasks.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {subtasks.map(st => (
+                                  <div
+                                    key={`sol-${st.subtask_id}`}
+                                    className="rounded-lg border border-[#e8ecf0] bg-[#fafafa]/80 px-2 py-1 text-[11px] text-[#3e4850] leading-snug min-h-[2.25rem]"
+                                    title={st.solution?.trim() || ''}
+                                  >
+                                    {st.solution?.trim() ? (
+                                      <span className="line-clamp-3 whitespace-pre-wrap break-words">{st.solution.trim()}</span>
+                                    ) : (
+                                      <span className="text-[#94a3b8] italic">—</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[12px] text-[#94a3b8] italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
+                              <ThreeDotMenu
+                                items={[
+                                  {
+                                    icon: 'add_circle',
+                                    label: 'Thêm tiểu mục',
+                                    primary: true,
+                                    onClick: () => m.open('add_subtask', { taskId: task.task_id }),
+                                  },
+                                  {
+                                    icon: 'edit',
+                                    label: 'Sửa nhiệm vụ',
+                                    onClick: () => {
+                                      const opts = projectFeatureOptionsForTaskModal(projectInTasksView)
+                                      m.open('edit_task', {
+                                        id: task.task_id,
+                                        ...(opts.length > 0 ? { featureOptions: opts } : {}),
+                                        initial: { ...taskFormInitial(task), feature_id: task.feature_id ?? feature?.feature_id },
+                                      })
+                                    },
+                                  },
+                                  {
+                                    icon: 'delete',
+                                    label: 'Xóa nhiệm vụ',
+                                    danger: true,
+                                    onClick: () => deleteEntity('tasks', 'task_id', task.task_id),
+                                  },
+                                ]}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 taskKanbanGrouped && (
-                  <div className="flex flex-col lg:flex-row lg:overflow-x-auto lg:overflow-y-hidden gap-5 w-full h-full items-stretch pb-8 pt-2 px-2 custom-scrollbar">
+                  <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full h-full items-stretch pb-6 pt-1 px-1">
                     {KANBAN_COLUMNS.map(col => (
                       <div
                         key={col.key}
-                        className={`flex flex-col h-full min-w-[320px] lg:min-w-[380px] lg:w-[380px] shrink-0 rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
+                        className={`flex min-w-0 flex-col h-full w-full rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-lg overflow-hidden transition-all`}
                       >
-                        <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-[#e8ecf0] bg-white shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[#e8ecf0] bg-white shrink-0">
                           <div className="flex min-w-0 items-center gap-2">
-                            <p className="text-base font-bold tracking-tight text-[#131b2e]">{col.title}</p>
-                            <span className="shrink-0 rounded-full bg-[#eef1f6] px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-[#475569]">
+                            <p className="text-sm font-bold tracking-tight text-[#131b2e]">{col.title}</p>
+                            <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
                               {taskKanbanGrouped[col.key].length}
                             </span>
                           </div>
                         </div>
-                        <div className="flex-1 min-h-0 p-2 space-y-3 overflow-y-auto lg:max-h-full max-h-[60vh] custom-scrollbar touch-pan-y">
+                        <div className="flex-1 min-h-0 p-1.5 space-y-2 overflow-y-auto lg:max-h-full max-h-[66vh] custom-scrollbar touch-pan-y">
                           {taskKanbanGrouped[col.key].map(({ feature, task }) => (
                             <ModalTaskCard
                               key={task.task_id}
+                              compact
                               hideStatusBadge
                               statusActionsOutside
                               feature={feature}
                               task={task}
+                              assigneeRoster={allUsers}
+                              taskFeatureOptions={projectFeatureOptionsForTaskModal(projectInTasksView)}
                               userRole={userRole}
                               m={m}
                               deleteEntity={deleteEntity}
@@ -3070,7 +3881,154 @@ export default function ProjectsPage() {
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+      {projectTableSubtaskDetail && (
+        <Modal
+          title={projectTableSubtaskDetail.subtask.name || 'Tiểu mục'}
+          subtitle={`${projectTableSubtaskDetail.feature?.name || '—'} · ${projectTableSubtaskDetail.task?.name || '—'}`}
+          overlayClassName="fixed inset-0 z-[120] flex items-center justify-center bg-[#131b2e]/50 backdrop-blur-sm p-3 sm:p-4"
+          maxWidthClassName="max-w-[95vw] lg:max-w-2xl"
+          bodyClassName="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto max-h-[min(72vh,640px)]"
+          onClose={() => setProjectTableSubtaskDetail(null)}
+          footer={(
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setProjectTableSubtaskDetail(null)}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-[#006591] hover:bg-[#f2f3ff] transition-colors"
+              >
+                Đóng
+              </button>
+              {user?.user_id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const s = projectTableSubtaskDetail.subtask
+                    m.open('edit_subtask', { id: s.subtask_id, initial: subtaskFormInitial(s) })
+                    setProjectTableSubtaskDetail(null)
+                  }}
+                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-white primary-gradient shadow-md hover:brightness-110 transition-all"
+                >
+                  Sửa tiểu mục
+                </button>
+              )}
+            </div>
+          )}
+        >
+          {(() => {
+            const st = projectTableSubtaskDetail.subtask
+            const displayBlocks = normalizeTaskContentBlocks(st).filter(
+              b => (b.content && b.content.trim()) || (Array.isArray(b.image_urls) && b.image_urls.length > 0)
+            )
+            return (
+              <div className="space-y-3 text-sm text-[#3e4850]">
+                <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                  <span className="font-bold uppercase tracking-wide text-[#64748b]">Trạng thái</span>
+                  <StatusBadge status={st.status} />
+                </div>
+                <div className="grid gap-1.5 text-[12px] sm:grid-cols-2">
+                  <p>
+                    <span className="text-[#64748b]">Người phụ trách: </span>
+                    <span className="font-medium text-[#131b2e]">
+                      {assigneeDisplayName(st?.assigned_to, allUsers) || '—'}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-[#64748b]">Hạn: </span>
+                    <span className="font-medium text-[#131b2e]">{formatDeadlineDisplay(st.deadline)}</span>
+                  </p>
+                  <p className="sm:col-span-2">
+                    <span className="text-[#64748b]">Mốc dự kiến (so sánh): </span>
+                    <span className="font-medium text-[#131b2e] tabular-nums">
+                      {formatDeadlineDisplay(st.plan_target_at)}
+                    </span>
+                  </p>
+                </div>
+                {st.feedback ? (
+                  <div className="rounded-lg border border-amber-200/60 bg-amber-50/80 px-3 py-2 text-[12px]">
+                    <span className="font-bold text-amber-900">Ghi chú / phản hồi: </span>
+                    <span className="whitespace-pre-wrap text-[#131b2e]">{st.feedback}</span>
+                  </div>
+                ) : null}
+                {st.solution?.trim() ? (
+                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/60 px-3 py-2 text-[12px]">
+                    <span className="font-bold text-emerald-900">Phương án giải quyết: </span>
+                    <span className="whitespace-pre-wrap text-[#131b2e]">{st.solution.trim()}</span>
+                  </div>
+                ) : null}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-[#64748b] mb-2">Nội dung & ảnh</p>
+                  {displayBlocks.length === 0 ? (
+                    <p className="text-[12px] text-[#94a3b8] italic">Chưa có nội dung chi tiết.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {displayBlocks.map((b, i) => (
+                        <div key={i} className="rounded-lg border border-[#e2e8f0] bg-[#faf8ff]/50 p-3 space-y-2">
+                          {b.content?.trim() ? (
+                            <p className="whitespace-pre-wrap text-[13px] text-[#131b2e] leading-relaxed">{b.content}</p>
+                          ) : null}
+                          {Array.isArray(b.image_urls) && b.image_urls.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {b.image_urls.map((url, j) => (
+                                <button
+                                  key={`${i}-${j}`}
+                                  type="button"
+                                  onClick={() => setTableSubtaskLightboxUrl(url)}
+                                  className="relative h-20 w-20 overflow-hidden rounded-md border border-slate-200 bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#006591]/40"
+                                  title="Xem ảnh"
+                                >
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    onError={e => {
+                                      e.currentTarget.style.display = 'none'
+                                    }}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+        </Modal>
+      )}
+
       {/* MODAL XÁC NHẬN XÓA CHUNG */}
+      {tableSubtaskLightboxUrl ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Xem ảnh tiểu mục"
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-[#131b2e]/88 backdrop-blur-sm p-4"
+          onClick={() => setTableSubtaskLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white z-10"
+            aria-label="Đóng"
+            onClick={e => {
+              e.stopPropagation()
+              setTableSubtaskLightboxUrl(null)
+            }}
+          >
+            <span className="material-symbols-outlined text-[22px] leading-none block">close</span>
+          </button>
+          <img
+            src={tableSubtaskLightboxUrl}
+            alt=""
+            className="max-w-full max-h-[min(92vh,920px)] w-auto h-auto object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
+
       {confirmDeleteData && (
         <Modal
           title="Xác nhận xóa"

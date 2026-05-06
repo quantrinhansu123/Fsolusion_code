@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
-import { humanizeAuthError } from '../utils/authErrors'
+import { useAuth } from '../utils/AuthContext'
 import { normalizeSignInForAuth } from '../utils/authSignIn'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const { signInLocal } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
@@ -28,18 +29,35 @@ export default function LoginPage() {
       return
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: signInId,
-      password,
-    })
+    try {
+      const { data: profile, error: signInError } = await supabase
+        .from('users')
+        .select('user_id')
+        .eq('email', signInId)
+        .eq('password', password)
+        .maybeSingle()
 
+<<<<<<< HEAD
     if (signInError) {
       console.error('[LoginPage] Login failed:', signInError)
       setError(humanizeAuthError(signInError.message))
       setLoading(false)
     } else {
       setLoading(false)
+=======
+      if (signInError || !profile?.user_id) {
+        setError('Sai tên đăng nhập hoặc mật khẩu.')
+        return
+      }
+
+      await signInLocal(profile.user_id)
+>>>>>>> b4348e6fc9f0bbc70789f2265e6d4aa1bb96c380
       navigate('/dashboard')
+    } catch (err) {
+      console.error('[LoginPage] Sign-in request failed:', err)
+      setError('Không thể kết nối máy chủ. Kiểm tra mạng hoặc cấu hình Supabase rồi thử lại.')
+    } finally {
+      setLoading(false)
     }
   }
 

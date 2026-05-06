@@ -2,7 +2,7 @@
 const INTERNAL_LOGIN_DOMAIN = 'login.pm'
 
 /**
- * Chuẩn hoá ô nhập đăng nhập thành chuỗi dùng cho API `signInWithPassword` / `signUp` của Supabase.
+ * Chuẩn hoá ô nhập đăng nhập thành định dạng email nội bộ để dùng trong bảng users.
  * @param {string} raw
  */
 export function normalizeSignInForAuth(raw) {

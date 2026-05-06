@@ -13,8 +13,14 @@ export default function ThreeDotMenu({ items, dropUp = false }) {
   }, [])
 
   return (
-    <div className="relative" ref={ref}>
+    <div
+      className="relative"
+      ref={ref}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
       <button
+        type="button"
         onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
         className="text-[#3e4850] hover:text-[#131b2e] p-1 rounded-md hover:bg-[#eaedff] transition-colors"
       >
@@ -25,6 +31,7 @@ export default function ThreeDotMenu({ items, dropUp = false }) {
         <div className={`absolute right-0 w-48 bg-white rounded-xl shadow-[0_8px_32px_rgba(19,27,46,0.15)] border border-[#bec8d2]/20 py-2 z-[100] ${dropUp ? 'bottom-8' : 'top-8'}`}>
           {items.map((item, i) => (
             <button
+              type="button"
               key={i}
               onClick={e => { e.stopPropagation(); setOpen(false); item.onClick() }}
               className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors

@@ -17,6 +17,7 @@ import {
 import { EntityFormModal } from '../components/EntityFormModal'
 import { sanitizeTaskContentForSave, subtaskFormInitial } from '../utils/taskContent'
 import { normalizeDeadlineForSave } from '../utils/deadline'
+import { useAuth } from '../utils/AuthContext'
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Đang chờ' },
@@ -38,6 +39,13 @@ const DEADLINE_FILTER_OPTIONS = [
   { value: 'today', label: 'Hôm nay' },
   { value: 'week', label: '7 ngày tới' },
   { value: 'no_deadline', label: 'Không có deadline' },
+]
+
+const KANBAN_COLUMNS = [
+  { key: 'pending', title: 'Đang chờ', topBar: 'border-t-[#8b9dc3]' },
+  { key: 'in_progress', title: 'Đang làm', topBar: 'border-t-[#006591]' },
+  { key: 'completed', title: 'Hoàn thành', topBar: 'border-t-[#1e8e3e]' },
+  { key: 'overdue', title: 'Trễ hẹn', topBar: 'border-t-[#ba1a1a]' },
 ]
 
 function formatDateTime(iso) {
@@ -76,6 +84,7 @@ function matchesDeadlineFilter(st, deadlineFilter) {
 }
 
 export default function StaffSubtasksPage() {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [hasFetched, setHasFetched] = useState(false)
   const [staffUsers, setStaffUsers] = useState([])
@@ -89,6 +98,7 @@ export default function StaffSubtasksPage() {
   const [updatingWorkTimeId, setUpdatingWorkTimeId] = useState(null)
   const [toast, setToast] = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [detailSubtask, setDetailSubtask] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
@@ -107,10 +117,6 @@ export default function StaffSubtasksPage() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
-
-  // -- STATE PHÂN TRANG --
-  const PAGE_SIZE = 3
-  const [groupPages, setGroupPages] = useState({}) // { project_id: currentPage }
 
   const location = useLocation()
   const isActive = location.pathname === '/staff-subtasks'
@@ -179,9 +185,6 @@ export default function StaffSubtasksPage() {
 
     const initialize = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const authUser = session?.user
-
         const { data: usersData, error: usersErr } = await supabase
           .from('users')
           .select('user_id, full_name, role')
@@ -193,13 +196,13 @@ export default function StaffSubtasksPage() {
         let currentRole = null
         let currentEmployeeUserId = null
 
-        if (authUser) {
-          const profile = (usersData || []).find(u => u.user_id === authUser.id)
-          currentRole = profile?.role || null
+        if (user?.user_id) {
+          const profile = (usersData || []).find(u => u.user_id === user.user_id)
+          currentRole = profile?.role || user.role || null
 
           if (currentRole === 'employee') {
-            currentEmployeeUserId = authUser.id
-            setSelectedAssignee(authUser.id)
+            currentEmployeeUserId = user.user_id
+            setSelectedAssignee(user.user_id)
           }
           setUserRole(currentRole)
         }
@@ -218,7 +221,7 @@ export default function StaffSubtasksPage() {
     }
 
     initialize()
-  }, [isActive, loadData])
+  }, [isActive, loadData, user])
 
   // Fetch subtasks when filters change (with stabilization)
   useEffect(() => {
@@ -268,37 +271,33 @@ export default function StaffSubtasksPage() {
   ), [selectedProjectIds, subtasks])
 
 
-  const subtasksByProject = useMemo(() => {
-    if (filteredSubtasks.length === 0) return []
-    console.time('Grouping logic')
-
-    const map = new Map()
-    const getDeadlineTime = (st) => {
-      if (!st.deadline) return Number.MAX_SAFE_INTEGER
-      const t = new Date(st.deadline).getTime()
-      return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+  const subtasksByStatus = useMemo(() => {
+    const grouped = {
+      pending: [],
+      in_progress: [],
+      completed: [],
+      overdue: [],
     }
-
-    for (const st of filteredSubtasks) {
-      const key = st.project_id || 'unknown'
-      const name = st.project_name || 'Chưa có dự án'
-
-      if (!map.has(key)) {
-        map.set(key, { key, name, items: [] })
+    const toSortTime = st => {
+      if (st?.deadline) {
+        const t = new Date(st.deadline).getTime()
+        if (Number.isFinite(t)) return t
       }
-      map.get(key).items.push(st)
+      if (st?.created_at) {
+        const t = new Date(st.created_at).getTime()
+        if (Number.isFinite(t)) return t
+      }
+      return Number.MAX_SAFE_INTEGER
     }
-
-
-    const result = Array.from(map.values())
-      .map(group => ({
-        ...group,
-        items: group.items.sort((a, b) => getDeadlineTime(a) - getDeadlineTime(b))
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-
-    console.timeEnd('Grouping logic')
-    return result
+    for (const st of filteredSubtasks) {
+      const key = (st.status || 'pending')
+      if (!grouped[key]) grouped.pending.push(st)
+      else grouped[key].push(st)
+    }
+    for (const key of Object.keys(grouped)) {
+      grouped[key] = grouped[key].sort((a, b) => toSortTime(a) - toSortTime(b))
+    }
+    return grouped
   }, [filteredSubtasks])
 
 
@@ -375,9 +374,7 @@ export default function StaffSubtasksPage() {
 
   const handleDeleteClick = useCallback((id) => setConfirmDeleteId(id), [])
   const handleSetLightboxUrl = useCallback((url) => setLightboxUrl(url), [])
-  const handlePageChange = useCallback((groupKey, newPage) => {
-    setGroupPages(prev => ({ ...prev, [groupKey]: newPage }))
-  }, [])
+  const handleOpenDetail = useCallback((st) => setDetailSubtask(st), [])
 
   async function deleteSubtask(subtaskId) {
     setConfirmDeleteId(null)
@@ -397,6 +394,8 @@ export default function StaffSubtasksPage() {
     setAssignForm({
       status: 'pending',
       name: '',
+      solution: '',
+      plan_target_at: '',
       content_blocks: [{ content: '', image_urls: [] }],
       description: '',
       image_url: '',
@@ -444,6 +443,11 @@ export default function StaffSubtasksPage() {
         content_blocks: sanitizeTaskContentForSave(assignForm.content_blocks),
         deadline: normalizeDeadlineForSave(assignForm.deadline),
         status: assignForm.status || 'pending',
+        solution:
+          assignForm.solution != null && String(assignForm.solution).trim() !== ''
+            ? String(assignForm.solution).trim()
+            : null,
+        plan_target_at: normalizeDeadlineForSave(assignForm.plan_target_at),
       }
 
       const { error } = await supabase.from('subtasks').insert([payload])
@@ -480,10 +484,12 @@ export default function StaffSubtasksPage() {
         type: 'content_image_pairs',
         placeholderContent: 'Chi tiết tiểu mục...',
       },
+      { name: 'solution', label: 'Phương án giải quyết', type: 'textarea', placeholder: 'Mô tả phương án / cách xử lý…' },
       {
-        name: 'meta', type: 'grid', children: [
+        name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
           { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
-          { name: 'status', label: 'Trạng thái', type: 'select' }
+          { name: 'plan_target_at', label: 'Mốc dự kiến (so sánh)', type: 'datetime-local' },
+          { name: 'status', label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
         ]
       },
     ]
@@ -710,77 +716,40 @@ export default function StaffSubtasksPage() {
               </div>
             </div>
 
-            <div className="space-y-4">
-              {subtasksByProject.map(group => {
-                const currentPage = groupPages[group.key] || 1
-                const totalPages = Math.ceil(group.items.length / PAGE_SIZE)
-                const displayedItems = isMobileScreen
-                  ? group.items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-                  : group.items
-
-                return (
-                  <section
-                    key={group.key}
-                    id={`project-section-${group.key}`}
-                    className="bg-white border border-[#bec8d2]/18 rounded-xl p-3 shadow-sm scroll-mt-24 transition-all"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <h3 className="text-sm font-bold text-[#131b2e]">{group.name}</h3>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#f2f3ff] text-[#3e4850]">
-                        {group.items.length} subtask
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 border border-[#e2e8f0] rounded-[10px] p-2 shadow-sm bg-slate-50/20">
-                      {displayedItems.map((st) => (
-                        <StaffSubtaskCard
-                          key={st.subtask_id}
-                          st={st}
-                          userRole={userRole}
-                          isUpdatingStatus={updatingStatusId === st.subtask_id}
-                          isUpdatingWorkTime={updatingWorkTimeId === st.subtask_id}
-                          onUpdateStatus={updateSubtaskStatus}
-                          onUpdateWorkTime={updateSubtaskWorkTime}
-                          onSetLightboxUrl={handleSetLightboxUrl}
-                          onDeleteClick={handleDeleteClick}
-                          onUpdateEvaluation={updateSubtaskEvaluation}
-                        />
-                      ))}
-                    </div>
-
-                    {totalPages > 1 && isMobileScreen && (
-                      <div className="mt-4 flex items-center justify-center gap-3 border-t border-slate-100 pt-3 lg:hidden">
-                        <button
-                          type="button"
-                          onClick={() => handlePageChange(group.key, currentPage - 1)}
-                          disabled={currentPage === 1}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-[#e2e8f0] text-[#131b2e] hover:bg-[#f2f3ff] disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">chevron_left</span>
-                          <span>TRƯỚC</span>
-                        </button>
-
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f2f3ff] text-[#006591] text-[12px] font-black border border-[#dce4ff]">
-                          <span>TRANG</span>
-                          <span className="bg-[#006591] text-white w-5 h-5 flex items-center justify-center rounded-sm text-[11px]">{currentPage}</span>
-                          <span className="text-[#94a3b8]">/</span>
-                          <span>{totalPages}</span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handlePageChange(group.key, currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-[#e2e8f0] text-[#131b2e] hover:bg-[#f2f3ff] disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
-                        >
-                          <span>SAU</span>
-                          <span className="material-symbols-outlined text-[18px]">chevron_right</span>
-                        </button>
-                      </div>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+              {KANBAN_COLUMNS.map(col => (
+                <section
+                  key={col.key}
+                  className={`flex min-h-[260px] flex-col rounded-xl border border-[#bec8d2]/20 border-t-[3px] ${col.topBar} bg-white shadow-sm`}
+                >
+                  <div className="flex items-center justify-between border-b border-[#eef2f7] px-3 py-2.5">
+                    <h3 className="text-sm font-bold text-[#131b2e]">{col.title}</h3>
+                    <span className="rounded-full bg-[#f2f3ff] px-2 py-0.5 text-[11px] font-bold text-[#475569]">
+                      {subtasksByStatus[col.key]?.length || 0}
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-2 overflow-y-auto p-2.5 custom-scrollbar">
+                    {(subtasksByStatus[col.key] || []).map(st => (
+                      <StaffSubtaskCard
+                        key={st.subtask_id}
+                        st={st}
+                        userRole={userRole}
+                        isUpdatingStatus={updatingStatusId === st.subtask_id}
+                        isUpdatingWorkTime={updatingWorkTimeId === st.subtask_id}
+                        onUpdateStatus={updateSubtaskStatus}
+                        onUpdateWorkTime={updateSubtaskWorkTime}
+                        onSetLightboxUrl={handleSetLightboxUrl}
+                        onDeleteClick={handleDeleteClick}
+                        onUpdateEvaluation={updateSubtaskEvaluation}
+                        onOpenDetail={handleOpenDetail}
+                      />
+                    ))}
+                    {(subtasksByStatus[col.key] || []).length === 0 && (
+                      <p className="py-8 text-center text-[11px] italic text-[#94a3b8]">Trống</p>
                     )}
-                  </section>
-                )
-              })}
+                  </div>
+                </section>
+              ))}
             </div>
 
             {filteredSubtasks.length === 0 && (
@@ -808,6 +777,83 @@ export default function StaffSubtasksPage() {
                   className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
                 />
               </div>
+            )}
+
+            {detailSubtask && (
+              <Modal
+                title={detailSubtask.name || 'Chi tiết tiểu mục'}
+                subtitle={`${detailSubtask.project_name || '—'} · ${detailSubtask.task_name || '—'}`}
+                onClose={() => setDetailSubtask(null)}
+                maxWidthClassName="max-w-2xl"
+                bodyClassName="px-5 py-4 space-y-3 overflow-y-auto max-h-[70vh]"
+                footer={
+                  <button
+                    type="button"
+                    onClick={() => setDetailSubtask(null)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold text-[#006591] hover:bg-[#eef4ff] transition-colors"
+                  >
+                    Đóng
+                  </button>
+                }
+              >
+                {(() => {
+                  const blocks = (subtaskFormInitial(detailSubtask).content_blocks || []).filter(
+                    b => (b.content && b.content.trim()) || (Array.isArray(b.image_urls) && b.image_urls.length > 0)
+                  )
+                  const statusLabel = STATUS_OPTIONS.find(s => s.value === (detailSubtask.status || 'pending'))?.label || detailSubtask.status
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px] text-[#3e4850]">
+                        <p><span className="font-semibold text-[#131b2e]">Trạng thái:</span> {statusLabel}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Deadline:</span> {formatDateTime(detailSubtask.deadline)}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Người phụ trách:</span> {detailSubtask.assigned_to_name || '—'}</p>
+                        <p><span className="font-semibold text-[#131b2e]">Thời gian:</span> {formatSubtaskWorkTimeSummary(normalizeSubtaskWorkTime(detailSubtask.work_time))}</p>
+                      </div>
+                      {detailSubtask.solution?.trim() ? (
+                        <div className="rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 text-[12px] text-[#131b2e]">
+                          <span className="font-bold text-emerald-900">Phương án giải quyết: </span>
+                          <span className="whitespace-pre-wrap">{detailSubtask.solution.trim()}</span>
+                        </div>
+                      ) : null}
+                      {detailSubtask.plan_target_at ? (
+                        <p className="text-[12px] text-[#3e4850]">
+                          <span className="font-semibold text-[#131b2e]">Mốc dự kiến (so sánh): </span>
+                          {formatDateTime(detailSubtask.plan_target_at)}
+                        </p>
+                      ) : null}
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748b]">Nội dung & ảnh</p>
+                        {blocks.length === 0 ? (
+                          <p className="text-[12px] italic text-[#94a3b8]">Chưa có nội dung chi tiết.</p>
+                        ) : (
+                          blocks.map((b, i) => (
+                            <div key={i} className="rounded-lg border border-[#e2e8f0] bg-[#faf8ff]/60 p-3 space-y-2">
+                              {b.content?.trim() ? (
+                                <p className="whitespace-pre-wrap text-[13px] text-[#131b2e]">{b.content}</p>
+                              ) : null}
+                              {Array.isArray(b.image_urls) && b.image_urls.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {b.image_urls.map((url, idx) => (
+                                    <button
+                                      key={`${i}-${idx}`}
+                                      type="button"
+                                      onClick={() => setLightboxUrl(url)}
+                                      className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-100"
+                                      title="Xem ảnh"
+                                    >
+                                      <img src={url} alt="" className="h-full w-full object-cover" />
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </Modal>
             )}
           </div>
         </main>

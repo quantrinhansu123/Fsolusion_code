@@ -109,8 +109,14 @@ function DateTimeInput({ value, onChange }) {
   )
 }
 
-// SearchableSelect cho trường khách hàng với khả năng tìm kiếm
-function SearchableSelect({ value, options = [], onChange, placeholder = '-- Chọn --' }) {
+// Combobox: gõ để lọc, chọn một mục trong danh sách (dùng cho khách hàng, tính năng, …)
+function SearchableSelect({
+  value,
+  options = [],
+  onChange,
+  placeholder = '-- Chọn --',
+  emptyMessage = 'Không tìm thấy mục phù hợp…',
+}) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
 
@@ -124,12 +130,17 @@ function SearchableSelect({ value, options = [], onChange, placeholder = '-- Ch�
     <div className="relative">
       <input
         type="text"
-        className={`${inputCls} cursor-pointer`}
+        className={`${inputCls} ${open ? '' : 'cursor-pointer'}`}
         placeholder={placeholder}
         value={open ? search : selectedLabel}
         onChange={e => setSearch(e.target.value)}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setOpen(true)
+          setSearch(selectedLabel)
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
+        autoComplete="off"
+        spellCheck={false}
       />
       <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#6e7881] pointer-events-none">
         {open ? 'expand_less' : 'expand_more'}
@@ -139,7 +150,7 @@ function SearchableSelect({ value, options = [], onChange, placeholder = '-- Ch�
         <div className="absolute top-full left-0 right-0 z-[60] mt-1.5 rounded-xl border border-[#bec8d2]/30 bg-white shadow-xl max-h-60 overflow-y-auto py-1 animate-in fade-in slide-in-from-top-1 duration-200">
           {filtered.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-slate-400 italic">
-              Không tìm thấy khách hàng...
+              {emptyMessage}
             </div>
           ) : (
             <ul>
@@ -267,7 +278,8 @@ export function EntityFormModal({
                 value={data[field.name] || ''}
                 options={field.options || []}
                 onChange={val => onChange(field.name, val)}
-                placeholder="-- Chọn --"
+                placeholder={field.placeholder || '-- Chọn --'}
+                emptyMessage={field.emptyMessage}
               />
             </FormField>
           )
@@ -571,7 +583,9 @@ export function EntityFormModal({
                       type={child.type || 'text'}
                       className={inputCls}
                       placeholder={child.placeholder}
-                      value={data[child.name] || ''}
+                      min={child.min}
+                      step={child.step}
+                      value={data[child.name] === 0 || data[child.name] ? data[child.name] : ''}
                       onChange={e => onChange(child.name, e.target.value)}
                     />
                   )}
@@ -668,8 +682,19 @@ export const SUBTASK_FIELDS = [
     placeholderContent: 'Chi tiết tiểu mục...',
   },
   {
-    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-3', children: [
+    name: 'solution',
+    label: 'Phương án giải quyết',
+    type: 'textarea',
+    placeholder: 'Mô tả phương án / cách xử lý…',
+  },
+  {
+    name: 'meta', type: 'grid', gridCols: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', children: [
       { name: 'deadline', label: 'Hạn chót (ngày & giờ)', type: 'datetime-local' },
+      {
+        name: 'plan_target_at',
+        label: 'Mốc dự kiến (so sánh)',
+        type: 'datetime-local',
+      },
       { name: 'status',   label: 'Trạng thái', type: 'select', options: STATUS_OPTIONS },
       { 
         name: 'work_type', 

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 // Helper functions for permissions
 const isAdminOrManager = (role) => role === 'admin' || role === 'manager'
@@ -10,7 +9,7 @@ const canViewCustomers = (role) => role === 'admin' || role === 'manager'
 export default function Sidebar() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const { user, loading } = useAuth()
+  const { user, loading, signOutLocal } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // Auto-close sidebar when URL changes
@@ -45,7 +44,7 @@ export default function Sidebar() {
   const closeMobileSidebar = () => setMobileOpen(false)
 
   async function handleSignOut() {
-    await supabase.auth.signOut()
+    signOutLocal()
     navigate('/login')
   }
 

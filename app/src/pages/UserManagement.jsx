@@ -3,8 +3,7 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import ThreeDotMenu from '../components/ThreeDotMenu'
 import Toast from '../components/Toast'
-import { humanizeAuthError } from '../utils/authErrors'
-import { supabase, supabaseAuthSignUpEphemeral } from '../utils/supabase'
+import { supabase } from '../utils/supabase'
 import { normalizeSignInForAuth, shortDisplayForProfile } from '../utils/authSignIn'
 
 function formatPasswordCol(iso) {
@@ -44,9 +43,6 @@ export default function UserManagement() {
     setLoading(false)
   }
 
-  /**
-   * Tạo user: đăng ký Auth qua client phụ (không ghi đè session admin), rồi cập nhật bảng public.users.
-   */
   async function createAccount() {
     const signInId = normalizeSignInForAuth(formData.login)
     const full_name = formData.full_name.trim()
@@ -59,38 +55,22 @@ export default function UserManagement() {
       return false
     }
 
+    const uid = crypto.randomUUID()
     const dept = formData.department?.trim() || null
-    const { data: signData, error: signErr } = await supabaseAuthSignUpEphemeral.auth.signUp({
-      email: signInId,
-      password,
-      options: {
-        data: { full_name },
-      },
-    })
-
-    if (signErr) {
-      setToast({ message: humanizeAuthError(signErr.message), type: 'error' })
-      return false
-    }
-
-    const uid = signData.user?.id
-    if (!uid) {
-      setToast({ message: 'Không tạo được tài khoản. Thử lại sau.', type: 'error' })
-      return false
-    }
-
     const { error: upErr } = await supabase
       .from('users')
-      .update({
+      .insert({
+        user_id: uid,
+        email: signInId,
         role,
         department: dept,
         full_name,
+        password,
       })
-      .eq('user_id', uid)
 
     if (upErr) {
       setToast({
-        message: humanizeAuthError(upErr.message),
+        message: upErr.message || 'Không tạo được tài khoản',
         type: 'error',
       })
       return false
@@ -113,7 +93,7 @@ export default function UserManagement() {
           })
           .eq('user_id', editingUser.user_id)
         if (error) {
-          setToast({ message: humanizeAuthError(error.message), type: 'error' })
+          setToast({ message: error.message || 'Không cập nhật được tài khoản', type: 'error' })
           return
         }
         setIsModalOpen(false)
@@ -133,7 +113,7 @@ export default function UserManagement() {
   async function deleteUser(id) {
     if (!window.confirm('Bạn có chắc chắn muốn xóa tài khoản này?')) return
     const { error } = await supabase.from('users').delete().eq('user_id', id)
-    if (error) setToast({ message: humanizeAuthError(error.message), type: 'error' })
+    if (error) setToast({ message: error.message || 'Không xóa được tài khoản', type: 'error' })
     else {
       fetchUsers()
       setToast({ message: 'Đã xóa tài khoản', type: 'success' })
