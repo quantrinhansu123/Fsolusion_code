@@ -4,7 +4,7 @@ import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
-<<<<<<< HEAD
+
 import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2, Plus, Minus } from 'lucide-react'
 
 // -- UTILITY FUNCTIONS --
@@ -26,14 +26,13 @@ const calcDuration = (start, end) => {
   if (diffMs < 0) return ''
   const diffHrs = Math.floor(diffMs / 3600000)
   const diffMins = Math.round(((diffMs % 3600000) / 60000) % 60)
-  
+
   let res = ''
   if (diffHrs > 0) res += `${diffHrs}h `
   if (diffMins > 0) res += `${diffMins}m`
   return res.trim() || '1m'
 }
-=======
->>>>>>> b4348e6fc9f0bbc70789f2265e6d4aa1bb96c380
+
 
 export default function AttendancePage() {
   const { user } = useAuth()
@@ -204,11 +203,11 @@ export default function AttendancePage() {
             end_fmt: timeFormat(t.end_time),
             duration: calcDuration(t.start_time, t.end_time)
           })) : [
-            { 
-              subtask_id: "TEST-01", 
-              title: "Phát triển tính năng JSONB (Dữ liệu test)", 
-              percent: 100, 
-              comment: "Đã hoàn thành tốt", 
+            {
+              subtask_id: "TEST-01",
+              title: "Phát triển tính năng JSONB (Dữ liệu test)",
+              percent: 100,
+              comment: "Đã hoàn thành tốt",
               is_approved: true,
               start_time: new Date(new Date().setHours(8, 30)).toISOString(),
               end_time: new Date(new Date().setHours(10, 15)).toISOString(),
@@ -216,11 +215,11 @@ export default function AttendancePage() {
               end_fmt: "10:15",
               duration: "1h 45m"
             },
-            { 
-              subtask_id: "TEST-02", 
-              title: "Viết tài liệu hướng dẫn (Dữ liệu test)", 
-              percent: 0, 
-              comment: "", 
+            {
+              subtask_id: "TEST-02",
+              title: "Viết tài liệu hướng dẫn (Dữ liệu test)",
+              percent: 0,
+              comment: "",
               is_approved: false,
               start_time: new Date(new Date().setHours(13, 0)).toISOString(),
               end_time: null,
@@ -229,8 +228,8 @@ export default function AttendancePage() {
               duration: ""
             }
           ],
-          overallProgress: (session.tasks_data && session.tasks_data.length > 0) 
-            ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100) 
+          overallProgress: (session.tasks_data && session.tasks_data.length > 0)
+            ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100)
             : 50, // Mặc định 50% cho dữ liệu test (1/2 task đã duyệt)
           isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
           // tasks: completedTasksArray
@@ -591,7 +590,7 @@ export default function AttendancePage() {
       const session = attendanceList.find(s => s.id === sessionId)
       if (!session) return
 
-      const updatedTasksData = session.tasks_data.map(t => 
+      const updatedTasksData = session.tasks_data.map(t =>
         t.subtask_id === subtaskId ? { ...t, end_time: new Date().toISOString() } : t
       )
 
@@ -1131,20 +1130,18 @@ export default function AttendancePage() {
                                     </span>
                                     <div className="flex items-center gap-2">
                                       <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
-                                      <span className={`text-[13px] font-black ${
-                                        row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
-                                      }`}>
+                                      <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
+                                        }`}>
                                         {row.overallProgress}%
                                       </span>
                                     </div>
                                   </div>
-                                  
+
                                   {/* Thanh Progress Bar Tổng lớn */}
                                   <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner border border-slate-300/50">
-                                    <div 
-                                      className={`h-full transition-all duration-700 ease-out ${
-                                        row.overallProgress === 100 ? 'bg-emerald-500' : 'bg-amber-500'
-                                      }`}
+                                    <div
+                                      className={`h-full transition-all duration-700 ease-out ${row.overallProgress === 100 ? 'bg-emerald-500' : 'bg-amber-500'
+                                        }`}
                                       style={{ width: `${row.overallProgress}%` }}
                                     />
                                   </div>
@@ -1183,10 +1180,9 @@ export default function AttendancePage() {
                                         <td className="px-4 py-3">
                                           <div className="flex items-center gap-3">
                                             <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                              <div 
-                                                className={`h-full transition-all duration-500 ${
-                                                  task.is_approved ? 'bg-emerald-500' : 'bg-slate-300'
-                                                }`}
+                                              <div
+                                                className={`h-full transition-all duration-500 ${task.is_approved ? 'bg-emerald-500' : 'bg-slate-300'
+                                                  }`}
                                                 style={{ width: `${task.is_approved ? 100 : 0}%` }}
                                               />
                                             </div>
@@ -1221,8 +1217,8 @@ export default function AttendancePage() {
                                                   disabled={task.is_approved}
                                                   onClick={() => handleApproveTask(row.id, task.subtask_id)}
                                                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.is_approved
-                                                      ? 'bg-emerald-500 text-white cursor-default'
-                                                      : 'bg-white border border-blue-200 text-blue-600 hover:bg-blue-50'
+                                                    ? 'bg-emerald-500 text-white cursor-default'
+                                                    : 'bg-white border border-blue-200 text-blue-600 hover:bg-blue-50'
                                                     }`}
                                                 >
                                                   {task.is_approved ? 'ĐÃ NGHIỆM THU' : 'NGHIỆM THU'}
@@ -1240,7 +1236,7 @@ export default function AttendancePage() {
                                                     {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
                                                   </button>
                                                 )}
-                                                
+
                                                 {task.is_approved ? (
                                                   <span className="text-emerald-600 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
                                                     ĐÀ DUYỆT
@@ -1307,13 +1303,11 @@ export default function AttendancePage() {
                           onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
                           className={`p-1.5 rounded-lg active:scale-90 transition-all ${showTasksId === row.id ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
                         >
-<<<<<<< HEAD
+
                           <ClipboardList size={14} />
                         </button> */}
-=======
-                          <span className="material-symbols-outlined text-[14px]">checklist</span>
-                        </button>
->>>>>>> b4348e6fc9f0bbc70789f2265e6d4aa1bb96c380
+
+
                         {canEditDelete && (
                           <>
                             <button
@@ -1363,7 +1357,7 @@ export default function AttendancePage() {
                     )} */}
 
                     {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
-                    <div className="grid grid-cols-3 gap-2">
+                    < div className="grid grid-cols-3 gap-2" >
                       <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
                         <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Vào</span>
                         <span className="text-[10px] font-mono font-bold text-green-600">{row.check_in}</span>
@@ -1661,8 +1655,8 @@ export default function AttendancePage() {
               </div>
             )}
           </div>
-        </main>
-      </div>
-    </div>
+        </main >
+      </div >
+    </div >
   )
 }

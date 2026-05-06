@@ -34,7 +34,7 @@ export function AuthProvider({ children }) {
       const { data: profile, error } = await supabase
         .from('users')
         .select('*')
-<<<<<<< HEAD
+
         .eq('user_id', authUser.id)
         .maybeSingle(); // Dùng maybeSingle để tránh báo lỗi đỏ khi không tìm thấy dòng
 
@@ -59,22 +59,7 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error('[AuthContext] Crash:', err);
       setUser(authUser);
-=======
-        .eq('user_id', userId)
-        .single()
 
-      if (error) {
-        console.error('[AuthContext] Profile fetch error:', error)
-        setUser(null)
-        localStorage.removeItem(AUTH_USER_KEY)
-      } else {
-        setUser(profile)
-      }
-    } catch (err) {
-      console.error('[AuthContext] System error:', err)
-      setUser(null)
-      localStorage.removeItem(AUTH_USER_KEY)
->>>>>>> b4348e6fc9f0bbc70789f2265e6d4aa1bb96c380
     } finally {
       setLoading(false);
     }
