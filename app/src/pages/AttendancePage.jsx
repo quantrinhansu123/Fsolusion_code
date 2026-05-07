@@ -34,6 +34,8 @@ const calcDuration = (start, end) => {
 }
 
 
+
+
 export default function AttendancePage() {
   const { user } = useAuth()
   const role = user?.role || 'employee'
@@ -205,9 +207,8 @@ export default function AttendancePage() {
           })) : [],
           overallProgress: (session.tasks_data && session.tasks_data.length > 0)
             ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100)
-            : 0, 
+            : 0,
           isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
-          // tasks: completedTasksArray
         }
       })
 
@@ -509,7 +510,7 @@ export default function AttendancePage() {
       if (!session) return
 
       const updatedTasksData = session.tasks_data.map(t =>
-        t.subtask_id === subtaskId ? { ...t, is_approved: true, percent: 100 } : t
+        t.subtask_id === subtaskId ? { ...t, is_approved: !t.is_approved, percent: t.is_approved ? 0 : 100 } : t
       )
 
       const { error } = await supabase
@@ -1182,21 +1183,23 @@ export default function AttendancePage() {
                                                     subtaskId: task.subtask_id,
                                                     comment: task.comment || ''
                                                   })}
-                                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all text-[10px] font-bold active:scale-95 shadow-sm"
+                                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.comment
+                                                    ? 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-600 hover:text-white'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white'
+                                                    }`}
                                                 >
-                                                  <Edit3 size={12} />
-                                                  NHẬN XÉT
+                                                  <Edit3 size={11} />
+                                                  {task.comment ? 'SỬA' : 'GÓP Ý'}
                                                 </button>
 
                                                 <button
-                                                  disabled={task.is_approved}
                                                   onClick={() => handleApproveTask(row.id, task.subtask_id)}
-                                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.is_approved
-                                                    ? 'bg-emerald-500 text-white cursor-default'
+                                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.is_approved
+                                                    ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                                                     : 'bg-white border border-blue-200 text-blue-600 hover:bg-blue-50'
                                                     }`}
                                                 >
-                                                  {task.is_approved ? 'ĐÃ NGHIỆM THU' : 'NGHIỆM THU'}
+                                                  {task.is_approved ? 'HỦY' : 'DUYỆT'}
                                                 </button>
                                               </>
                                             ) : (
@@ -1273,15 +1276,13 @@ export default function AttendancePage() {
 
                       {/* Nhóm Nút (CHỈ ICON - KHÔNG CHỮ) */}
                       <div className="flex items-center gap-2 ml-auto shrink-0">
-                        {/* <button
+                        <button
                           type="button"
-                          onClick={() => setShowTasksId(showTasksId === row.id ? null : row.id)}
-                          className={`p-1.5 rounded-lg active:scale-90 transition-all ${showTasksId === row.id ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
+                          onClick={() => toggleExpandRow(row.id)}
+                          className={`p-1.5 rounded-lg active:scale-90 transition-all ${expandedRows.has(row.id) ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
                         >
-
-                          <ClipboardList size={14} />
-                        </button> */}
-
+                          {expandedRows.has(row.id) ? <Minus size={14} /> : <Plus size={14} />}
+                        </button>
 
                         {canEditDelete && (
                           <>
@@ -1332,7 +1333,7 @@ export default function AttendancePage() {
                     )} */}
 
                     {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
-                    < div className="grid grid-cols-3 gap-2" >
+                    <div className="grid grid-cols-3 gap-2" >
                       <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
                         <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Vào</span>
                         <span className="text-[10px] font-mono font-bold text-green-600">{row.check_in}</span>
@@ -1346,6 +1347,76 @@ export default function AttendancePage() {
                         <span className="text-[11px] font-black text-slate-800">{row.total_hours}</span>
                       </div>
                     </div>
+
+                    {/* Chi tiết công việc trên Mobile */}
+                    {expandedRows.has(row.id) && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                            <ClipboardList size={10} /> Chi tiết công việc
+                          </span>
+                          <span className="text-[10px] font-black text-blue-600">{row.overallProgress}%</span>
+                        </div>
+
+                        {row.tasks_data && row.tasks_data.length > 0 ? row.tasks_data.map((task, tidx) => (
+                          <div key={tidx} className="bg-slate-50 rounded-lg p-2 border border-slate-100">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="text-[11px] font-bold text-slate-700 leading-tight">{task.title}</span>
+                              <span className={`text-[9px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                {task.is_approved ? 'X' : '!'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[9px] text-slate-400">
+                              <span>{task.start_fmt} - {task.end_fmt || '...'}</span>
+                              <span className="font-bold">{task.duration}</span>
+                            </div>
+                            {task.comment && (
+                              <p className="mt-1 text-[9px] text-slate-500 italic border-l-2 border-blue-200 pl-2">
+                                {task.comment}
+                              </p>
+                            )}
+                            
+                            {/* Nút hành động nhanh trên Mobile */}
+                            <div className="mt-2 flex justify-end gap-2">
+                              {role === 'admin' ? (
+                                <>
+                                  <button
+                                    onClick={() => setCommentModal({
+                                      open: true,
+                                      sessionId: row.id,
+                                      subtaskId: task.subtask_id,
+                                      comment: task.comment || ''
+                                    })}
+                                    className={`p-1 px-1.5 rounded-md text-[8px] font-bold transition-all ${task.comment 
+                                      ? 'bg-amber-50 text-amber-600 border border-amber-200' 
+                                      : 'bg-white border border-slate-200 text-slate-600'}`}
+                                  >
+                                    {task.comment ? 'SỬA' : 'GÓP Ý'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleApproveTask(row.id, task.subtask_id)}
+                                    className={`p-1 px-1.5 rounded-md text-[8px] font-bold transition-all ${task.is_approved ? 'bg-emerald-500 text-white' : 'bg-white border border-blue-200 text-blue-600'}`}
+                                  >
+                                    {task.is_approved ? 'HỦY' : 'DUYỆT'}
+                                  </button>
+                                </>
+                              ) : (
+                                !task.end_time && (
+                                  <button
+                                    onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                    className="p-1 px-3 bg-blue-600 text-white rounded-md text-[8px] font-black"
+                                  >
+                                    KẾT THÚC
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        )) : (
+                          <p className="text-center py-2 text-[10px] text-slate-400 italic">Không có dữ liệu công việc</p>
+                        )}
+                      </div>
+                    )}
 
                   </div>
                 ))}
