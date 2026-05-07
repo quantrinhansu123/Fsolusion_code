@@ -202,35 +202,10 @@ export default function AttendancePage() {
             start_fmt: timeFormat(t.start_time),
             end_fmt: timeFormat(t.end_time),
             duration: calcDuration(t.start_time, t.end_time)
-          })) : [
-            {
-              subtask_id: "TEST-01",
-              title: "Phát triển tính năng JSONB (Dữ liệu test)",
-              percent: 100,
-              comment: "Đã hoàn thành tốt",
-              is_approved: true,
-              start_time: new Date(new Date().setHours(8, 30)).toISOString(),
-              end_time: new Date(new Date().setHours(10, 15)).toISOString(),
-              start_fmt: "08:30",
-              end_fmt: "10:15",
-              duration: "1h 45m"
-            },
-            {
-              subtask_id: "TEST-02",
-              title: "Viết tài liệu hướng dẫn (Dữ liệu test)",
-              percent: 0,
-              comment: "",
-              is_approved: false,
-              start_time: new Date(new Date().setHours(13, 0)).toISOString(),
-              end_time: null,
-              start_fmt: "13:00",
-              end_fmt: "--:--",
-              duration: ""
-            }
-          ],
+          })) : [],
           overallProgress: (session.tasks_data && session.tasks_data.length > 0)
             ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100)
-            : 50, // Mặc định 50% cho dữ liệu test (1/2 task đã duyệt)
+            : 0, 
           isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
           // tasks: completedTasksArray
         }
