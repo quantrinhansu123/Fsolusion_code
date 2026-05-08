@@ -68,6 +68,12 @@ export default function AttendancePage() {
   const [commentModal, setCommentModal] = useState({ open: false, sessionId: null, subtaskId: null, comment: '' })
   const [loadingAction, setLoadingAction] = useState(null) // Theo dõi task đang xử lý
 
+  // -- THÊM CÔNG VIỆC THỦ CÔNG (trong ca đang làm) --
+  const [addTaskModalOpen, setAddTaskModalOpen] = useState(false)
+  const [isAddingTask, setIsAddingTask] = useState(false)
+  const [newTaskForm, setNewTaskForm] = useState({ title: '', percent: 0 })
+  const [addTaskTargetSessionId, setAddTaskTargetSessionId] = useState(null)
+
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
 
@@ -206,7 +212,14 @@ export default function AttendancePage() {
             duration: calcDuration(t.start_time, t.end_time)
           })) : [],
           overallProgress: (session.tasks_data && session.tasks_data.length > 0)
-            ? Math.round((session.tasks_data.filter(t => t.is_approved).length / session.tasks_data.length) * 100)
+            ? Math.round(
+              session.tasks_data.reduce((sum, t) => {
+                const p = typeof t.percent === 'number'
+                  ? t.percent
+                  : (t.is_approved ? 100 : 0)
+                return sum + Math.max(0, Math.min(100, p))
+              }, 0) / session.tasks_data.length
+            )
             : 0,
           isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
         }
@@ -588,6 +601,80 @@ export default function AttendancePage() {
     }
   }
 
+  const normalizeTaskForDb = (task) => ({
+    subtask_id: task?.subtask_id ?? null,
+    title: task?.title ?? '',
+    percent: typeof task?.percent === 'number' ? task.percent : (task?.is_approved ? 100 : 0),
+    comment: task?.comment ?? '',
+    is_approved: !!task?.is_approved,
+    start_time: task?.start_time ?? null,
+    end_time: task?.end_time ?? null,
+  })
+
+  const activeSessionRow = activeSessionId ? attendanceList.find(s => s.id === activeSessionId) : null
+
+  const openAddTaskModal = (sessionId) => {
+    setAddTaskTargetSessionId(sessionId ?? null)
+    setAddTaskModalOpen(true)
+  }
+
+  const handleAddTaskToSession = async (e) => {
+    e.preventDefault()
+    const targetSessionId = addTaskTargetSessionId || activeSessionId
+    if (!targetSessionId) {
+      setToast({ message: 'Không xác định được ca làm việc để thêm công việc.', type: 'warning' })
+      return
+    }
+
+    const title = (newTaskForm.title || '').trim()
+    const percent = Number(newTaskForm.percent)
+
+    if (!title) {
+      setToast({ message: 'Vui lòng nhập tên công việc.', type: 'warning' })
+      return
+    }
+
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      setToast({ message: 'Phần trăm hoàn thành phải từ 0 đến 100.', type: 'warning' })
+      return
+    }
+
+    setIsAddingTask(true)
+    try {
+      const newTask = {
+        subtask_id: `manual_${Date.now()}`,
+        title,
+        percent,
+        comment: '',
+        is_approved: false,
+        start_time: new Date().toISOString(),
+        end_time: null,
+      }
+
+      const targetRow = attendanceList.find(s => s.id === targetSessionId) || null
+      const currentTasks = (targetRow?.tasks_data || []).map(normalizeTaskForDb)
+      const updatedTasksData = [...currentTasks, newTask]
+
+      const { error: updateError } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', targetSessionId)
+
+      if (updateError) throw updateError
+
+      setToast({ message: 'Đã thêm công việc!', type: 'success' })
+      setAddTaskModalOpen(false)
+      setAddTaskTargetSessionId(null)
+      setNewTaskForm({ title: '', percent: 0 })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi khi thêm công việc', type: 'error' })
+    } finally {
+      setIsAddingTask(false)
+    }
+  }
+
   // 8. Hàm lưu bản ghi sau khi sửa
   const handleSaveEdit = async (e) => {
     e.preventDefault()
@@ -935,6 +1022,72 @@ export default function AttendancePage() {
               </div>
             )}
 
+            {/* Thêm công việc trong ca đang làm */}
+            {isWorking && activeSessionId && (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-4 py-3 sm:px-6 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ClipboardList size={16} className="text-blue-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider truncate">
+                        Công việc trong ca hiện tại
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-medium truncate">
+                        {activeSessionRow?.user?.name ? `Nhân sự: ${activeSessionRow.user.name}` : `Session: ${activeSessionId}`}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openAddTaskModal(activeSessionId)}
+                    className="h-9 px-3 sm:px-4 rounded-xl bg-blue-600 text-white font-bold text-[11px] shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add</span>
+                    Thêm công việc
+                  </button>
+                </div>
+
+                <div className="p-4 sm:p-6">
+                  {activeSessionRow?.tasks_data?.length ? (
+                    <div className="space-y-3">
+                      {activeSessionRow.tasks_data.map((t, idx) => {
+                        const pct = typeof t.percent === 'number' ? t.percent : (t.is_approved ? 100 : 0)
+                        const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                        return (
+                          <div key={`${t.subtask_id || idx}`} className="p-3 rounded-2xl border border-slate-200 bg-white">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-800 text-[12px] truncate">{t.title || 'Công việc'}</div>
+                                <div className="text-[10px] text-slate-400 font-medium">
+                                  {t.start_fmt ? `Bắt đầu: ${t.start_fmt}` : ''}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-[12px] font-black text-blue-600">{safePct}%</div>
+                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                  {t.is_approved ? 'Đã duyệt' : 'Chưa duyệt'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-2 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-blue-600 transition-all duration-500"
+                                style={{ width: `${safePct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-slate-500 italic text-[12px]">
+                      Chưa có công việc nào. Bấm <strong>Thêm công việc</strong> để tạo công việc và % hoàn thành.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* 2. Khu vực Bảng dữ liệu (Main Table) */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[300px] relative">
               {/* Overlay Loading Siêu Xịn */}
@@ -1084,6 +1237,14 @@ export default function AttendancePage() {
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => openAddTaskModal(row.id)}
+                                  className="flex items-center gap-1 px-2 py-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-all font-bold text-[11px]"
+                                  title="Thêm công việc"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">add_task</span>
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleDeleteSingle(row.id)}
                                   disabled={deleting}
                                   className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
@@ -1106,12 +1267,22 @@ export default function AttendancePage() {
                                       <ClipboardList size={14} className="text-blue-500" />
                                       Chi tiết công việc đã thực hiện
                                     </span>
+                                    <div className="flex items-center gap-3">
+                                      <button
+                                        type="button"
+                                        onClick={() => openAddTaskModal(row.id)}
+                                        className="h-8 px-3 rounded-xl bg-blue-600 text-white font-bold text-[10px] shadow-md shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">add</span>
+                                        Thêm công việc
+                                      </button>
                                     <div className="flex items-center gap-2">
                                       <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
                                       <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
                                         }`}>
                                         {row.overallProgress}%
                                       </span>
+                                    </div>
                                     </div>
                                   </div>
 
@@ -1156,18 +1327,24 @@ export default function AttendancePage() {
                                           </div>
                                         </td>
                                         <td className="px-4 py-3">
+                                          {(() => {
+                                            const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
+                                            const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                                            return (
                                           <div className="flex items-center gap-3">
                                             <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                               <div
-                                                className={`h-full transition-all duration-500 ${task.is_approved ? 'bg-emerald-500' : 'bg-slate-300'
+                                                className={`h-full transition-all duration-500 ${task.is_approved ? 'bg-emerald-500' : 'bg-blue-600'
                                                   }`}
-                                                style={{ width: `${task.is_approved ? 100 : 0}%` }}
+                                                style={{ width: `${safePct}%` }}
                                               />
                                             </div>
-                                            <span className={`text-[11px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                              {task.is_approved ? '100%' : '0%'}
+                                            <span className={`text-[11px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                              {safePct}%
                                             </span>
                                           </div>
+                                            )
+                                          })()}
                                         </td>
                                         <td className="px-4 py-3">
                                           <div className="text-[11px] text-slate-500 italic max-w-xs truncate">
@@ -1362,12 +1539,18 @@ export default function AttendancePage() {
 
                         {row.tasks_data && row.tasks_data.length > 0 ? row.tasks_data.map((task, tidx) => (
                           <div key={tidx} className="bg-slate-50 rounded-lg p-2 border border-slate-100">
+                            {(() => {
+                              const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
+                              const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                              return (
                             <div className="flex justify-between items-start mb-1">
                               <span className="text-[11px] font-bold text-slate-700 leading-tight">{task.title}</span>
                               <span className={`text-[9px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                {task.is_approved ? 'X' : '!'}
+                                {safePct}%
                               </span>
                             </div>
+                              )
+                            })()}
                             <div className="flex items-center justify-between text-[9px] text-slate-400">
                               <span>{task.start_fmt} - {task.end_fmt || '...'}</span>
                               <span className="font-bold">{task.duration}</span>
@@ -1701,6 +1884,86 @@ export default function AttendancePage() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* MODAL: Thêm công việc */}
+            {addTaskModalOpen && (
+              <Modal
+                title="Thêm công việc"
+                subtitle="Thêm công việc + % hoàn thành vào ca đang làm"
+                onClose={() => { setAddTaskModalOpen(false); setAddTaskTargetSessionId(null) }}
+                footerClassName="justify-between"
+                footer={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setAddTaskModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      form="add-task-form"
+                      disabled={isAddingTask}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      {isAddingTask ? (
+                        <span className="text-[12px] font-black">...</span>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[18px]">save</span>
+                          Lưu công việc
+                        </>
+                      )}
+                    </button>
+                  </>
+                }
+              >
+                <form id="add-task-form" onSubmit={handleAddTaskToSession} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Tên công việc</label>
+                    <input
+                      value={newTaskForm.title}
+                      onChange={(e) => setNewTaskForm(v => ({ ...v, title: e.target.value }))}
+                      placeholder="Ví dụ: Làm báo cáo tiến độ"
+                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium"
+                      autoFocus
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
+                      <span className="text-[12px] font-black text-blue-600">{Number(newTaskForm.percent) || 0}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={newTaskForm.percent}
+                      onChange={(e) => setNewTaskForm(v => ({ ...v, percent: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <div className="grid grid-cols-5 gap-2">
+                      {[0, 25, 50, 75, 100].map(p => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setNewTaskForm(v => ({ ...v, percent: p }))}
+                          className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(newTaskForm.percent) === p
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            }`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              </Modal>
             )}
           </div>
         </main >
