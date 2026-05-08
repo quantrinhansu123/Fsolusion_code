@@ -337,12 +337,14 @@ export default function AttendancePage() {
   const handleCheckOut = async () => {
     if (!activeSessionId) return
     try {
+      const today = new Date().toISOString().split('T')[0]
       // 1. Lấy danh sách subtasks nhân viên đã làm hoàn thành trong hôm nay
       const { data: completedSubtasks, error: subtaskError } = await supabase
         .from('subtasks')
-        .select('subtask_id, name, created_at')
-        .eq('user_id', currentUser.id)
+        .select('subtask_id, name, created_at, completed_at')
+        .eq('assigned_to', currentUser.user_id)
         .eq('status', 'completed')
+        .gte('completed_at', today + 'T00:00:00')
       // Lưu ý: Có thể cần thêm logic lọc theo thời gian check-in/out nếu muốn chính xác tuyệt đối
 
       if (subtaskError) throw subtaskError
@@ -355,7 +357,7 @@ export default function AttendancePage() {
         comment: "",
         is_approved: false,
         start_time: st.created_at || new Date().toISOString(),
-        end_time: null // Để nhân viên bấm "Kết thúc" thủ công
+        end_time: st.completed_at || null
       }))
 
       // 3. Cập nhật work_sessions
