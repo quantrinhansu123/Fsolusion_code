@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Modal from './Modal'
 import { deadlineToFormValue } from '../utils/deadline'
+import { foldSearchString } from '../utils/foldSearchString'
 import { imageFileToDataUrl, getImageFromClipboardEvent, getImageFromDataTransfer } from '../utils/imagePaste'
 
 export const STATUS_OPTIONS = [
@@ -120,8 +121,12 @@ function SearchableSelect({
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
 
-  const filtered = search.trim()
-    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+  const qFold = search.trim() ? foldSearchString(search.trim()) : ''
+  const filtered = qFold
+    ? options.filter(o => {
+        const hay = foldSearchString(o.searchText ?? o.label ?? '')
+        return hay.includes(qFold)
+      })
     : options
 
   const selectedLabel = options.find(o => o.value === value)?.label || ''

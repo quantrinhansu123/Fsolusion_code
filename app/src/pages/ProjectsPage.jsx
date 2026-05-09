@@ -34,6 +34,7 @@ import { formatDeadlineDisplay, formatDeadlineShort, normalizeDeadlineForSave } 
 import { isHttpUrl, shouldTryImageFirst, hostBlocksIframeEmbedding } from '../utils/linkEmbed'
 import IframeBlockedFallback from '../components/IframeBlockedFallback'
 import { useAuth } from '../utils/AuthContext'
+import { foldSearchString } from '../utils/foldSearchString'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 /**
@@ -2221,7 +2222,7 @@ export default function ProjectsPage() {
       ] = await Promise.all([
         supabase
           .from('customers')
-          .select('customer_id, name, created_at, updated_at'),
+          .select('customer_id, name, email, phone, created_at, updated_at'),
         supabase
           .from('projects')
           .select(`
@@ -2273,6 +2274,13 @@ export default function ProjectsPage() {
       if (!silent) setLoading(false)
     }
   }
+
+  /** Luôn làm mới danh sách khách khi mở form dự án (khách vừa thêm ở tab/trang khác). */
+  useEffect(() => {
+    const t = m.modal?.type
+    if (t !== 'add_project' && t !== 'edit_project') return
+    fetchData(true)
+  }, [m.modal?.type])
 
   function formatSaveError(err) {
     if (!err) return 'Không thể lưu dữ liệu'
@@ -2825,7 +2833,15 @@ export default function ProjectsPage() {
     if (t === 'add_project' || t === 'edit_project') {
       const pFields = PROJECT_FIELDS.map(f =>
         f.name === 'customer_id'
-          ? { ...f, options: customers.map(c => ({ value: c.customer_id, label: c.name })) }
+          ? {
+              ...f,
+              options: customers.map(c => {
+                const label =
+                  (c.name && String(c.name).trim()) || c.email || c.phone || 'Khách hàng'
+                const searchText = [c.name, c.email, c.phone].filter(Boolean).join(' ')
+                return { value: c.customer_id, label, searchText }
+              }),
+            }
           : f
       )
       return { title: t === 'add_project' ? 'Dự án mới' : 'Sửa dự án', fields: pFields }
@@ -2899,12 +2915,18 @@ export default function ProjectsPage() {
   const taskKanbanGrouped = projectInTasksView ? groupTaskEntriesForKanban(kanbanTaskEntries) : null
 
   const displayedCustomerProjects = useMemo(() => {
-    const ql = projectSearch.trim().toLowerCase()
+    const rawQ = projectSearch.trim()
+    const qFold = foldSearchString(rawQ)
+    const hasQuery = rawQ.length > 0
     const projectMatches = p => {
-      const n = (p.name || '').toLowerCase()
-      const d = (p.description || '').toLowerCase()
-      return n.includes(ql) || d.includes(ql)
+      const n = foldSearchString(p.name || '')
+      const d = foldSearchString(p.description || '')
+      return n.includes(qFold) || d.includes(qFold)
     }
+    const customerMatchesQuery = c =>
+      foldSearchString(c.name || '').includes(qFold) ||
+      foldSearchString(c.email || '').includes(qFold) ||
+      foldSearchString(c.phone || '').includes(qFold)
     const now = Date.now()
     const keyMatches = p => {
       if (projectListFilter === 'all') return true
@@ -2920,12 +2942,12 @@ export default function ProjectsPage() {
     return customers
       .filter(c => (c.projects?.length ?? 0) > 0)
       .map(c => {
-        if (!ql) {
+        if (!hasQuery) {
           const projects = (c.projects || []).filter(keyMatches)
           return { customer: c, projects }
         }
-        const customerNameMatch = (c.name || '').toLowerCase().includes(ql)
-        const projects = customerNameMatch
+        const customerHit = customerMatchesQuery(c)
+        const projects = customerHit
           ? (c.projects || []).filter(keyMatches)
           : (c.projects || []).filter(p => projectMatches(p) && keyMatches(p))
         return { customer: c, projects }
@@ -3061,7 +3083,7 @@ export default function ProjectsPage() {
                   type="search"
                   value={projectSearch}
                   onChange={e => setProjectSearch(e.target.value)}
-                  placeholder="Tìm dự án theo tên, mô tả hoặc tên khách hàng..."
+                  placeholder="Tìm theo khách hàng (tên, email, SĐT), tên dự án hoặc mô tả…"
                   autoComplete="off"
                   className="w-full rounded-lg border border-[#e2e8f0] bg-white py-2 pl-9 pr-9 text-[13px] text-[#131b2e] placeholder:text-[#94a3b8] focus:border-[#006591] focus:outline-none focus:ring-1 focus:ring-[#006591]/25"
                   aria-label="Tìm dự án"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
@@ -73,8 +73,20 @@ export default function AttendancePage() {
   // -- THÊM CÔNG VIỆC THỦ CÔNG (trong ca đang làm) --
   const [addTaskModalOpen, setAddTaskModalOpen] = useState(false)
   const [isAddingTask, setIsAddingTask] = useState(false)
-  const [newTaskForm, setNewTaskForm] = useState({ title: '', percent: 0, parent_task_name: '' })
+  const [newTaskForm, setNewTaskForm] = useState({
+    project_id: '',
+    task_id: '',
+    title: '',
+    percent: 0,
+    parent_task_name: '',
+  })
   const [addTaskTargetSessionId, setAddTaskTargetSessionId] = useState(null)
+  const [pickListProjects, setPickListProjects] = useState([])
+  const [pickListLoading, setPickListLoading] = useState(false)
+  const [addTaskProjectQuery, setAddTaskProjectQuery] = useState('')
+  const [addTaskTaskQuery, setAddTaskTaskQuery] = useState('')
+  const [addTaskShowProjectSuggest, setAddTaskShowProjectSuggest] = useState(false)
+  const [addTaskShowTaskSuggest, setAddTaskShowTaskSuggest] = useState(false)
 
   const [editPercentModal, setEditPercentModal] = useState({
     open: false,
@@ -664,6 +676,7 @@ export default function AttendancePage() {
 
   const normalizeTaskForDb = (task) => ({
     subtask_id: task?.subtask_id ?? null,
+    task_id: task?.task_id ?? null,
     title: task?.title ?? '',
     parent_task_name: task?.parent_task_name ?? null,
     percent: typeof task?.percent === 'number' ? task.percent : (task?.is_approved ? 100 : 0),
@@ -740,10 +753,101 @@ export default function AttendancePage() {
     }
   }
 
+  const resetAddTaskSearchUi = () => {
+    setAddTaskProjectQuery('')
+    setAddTaskTaskQuery('')
+    setAddTaskShowProjectSuggest(false)
+    setAddTaskShowTaskSuggest(false)
+  }
+
   const openAddTaskModal = (sessionId) => {
     setAddTaskTargetSessionId(sessionId ?? null)
+    setNewTaskForm({
+      project_id: '',
+      task_id: '',
+      title: '',
+      percent: 0,
+      parent_task_name: '',
+    })
+    resetAddTaskSearchUi()
     setAddTaskModalOpen(true)
   }
+
+  useEffect(() => {
+    if (!addTaskModalOpen || !user?.user_id) return
+    let cancelled = false
+    ;(async () => {
+      setPickListLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select(`
+            project_id,
+            name,
+            project_assignments(user_id),
+            features(
+              feature_id,
+              name,
+              tasks(task_id, name, status)
+            )
+          `)
+          .order('name', { ascending: true })
+        if (error) throw error
+        let list = data || []
+        if (role === 'employee') {
+          list = list.filter(p =>
+            p.project_assignments?.some(a => a.user_id === user.user_id)
+          )
+        }
+        if (!cancelled) setPickListProjects(list)
+      } catch (e) {
+        console.error(e)
+        if (!cancelled) setPickListProjects([])
+      } finally {
+        if (!cancelled) setPickListLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [addTaskModalOpen, user?.user_id, role])
+
+  const tasksForPickedProject = useMemo(() => {
+    const p = pickListProjects.find(x => x.project_id === newTaskForm.project_id)
+    if (!p?.features?.length) return []
+    const out = []
+    for (const f of p.features) {
+      for (const t of f.tasks || []) {
+        out.push({
+          task_id: t.task_id,
+          name: t.name,
+          status: t.status,
+          featureName: f.name,
+        })
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+  }, [pickListProjects, newTaskForm.project_id])
+
+  const addTaskProjectSuggestions = useMemo(() => {
+    const q = addTaskProjectQuery.trim().toLowerCase()
+    let list = pickListProjects
+    if (q) {
+      list = list.filter(p => (p.name || '').toLowerCase().includes(q))
+    }
+    return list.slice(0, 40)
+  }, [pickListProjects, addTaskProjectQuery])
+
+  const addTaskTaskSuggestions = useMemo(() => {
+    const q = addTaskTaskQuery.trim().toLowerCase()
+    let list = tasksForPickedProject
+    if (q) {
+      list = list.filter(t =>
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.featureName || '').toLowerCase().includes(q) ||
+        (t.status || '').toLowerCase().includes(q)
+      )
+    }
+    return list.slice(0, 60)
+  }, [tasksForPickedProject, addTaskTaskQuery])
 
   const handleAddTaskToSession = async (e) => {
     e.preventDefault()
@@ -753,11 +857,21 @@ export default function AttendancePage() {
       return
     }
 
-    const title = (newTaskForm.title || '').trim()
     const percent = Number(newTaskForm.percent)
+    const picked = tasksForPickedProject.find(t => t.task_id === newTaskForm.task_id)
+    const title = picked?.name?.trim() || (newTaskForm.title || '').trim()
+    const project = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
 
+    if (!newTaskForm.project_id) {
+      setToast({ message: 'Vui lòng chọn dự án (project).', type: 'warning' })
+      return
+    }
+    if (!newTaskForm.task_id || !picked) {
+      setToast({ message: 'Vui lòng chọn task trong dự án.', type: 'warning' })
+      return
+    }
     if (!title) {
-      setToast({ message: 'Vui lòng nhập tên công việc.', type: 'warning' })
+      setToast({ message: 'Không xác định được tên công việc.', type: 'warning' })
       return
     }
 
@@ -768,10 +882,15 @@ export default function AttendancePage() {
 
     setIsAddingTask(true)
     try {
+      const parentLabel = project && picked
+        ? `${project.name} › ${picked.featureName}`
+        : null
+
       const newTask = {
-        subtask_id: `manual_${Date.now()}`,
+        subtask_id: `task_${newTaskForm.task_id}`,
+        task_id: newTaskForm.task_id,
         title,
-        parent_task_name: (newTaskForm.parent_task_name || '').trim() || null,
+        parent_task_name: parentLabel,
         percent,
         comment: '',
         is_approved: false,
@@ -797,7 +916,14 @@ export default function AttendancePage() {
       setToast({ message: 'Đã thêm công việc!', type: 'success' })
       setAddTaskModalOpen(false)
       setAddTaskTargetSessionId(null)
-      setNewTaskForm({ title: '', percent: 0, parent_task_name: '' })
+      setNewTaskForm({
+        project_id: '',
+        task_id: '',
+        title: '',
+        percent: 0,
+        parent_task_name: '',
+      })
+      resetAddTaskSearchUi()
       fetchAttendanceData()
     } catch (err) {
       console.error(err)
@@ -2247,14 +2373,36 @@ export default function AttendancePage() {
             {addTaskModalOpen && (
               <Modal
                 title="Thêm công việc"
-                subtitle="Thêm công việc + % hoàn thành vào ca đang làm"
-                onClose={() => { setAddTaskModalOpen(false); setAddTaskTargetSessionId(null) }}
+                subtitle="Chọn dự án và task từ hệ thống, sau đó đặt % hoàn thành"
+                onClose={() => {
+                  setAddTaskModalOpen(false)
+                  setAddTaskTargetSessionId(null)
+                  setNewTaskForm({
+                    project_id: '',
+                    task_id: '',
+                    title: '',
+                    percent: 0,
+                    parent_task_name: '',
+                  })
+                  resetAddTaskSearchUi()
+                }}
                 footerClassName="justify-between"
                 footer={
                   <>
                     <button
                       type="button"
-                      onClick={() => setAddTaskModalOpen(false)}
+                      onClick={() => {
+                        setAddTaskModalOpen(false)
+                        setAddTaskTargetSessionId(null)
+                        setNewTaskForm({
+                          project_id: '',
+                          task_id: '',
+                          title: '',
+                          percent: 0,
+                          parent_task_name: '',
+                        })
+                        resetAddTaskSearchUi()
+                      }}
                       className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
                     >
                       Hủy
@@ -2278,27 +2426,136 @@ export default function AttendancePage() {
                 }
               >
                 <form id="add-task-form" onSubmit={handleAddTaskToSession} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Tên công việc</label>
-                    <input
-                      value={newTaskForm.title}
-                      onChange={(e) => setNewTaskForm(v => ({ ...v, title: e.target.value }))}
-                      placeholder="Ví dụ: Làm báo cáo tiến độ"
-                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium"
-                      autoFocus
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
+                  {pickListLoading && (
+                    <p className="text-[12px] text-slate-500">Đang tải danh sách dự án…</p>
+                  )}
+                  <div className="space-y-1.5 relative">
                     <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Nhóm Task cha <span className="text-slate-400 font-normal">(tùy chọn)</span>
+                      Dự án <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      value={newTaskForm.parent_task_name}
-                      onChange={(e) => setNewTaskForm(v => ({ ...v, parent_task_name: e.target.value }))}
-                      placeholder="Ví dụ: Phát triển trang chủ"
-                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium"
-                    />
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
+                      <input
+                        type="text"
+                        value={addTaskProjectQuery}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setAddTaskProjectQuery(v)
+                          setAddTaskShowProjectSuggest(true)
+                          const sel = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
+                          if (sel && v !== sel.name) {
+                            setNewTaskForm(f => ({ ...f, project_id: '', task_id: '', title: '', parent_task_name: '' }))
+                            setAddTaskTaskQuery('')
+                          }
+                        }}
+                        onFocus={() => setAddTaskShowProjectSuggest(true)}
+                        onBlur={() => { window.setTimeout(() => setAddTaskShowProjectSuggest(false), 150) }}
+                        placeholder="Gõ để tìm dự án…"
+                        autoComplete="off"
+                        disabled={pickListLoading}
+                        className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px]"
+                      />
+                      {addTaskShowProjectSuggest && !pickListLoading && (
+                        addTaskProjectSuggestions.length > 0 ? (
+                          <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
+                            {addTaskProjectSuggestions.map(p => (
+                              <li key={p.project_id}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setNewTaskForm(f => ({ ...f, project_id: p.project_id, task_id: '', title: '', parent_task_name: '' }))
+                                    setAddTaskProjectQuery(p.name)
+                                    setAddTaskTaskQuery('')
+                                    setAddTaskShowProjectSuggest(false)
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-[12px] text-slate-700 hover:bg-blue-50 font-medium truncate"
+                                >
+                                  {p.name}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
+                            {addTaskProjectQuery.trim() ? 'Không có dự án khớp.' : 'Không có dự án.'}
+                          </div>
+                        )
+                      )}
+                    </div>
+                    {newTaskForm.project_id && (
+                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn dự án</p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 relative">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      Task <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
+                      <input
+                        type="text"
+                        value={addTaskTaskQuery}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setAddTaskTaskQuery(v)
+                          setAddTaskShowTaskSuggest(true)
+                          const cur = tasksForPickedProject.find(t => t.task_id === newTaskForm.task_id)
+                          const curLabel = cur ? `${cur.featureName} › ${cur.name}` : ''
+                          if (cur && v !== curLabel) {
+                            setNewTaskForm(f => ({ ...f, task_id: '', title: '', parent_task_name: '' }))
+                          }
+                        }}
+                        onFocus={() => newTaskForm.project_id && setAddTaskShowTaskSuggest(true)}
+                        onBlur={() => { window.setTimeout(() => setAddTaskShowTaskSuggest(false), 150) }}
+                        placeholder={
+                          !newTaskForm.project_id
+                            ? 'Chọn dự án trước…'
+                            : tasksForPickedProject.length === 0
+                              ? 'Dự án không có task'
+                              : 'Gõ để tìm task (tên, tính năng)…'
+                        }
+                        autoComplete="off"
+                        disabled={pickListLoading || !newTaskForm.project_id || tasksForPickedProject.length === 0}
+                        className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                      {addTaskShowTaskSuggest && newTaskForm.project_id && tasksForPickedProject.length > 0 && (
+                        addTaskTaskSuggestions.length > 0 ? (
+                          <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
+                            {addTaskTaskSuggestions.map(t => (
+                              <li key={t.task_id}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    const proj = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
+                                    setNewTaskForm(f => ({
+                                      ...f,
+                                      task_id: t.task_id,
+                                      title: t.name,
+                                      parent_task_name: proj ? `${proj.name} › ${t.featureName}` : '',
+                                    }))
+                                    setAddTaskTaskQuery(`${t.featureName} › ${t.name}`)
+                                    setAddTaskShowTaskSuggest(false)
+                                  }}
+                                  className="w-full text-left px-3 py-2 hover:bg-blue-50"
+                                >
+                                  <div className="text-[12px] font-bold text-slate-800 truncate">{t.featureName} › {t.name}</div>
+                                  <div className="text-[10px] text-slate-400 font-medium">{t.status}</div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
+                            {addTaskTaskQuery.trim() ? 'Không có task khớp.' : 'Không có task.'}
+                          </div>
+                        )
+                      )}
+                    </div>
+                    {newTaskForm.task_id && (
+                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn task</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

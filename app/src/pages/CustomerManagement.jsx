@@ -142,7 +142,15 @@ export default function CustomerManagement() {
 
   const projectFormFields = PROJECT_FIELDS.map(f =>
     f.name === 'customer_id'
-      ? { ...f, options: customers.map(c => ({ value: c.customer_id, label: c.name })) }
+      ? {
+          ...f,
+          options: customers.map(c => {
+            const label =
+              (c.name && String(c.name).trim()) || c.email || c.phone || 'Khách hàng'
+            const searchText = [c.name, c.email, c.phone].filter(Boolean).join(' ')
+            return { value: c.customer_id, label, searchText }
+          }),
+        }
       : f
   )
 
