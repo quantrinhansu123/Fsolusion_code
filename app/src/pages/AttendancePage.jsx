@@ -76,6 +76,16 @@ export default function AttendancePage() {
   const [newTaskForm, setNewTaskForm] = useState({ title: '', percent: 0, parent_task_name: '' })
   const [addTaskTargetSessionId, setAddTaskTargetSessionId] = useState(null)
 
+  const [editPercentModal, setEditPercentModal] = useState({
+    open: false,
+    sessionId: null,
+    subtaskId: null,
+    title: '',
+    percent: 0,
+  })
+  const [isSavingPercent, setIsSavingPercent] = useState(false)
+  const [loadingAction, setLoadingAction] = useState(null)
+
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
 
@@ -208,6 +218,7 @@ export default function AttendancePage() {
 
         return {
           id: session.session_id,
+          ownerUserId: userData?.user_id ?? null,
           user: {
             name: userData?.full_name || 'Không xác định',
             avatar: userData?.avatar_url || (userData?.full_name ? userData.full_name.charAt(0).toUpperCase() : '?')
@@ -623,6 +634,34 @@ export default function AttendancePage() {
     }
   }
 
+  const handleFinishTask = async (sessionId, subtaskId) => {
+    setLoadingAction(subtaskId)
+    try {
+      const session = attendanceList.find(s => s.id === sessionId)
+      if (!session) return
+
+      const updatedTasksData = session.tasks_data
+        .map(t =>
+          t.subtask_id === subtaskId ? { ...t, end_time: new Date().toISOString() } : t
+        )
+        .map(normalizeTaskForDb)
+
+      const { error } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', sessionId)
+
+      if (error) throw error
+      setToast({ message: 'Đã ghi nhận thời gian kết thúc!', type: 'success' })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi khi kết thúc công việc', type: 'error' })
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
   const normalizeTaskForDb = (task) => ({
     subtask_id: task?.subtask_id ?? null,
     title: task?.title ?? '',
@@ -639,6 +678,67 @@ export default function AttendancePage() {
   })
 
   const activeSessionRow = activeSessionId ? attendanceList.find(s => s.id === activeSessionId) : null
+
+  const canEditTaskPercent = (row) =>
+    canEditDelete || (currentUser?.user_id && row?.ownerUserId === currentUser.user_id)
+
+  const openEditPercentModal = (sessionId, task) => {
+    const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
+    const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+    setEditPercentModal({
+      open: true,
+      sessionId,
+      subtaskId: task.subtask_id,
+      title: task.title || '',
+      percent: safePct,
+    })
+  }
+
+  const handleSaveTaskPercent = async (e) => {
+    e.preventDefault()
+    const { sessionId, subtaskId, percent } = editPercentModal
+    const p = Math.round(Number(percent))
+
+    if (!sessionId || subtaskId == null) {
+      setToast({ message: 'Thiếu thông tin phiên làm việc.', type: 'warning' })
+      return
+    }
+    if (!Number.isFinite(p) || p < 0 || p > 100) {
+      setToast({ message: 'Phần trăm hoàn thành phải từ 0 đến 100.', type: 'warning' })
+      return
+    }
+
+    const session = attendanceList.find(s => s.id === sessionId)
+    if (!session) return
+
+    if (!canEditTaskPercent(session)) {
+      setToast({ message: 'Bạn không có quyền sửa tiến độ ca này.', type: 'error' })
+      return
+    }
+
+    setIsSavingPercent(true)
+    try {
+      const updatedTasksData = session.tasks_data
+        .map(t => (t.subtask_id === subtaskId ? { ...t, percent: p } : t))
+        .map(normalizeTaskForDb)
+
+      const { error: updateError } = await supabase
+        .from('work_sessions')
+        .update({ tasks_data: updatedTasksData })
+        .eq('session_id', sessionId)
+
+      if (updateError) throw updateError
+
+      setToast({ message: 'Đã cập nhật % hoàn thành.', type: 'success' })
+      setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi khi lưu % hoàn thành', type: 'error' })
+    } finally {
+      setIsSavingPercent(false)
+    }
+  }
 
   const openAddTaskModal = (sessionId) => {
     setAddTaskTargetSessionId(sessionId ?? null)
@@ -1101,7 +1201,18 @@ export default function AttendancePage() {
                                 </div>
                               </div>
                               <div className="shrink-0 text-right">
-                                <div className="text-[12px] font-black text-blue-600">{safePct}%</div>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <div className="text-[12px] font-black text-blue-600">{safePct}%</div>
+                                  {activeSessionRow && canEditTaskPercent(activeSessionRow) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditPercentModal(activeSessionId, t)}
+                                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                                    >
+                                      Sửa %
+                                    </button>
+                                  )}
+                                </div>
                                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                                   {t.is_approved ? 'Đã duyệt' : 'Chưa duyệt'}
                                 </div>
@@ -1390,12 +1501,22 @@ export default function AttendancePage() {
                                                 </td>
                                                 {/* Progress bar */}
                                                 <td className="px-4 py-3">
-                                                  <div className="flex items-center gap-2">
-                                                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                  <div className="flex items-center gap-2 flex-wrap">
+                                                    <div className="flex-1 min-w-[72px] h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                                       <div className={`h-full transition-all duration-500 ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
                                                         style={{ width: `${safePct}%` }} />
                                                     </div>
-                                                    <span className="text-[11px] font-bold text-slate-600">{safePct}%</span>
+                                                    <span className="text-[11px] font-bold text-slate-600 shrink-0">{safePct}%</span>
+                                                    {canEditTaskPercent(row) && (
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => openEditPercentModal(row.id, task)}
+                                                        className="shrink-0 flex items-center gap-0.5 px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all"
+                                                      >
+                                                        <Edit3 size={10} />
+                                                        Sửa %
+                                                      </button>
+                                                    )}
                                                   </div>
                                                 </td>
                                                 {/* Report content / comment */}
@@ -1428,10 +1549,21 @@ export default function AttendancePage() {
                                                 </td>
                                                 {/* Actions */}
                                                 <td className="px-4 py-3 text-right">
-                                                  <div className="flex justify-end gap-1.5">
+                                                  <div className="flex flex-wrap justify-end gap-1.5">
                                                     {role === 'admin' ? (
                                                       tStatus === 'pending_approval' ? (
                                                         <>
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100 disabled:opacity-60"
+                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
                                                           <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
                                                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all text-[10px] font-black active:scale-95 shadow-sm shadow-emerald-100">
                                                             <span className="material-symbols-outlined text-[13px]">verified</span>
@@ -1444,30 +1576,113 @@ export default function AttendancePage() {
                                                           </button>
                                                         </>
                                                       ) : tStatus === 'completed' ? (
-                                                        <span className="text-emerald-600 font-bold text-[10px] flex items-center gap-1">
-                                                          <span className="material-symbols-outlined text-[14px]">check_circle</span>Đã nghiệm thu
-                                                        </span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black disabled:opacity-60"
+                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="text-emerald-600 font-bold text-[10px] flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[14px]">check_circle</span>Đã nghiệm thu
+                                                          </span>
+                                                        </div>
                                                       ) : (
-                                                        <span className="text-slate-400 text-[10px] italic">Chờ nhân viên báo cáo</span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black disabled:opacity-60"
+                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="text-slate-400 text-[10px] italic">Chờ nhân viên báo cáo</span>
+                                                        </div>
                                                       )
                                                     ) : (
                                                       // Employee view
                                                       tStatus === 'in_progress' || tStatus === 'rejected' ? (
-                                                        <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
-                                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100">
-                                                          <span className="material-symbols-outlined text-[13px]">upload_file</span>
-                                                          {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
-                                                        </button>
+                                                        <div className="flex flex-wrap justify-end gap-1.5 items-center">
+                                                          {canEditTaskPercent(row) && (
+                                                            <button
+                                                              type="button"
+                                                              onClick={() => openEditPercentModal(row.id, task)}
+                                                              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-blue-50"
+                                                            >
+                                                              <Edit3 size={11} />
+                                                              SỬA %
+                                                            </button>
+                                                          )}
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-700 text-white hover:bg-slate-800 transition-all text-[10px] font-black disabled:opacity-60"
+                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
+                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100">
+                                                            <span className="material-symbols-outlined text-[13px]">upload_file</span>
+                                                            {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
+                                                          </button>
+                                                        </div>
                                                       ) : tStatus === 'pending_approval' ? (
-                                                        <span className="flex items-center gap-1 text-amber-600 font-bold bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[10px]">
-                                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                                                          CHỜ DUYỆT
-                                                        </span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {canEditTaskPercent(row) && (
+                                                            <button
+                                                              type="button"
+                                                              onClick={() => openEditPercentModal(row.id, task)}
+                                                              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700"
+                                                            >
+                                                              <Edit3 size={11} />
+                                                              SỬA %
+                                                            </button>
+                                                          )}
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="flex items-center gap-1 text-amber-600 font-bold bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[10px]">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                            CHỜ DUYỆT
+                                                          </span>
+                                                        </div>
                                                       ) : (
-                                                        <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
-                                                          <span className="material-symbols-outlined text-[13px]">check_circle</span>
-                                                          ĐÃ DUYỆT
-                                                        </span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
+                                                            <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                                                            ĐÃ DUYỆT
+                                                          </span>
+                                                        </div>
                                                       )
                                                     )}
                                                   </div>
@@ -1638,12 +1853,21 @@ export default function AttendancePage() {
                                         <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[8px] font-bold ${statusCfg.cls}`}>{statusCfg.label}</span>
                                       </div>
                                       {/* Progress bar */}
-                                      <div className="flex items-center gap-2 mb-1.5">
-                                        <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
+                                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                        <div className="flex-1 min-w-[64px] h-1 bg-slate-200 rounded-full overflow-hidden">
                                           <div className={`h-full ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
                                             style={{ width: `${safePct}%` }} />
                                         </div>
-                                        <span className="text-[9px] font-bold text-slate-600">{safePct}%</span>
+                                        <span className="text-[9px] font-bold text-slate-600 shrink-0">{safePct}%</span>
+                                        {canEditTaskPercent(row) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditPercentModal(row.id, task)}
+                                            className="text-[8px] font-bold text-blue-600 underline shrink-0"
+                                          >
+                                            Sửa %
+                                          </button>
+                                        )}
                                       </div>
                                       {/* Report content preview */}
                                       {task.report_content && (
@@ -1663,27 +1887,60 @@ export default function AttendancePage() {
                                         <p className="text-[9px] text-red-500 italic border-l-2 border-red-200 pl-1.5 mb-1">{task.comment}</p>
                                       )}
                                       {/* Actions */}
-                                      <div className="mt-1.5 flex justify-end gap-1.5">
+                                      <div className="mt-1.5 flex flex-wrap justify-end gap-1.5">
                                         {role === 'admin' ? (
-                                          tStatus === 'pending_approval' ? (
-                                            <>
-                                              <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
-                                                className="px-2 py-1 bg-emerald-500 text-white rounded-md text-[8px] font-black active:scale-95">
-                                                NGHIỆM THU
+                                          <>
+                                            {!task.end_time && (
+                                              <button
+                                                type="button"
+                                                disabled={loadingAction === task.subtask_id}
+                                                onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                className="px-2 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95 disabled:opacity-60"
+                                              >
+                                                {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
                                               </button>
-                                              <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
-                                                className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-md text-[8px] font-black active:scale-95">
-                                                TỪ CHỐI
-                                              </button>
-                                            </>
-                                          ) : null
+                                            )}
+                                            {tStatus === 'pending_approval' ? (
+                                              <>
+                                                <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
+                                                  className="px-2 py-1 bg-emerald-500 text-white rounded-md text-[8px] font-black active:scale-95">
+                                                  NGHIỆM THU
+                                                </button>
+                                                <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
+                                                  className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-md text-[8px] font-black active:scale-95">
+                                                  TỪ CHỐI
+                                                </button>
+                                              </>
+                                            ) : null}
+                                          </>
                                         ) : (
-                                          tStatus === 'in_progress' || tStatus === 'rejected' ? (
-                                            <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
-                                              className="px-3 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95">
-                                              {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
-                                            </button>
-                                          ) : null
+                                          <>
+                                            {canEditTaskPercent(row) && (
+                                              <button
+                                                type="button"
+                                                onClick={() => openEditPercentModal(row.id, task)}
+                                                className="px-2 py-1 bg-white border border-slate-200 text-slate-700 rounded-md text-[8px] font-bold"
+                                              >
+                                                SỬA %
+                                              </button>
+                                            )}
+                                            {!task.end_time && (
+                                              <button
+                                                type="button"
+                                                disabled={loadingAction === task.subtask_id}
+                                                onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                className="px-2 py-1 bg-slate-700 text-white rounded-md text-[8px] font-black disabled:opacity-60"
+                                              >
+                                                {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                              </button>
+                                            )}
+                                            {tStatus === 'in_progress' || tStatus === 'rejected' ? (
+                                              <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
+                                                className="px-3 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95">
+                                                {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
+                                              </button>
+                                            ) : null}
+                                          </>
                                         )}
                                       </div>
                                     </div>
@@ -2085,6 +2342,74 @@ export default function AttendancePage() {
               sessionId={reportModal.sessionId}
               onSave={handleSaveReport}
             />
+
+            {/* MODAL: Sửa % hoàn thành */}
+            {editPercentModal.open && (
+              <Modal
+                title="Sửa % hoàn thành"
+                subtitle={editPercentModal.title ? `Công việc: ${editPercentModal.title}` : undefined}
+                onClose={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })}
+                footerClassName="justify-between"
+                footer={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      form="edit-percent-form"
+                      disabled={isSavingPercent}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      {isSavingPercent ? (
+                        <span className="text-[12px] font-black">...</span>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[18px]">save</span>
+                          Lưu
+                        </>
+                      )}
+                    </button>
+                  </>
+                }
+              >
+                <form id="edit-percent-form" onSubmit={handleSaveTaskPercent} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
+                      <span className="text-[12px] font-black text-blue-600">{Number(editPercentModal.percent) || 0}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={editPercentModal.percent}
+                      onChange={(e) => setEditPercentModal(m => ({ ...m, percent: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <div className="grid grid-cols-5 gap-2">
+                      {[0, 25, 50, 75, 100].map(p => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setEditPercentModal(m => ({ ...m, percent: p }))}
+                          className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(editPercentModal.percent) === p
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            }`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </form>
+              </Modal>
+            )}
           </div>
         </main >
       </div >
