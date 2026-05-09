@@ -4,8 +4,9 @@ import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
+import ReportModal from '../components/ReportModal'
 
-import { RefreshCcw, LogIn, LogOut, Calendar, Users, ChevronDown, Layers, ClipboardList, Edit3, Trash2, Plus, Minus } from 'lucide-react'
+import { ClipboardList, Edit3, Plus, Minus } from 'lucide-react'
 
 // -- UTILITY FUNCTIONS --
 const timeFormat = (isoString) => {
@@ -65,13 +66,14 @@ export default function AttendancePage() {
   const [isMobileStaffOpen, setIsMobileStaffOpen] = useState(false)
   const [isDesktopStaffOpen, setIsDesktopStaffOpen] = useState(false)
   const [showMobileHeader, setShowMobileHeader] = useState(true)
-  const [commentModal, setCommentModal] = useState({ open: false, sessionId: null, subtaskId: null, comment: '' })
-  const [loadingAction, setLoadingAction] = useState(null) // Theo dõi task đang xử lý
+  // -- MODAL: Báo cáo (employee) & Từ chối (admin) --
+  const [reportModal, setReportModal] = useState({ open: false, sessionId: null, task: null })
+  const [rejectModal, setRejectModal] = useState({ open: false, sessionId: null, subtaskId: null, reason: '' })
 
   // -- THÊM CÔNG VIỆC THỦ CÔNG (trong ca đang làm) --
   const [addTaskModalOpen, setAddTaskModalOpen] = useState(false)
   const [isAddingTask, setIsAddingTask] = useState(false)
-  const [newTaskForm, setNewTaskForm] = useState({ title: '', percent: 0 })
+  const [newTaskForm, setNewTaskForm] = useState({ title: '', percent: 0, parent_task_name: '' })
   const [addTaskTargetSessionId, setAddTaskTargetSessionId] = useState(null)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
@@ -116,8 +118,11 @@ export default function AttendancePage() {
 
   // 2. Hàm chính: Lấy dữ liệu chấm công từ Supabase (có LIMIT & OFFSET để tối ưu)
   const fetchAttendanceData = async () => {
+    if (!user) return
+
     setLoading(true)
     setError(null)
+
     try {
       // Logic Query (PostgreSQL lồng ghép API Supabase): 
       // - Join work_sessions với users (Lấy Avatar, Fullname)
@@ -153,8 +158,13 @@ export default function AttendancePage() {
         query = query.gte('work_date', firstDay).lte('work_date', lastDay)
       }
 
-      if (filterUser && filterUser !== 'all') {
+      if (filterUser && filterUser !== 'all' && role !== 'employee') {
         query = query.eq('user_id', filterUser)
+      }
+
+      // RÀNG BUỘC PHÂN QUYỀN: Nếu là nhân viên thì CHỈ được xem của chính mình
+      if (role === 'employee') {
+        query = query.eq('user_id', user.user_id)
       }
 
       // Execute API Call
@@ -183,10 +193,13 @@ export default function AttendancePage() {
           let end = new Date(session.check_out_time)
 
           let diffMs = end - start
-          if (diffMs < 0) {
-            // Hỗ trợ tính ca đêm xuyên ngày ở client
+          if (diffMs < -1000 * 60 * 30) { 
+            // Chỉ cộng 1 ngày nếu lệch âm đáng kể (> 30 phút), hỗ trợ ca đêm xuyên ngày
             end.setDate(end.getDate() + 1)
             diffMs = end - start
+          } else if (diffMs < 0) {
+            // Lệch âm nhẹ (vài giây/phút do clock drift hoặc thao tác nhanh) thì coi như 0
+            diffMs = 0
           }
 
           const diffHrs = (diffMs / (1000 * 60 * 60)).toFixed(2)
@@ -221,7 +234,8 @@ export default function AttendancePage() {
               }, 0) / session.tasks_data.length
             )
             : 0,
-          isValidForSalary: session.tasks_data && session.tasks_data.length > 0 && session.tasks_data.every(t => t.is_approved)
+          isValidForSalary: session.tasks_data && session.tasks_data.length > 0
+            && session.tasks_data.every(t => t.status === 'completed' || t.is_approved)
         }
       })
 
@@ -238,7 +252,7 @@ export default function AttendancePage() {
   useEffect(() => {
     setCurrentPage(1) // Reset về trang 1 khi filter thay đổi
     fetchAttendanceData()
-  }, [filterDate, filterMonth, filterUser])
+  }, [filterDate, filterMonth, filterUser, user])
 
   // Gọi lại khi page thay đổi
   useEffect(() => {
@@ -254,6 +268,7 @@ export default function AttendancePage() {
       return () => clearTimeout(timer)
     }
   }, [toast])
+
 
   // 4. Hàm xử lý checkbox
   const toggleSelectId = (id) => {
@@ -351,27 +366,34 @@ export default function AttendancePage() {
     if (!activeSessionId) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      // 1. Lấy danh sách subtasks nhân viên đã làm hoàn thành trong hôm nay
+      // 1. Lấy danh sách subtasks đã hoàn thành hôm nay, join task cha để lấy tên nhóm
       const { data: completedSubtasks, error: subtaskError } = await supabase
         .from('subtasks')
-        .select('subtask_id, name, created_at, completed_at')
+        .select('subtask_id, name, created_at, completed_at, task:task_id(name)')
         .eq('assigned_to', currentUser.user_id)
         .eq('status', 'completed')
         .gte('completed_at', today + 'T00:00:00')
-      // Lưu ý: Có thể cần thêm logic lọc theo thời gian check-in/out nếu muốn chính xác tuyệt đối
 
       if (subtaskError) throw subtaskError
 
-      // 2. Map sang cấu trúc JSONB
-      const tasksData = (completedSubtasks || []).map(st => ({
-        subtask_id: st.subtask_id,
-        title: st.name,
-        percent: 100,
-        comment: "",
-        is_approved: false,
-        start_time: st.created_at || new Date().toISOString(),
-        end_time: st.completed_at || null
-      }))
+      // 2. Map sang cấu trúc JSONB với workflow Báo cáo - Duyệt
+      const tasksData = (completedSubtasks || []).map(st => {
+        const parentTask = Array.isArray(st.task) ? st.task[0] : st.task
+        return {
+          subtask_id: st.subtask_id,
+          title: st.name,
+          parent_task_name: parentTask?.name || null,
+          percent: 0,
+          comment: '',
+          is_approved: false,
+          status: 'in_progress',
+          report_content: '',
+          report_images: [],
+          reported_at: null,
+          start_time: st.created_at || new Date().toISOString(),
+          end_time: st.completed_at || null,
+        }
+      })
 
       // 3. Cập nhật work_sessions
       const { error } = await supabase
@@ -511,29 +533,37 @@ export default function AttendancePage() {
       setDeleting(false)
     }
   }
-  // 7.2. Hàm Nghiệm thu Task (Chỉ Admin)
-  const handleApproveTask = async (sessionId, subtaskId) => {
-    // Bảo mật tầng Client: Chỉ cho phép Admin gửi request
+  // 7.2. [Admin] Nghiệm thu: set status='completed', percent=100, is_approved=true, set end_time = now
+  const handleAcceptTask = async (sessionId, subtaskId) => {
     if (role !== 'admin') {
       setToast({ message: 'Lỗi 403: Bạn không có quyền nghiệm thu!', type: 'error' })
       return
     }
-
     try {
-      // Tìm bản ghi hiện tại
       const session = attendanceList.find(s => s.id === sessionId)
       if (!session) return
 
+      const now = new Date().toISOString()
       const updatedTasksData = session.tasks_data.map(t =>
-        t.subtask_id === subtaskId ? { ...t, is_approved: !t.is_approved, percent: t.is_approved ? 0 : 100 } : t
+        t.subtask_id === subtaskId
+          ? { ...t, status: 'completed', is_approved: true, percent: 100, end_time: now }
+          : t
       )
 
-      const { error } = await supabase
-        .from('work_sessions')
-        .update({ tasks_data: updatedTasksData })
-        .eq('session_id', sessionId)
+      // 1. Cập nhật bảng work_sessions (JSONB tasks_data)
+      const { error: sessionErr } = await supabase.from('work_sessions')
+        .update({ tasks_data: updatedTasksData }).eq('session_id', sessionId)
+      if (sessionErr) throw sessionErr
 
-      if (error) throw error
+      // 2. Đồng bộ trạng thái vào bảng subtasks gốc
+      const { error: subtaskErr } = await supabase.from('subtasks')
+        .update({
+          status: 'completed',
+          completed_at: now
+        })
+        .eq('subtask_id', subtaskId)
+      if (subtaskErr) console.error('Lỗi đồng bộ subtask:', subtaskErr)
+
       setToast({ message: 'Đã nghiệm thu công việc!', type: 'success' })
       fetchAttendanceData()
     } catch (err) {
@@ -542,71 +572,68 @@ export default function AttendancePage() {
     }
   }
 
-  // 7.3. Hàm lưu Nhận xét (Chỉ Admin)
-  const handleSaveComment = async () => {
-    // Bảo mật tầng Client
-    if (role !== 'admin') {
-      setToast({ message: 'Lỗi 403: Bạn không có quyền nhận xét!', type: 'error' })
+  // 7.3. [Admin] Từ chối: set status='rejected', lưu lý do vào comment
+  const handleRejectTask = async () => {
+    if (role !== 'admin') return
+    const { sessionId, subtaskId, reason } = rejectModal
+    if (!reason.trim()) {
+      setToast({ message: 'Vui lòng nhập lý do từ chối.', type: 'warning' })
       return
     }
-
-    const { sessionId, subtaskId, comment } = commentModal
     try {
       const session = attendanceList.find(s => s.id === sessionId)
       if (!session) return
-
       const updatedTasksData = session.tasks_data.map(t =>
-        t.subtask_id === subtaskId ? { ...t, comment } : t
+        t.subtask_id === subtaskId
+          ? { ...t, status: 'rejected', is_approved: false, comment: reason.trim() }
+          : t
       )
-
-      const { error } = await supabase
-        .from('work_sessions')
-        .update({ tasks_data: updatedTasksData })
-        .eq('session_id', sessionId)
-
+      const { error } = await supabase.from('work_sessions')
+        .update({ tasks_data: updatedTasksData }).eq('session_id', sessionId)
       if (error) throw error
-      setToast({ message: 'Đã lưu nhận xét!', type: 'success' })
-      setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })
+      setToast({ message: 'Đã từ chối và gửi phản hồi!', type: 'success' })
+      setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })
       fetchAttendanceData()
     } catch (err) {
       console.error(err)
-      setToast({ message: 'Lỗi khi lưu nhận xét', type: 'error' })
+      setToast({ message: 'Lỗi khi từ chối', type: 'error' })
     }
   }
 
-  // 7.4. Hàm Kết thúc Task (Dành cho Nhân viên)
-  const handleFinishTask = async (sessionId, subtaskId) => {
-    setLoadingAction(subtaskId)
+  // 7.4. [Employee] Lưu báo cáo: set status='pending_approval'
+  const handleSaveReport = async (reportData) => {
+    const { subtask_id, report_content, report_images, percent, status, reported_at } = reportData
     try {
-      const session = attendanceList.find(s => s.id === sessionId)
+      const session = attendanceList.find(s => s.id === reportModal.sessionId)
       if (!session) return
-
       const updatedTasksData = session.tasks_data.map(t =>
-        t.subtask_id === subtaskId ? { ...t, end_time: new Date().toISOString() } : t
+        t.subtask_id === subtask_id
+          ? { ...t, report_content, report_images, percent, status, reported_at }
+          : t
       )
-
-      const { error } = await supabase
-        .from('work_sessions')
-        .update({ tasks_data: updatedTasksData })
-        .eq('session_id', sessionId)
-
+      const { error } = await supabase.from('work_sessions')
+        .update({ tasks_data: updatedTasksData }).eq('session_id', reportModal.sessionId)
       if (error) throw error
-      setToast({ message: 'Đã ghi nhận thời gian kết thúc!', type: 'success' })
+      setToast({ message: 'Đã gửi báo cáo! Chờ Admin duyệt.', type: 'success' })
+      setReportModal({ open: false, sessionId: null, task: null })
       fetchAttendanceData()
     } catch (err) {
       console.error(err)
-      setToast({ message: 'Lỗi khi kết thúc task', type: 'error' })
-    } finally {
-      setLoadingAction(null)
+      setToast({ message: err.message || 'Lỗi khi gửi báo cáo', type: 'error' })
     }
   }
 
   const normalizeTaskForDb = (task) => ({
     subtask_id: task?.subtask_id ?? null,
     title: task?.title ?? '',
+    parent_task_name: task?.parent_task_name ?? null,
     percent: typeof task?.percent === 'number' ? task.percent : (task?.is_approved ? 100 : 0),
     comment: task?.comment ?? '',
     is_approved: !!task?.is_approved,
+    status: task?.status ?? 'in_progress',
+    report_content: task?.report_content ?? '',
+    report_images: task?.report_images ?? [],
+    reported_at: task?.reported_at ?? null,
     start_time: task?.start_time ?? null,
     end_time: task?.end_time ?? null,
   })
@@ -644,9 +671,14 @@ export default function AttendancePage() {
       const newTask = {
         subtask_id: `manual_${Date.now()}`,
         title,
+        parent_task_name: (newTaskForm.parent_task_name || '').trim() || null,
         percent,
         comment: '',
         is_approved: false,
+        status: 'in_progress',
+        report_content: '',
+        report_images: [],
+        reported_at: null,
         start_time: new Date().toISOString(),
         end_time: null,
       }
@@ -665,7 +697,7 @@ export default function AttendancePage() {
       setToast({ message: 'Đã thêm công việc!', type: 'success' })
       setAddTaskModalOpen(false)
       setAddTaskTargetSessionId(null)
-      setNewTaskForm({ title: '', percent: 0 })
+      setNewTaskForm({ title: '', percent: 0, parent_task_name: '' })
       fetchAttendanceData()
     } catch (err) {
       console.error(err)
@@ -816,41 +848,43 @@ export default function AttendancePage() {
                       className="w-full h-7 pl-7 pr-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-medium outline-none"
                     />
                   </div>
-                  <div className="relative">
-                    <div
-                      onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
-                      className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
-                    >
-                      <span className="material-symbols-outlined absolute left-2 text-[12px] text-slate-400">group</span>
-                      <span className="truncate">
-                        {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
-                      </span>
-                      <span className="material-symbols-outlined absolute right-1 text-[12px] text-slate-400">expand_more</span>
-                    </div>
+                  {role !== 'employee' && (
+                    <div className="relative">
+                      <div
+                        onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
+                        className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
+                      >
+                        <span className="material-symbols-outlined absolute left-2 text-[12px] text-slate-400">group</span>
+                        <span className="truncate">
+                          {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
+                        </span>
+                        <span className="material-symbols-outlined absolute right-1 text-[12px] text-slate-400">expand_more</span>
+                      </div>
 
-                    {isMobileStaffOpen && (
-                      <>
-                        <div className="fixed inset-0 z-[90]" onClick={() => setIsMobileStaffOpen(false)} />
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
-                          <div
-                            onClick={() => { setFilterUser('all'); setIsMobileStaffOpen(false); }}
-                            className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                          >
-                            Tất cả nhân sự
-                          </div>
-                          {staffList.map(staff => (
+                      {isMobileStaffOpen && (
+                        <>
+                          <div className="fixed inset-0 z-[90]" onClick={() => setIsMobileStaffOpen(false)} />
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
                             <div
-                              key={staff.user_id}
-                              onClick={() => { setFilterUser(staff.user_id); setIsMobileStaffOpen(false); }}
-                              className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              onClick={() => { setFilterUser('all'); setIsMobileStaffOpen(false); }}
+                              className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
                             >
-                              {staff.full_name}
+                              Tất cả nhân sự
                             </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                            {staffList.map(staff => (
+                              <div
+                                key={staff.user_id}
+                                onClick={() => { setFilterUser(staff.user_id); setIsMobileStaffOpen(false); }}
+                                className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              >
+                                {staff.full_name}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -920,6 +954,8 @@ export default function AttendancePage() {
 
                 <div className="w-px h-5 bg-slate-200 mx-1" />
 
+
+
                 <button
                   type="button"
                   onClick={() => {
@@ -963,41 +999,43 @@ export default function AttendancePage() {
                     />
                   </div>
 
-                  <div className="relative">
-                    <div
-                      onClick={() => setIsDesktopStaffOpen(!isDesktopStaffOpen)}
-                      className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[180px] flex items-center cursor-pointer hover:border-blue-400 transition-all"
-                    >
-                      <span className="material-symbols-outlined absolute left-2.5 text-[18px] text-slate-400">group</span>
-                      <span className="truncate max-w-[120px]">
-                        {staffList.find(s => s.user_id === filterUser)?.full_name || 'Tất cả nhân sự'}
-                      </span>
-                      <span className="material-symbols-outlined absolute right-2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
-                    </div>
+                  {role !== 'employee' && (
+                    <div className="relative">
+                      <div
+                        onClick={() => setIsDesktopStaffOpen(!isDesktopStaffOpen)}
+                        className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[180px] flex items-center cursor-pointer hover:border-blue-400 transition-all"
+                      >
+                        <span className="material-symbols-outlined absolute left-2.5 text-[18px] text-slate-400">group</span>
+                        <span className="truncate max-w-[120px]">
+                          {staffList.find(s => s.user_id === filterUser)?.full_name || 'Tất cả nhân sự'}
+                        </span>
+                        <span className="material-symbols-outlined absolute right-2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+                      </div>
 
-                    {isDesktopStaffOpen && (
-                      <>
-                        <div className="fixed inset-0 z-[90]" onClick={() => setIsDesktopStaffOpen(false)} />
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
-                          <div
-                            onClick={() => { setFilterUser('all'); setIsDesktopStaffOpen(false); }}
-                            className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                          >
-                            Tất cả nhân sự
-                          </div>
-                          {staffList.map(staff => (
+                      {isDesktopStaffOpen && (
+                        <>
+                          <div className="fixed inset-0 z-[90]" onClick={() => setIsDesktopStaffOpen(false)} />
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
                             <div
-                              key={staff.user_id}
-                              onClick={() => { setFilterUser(staff.user_id); setIsDesktopStaffOpen(false); }}
-                              className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              onClick={() => { setFilterUser('all'); setIsDesktopStaffOpen(false); }}
+                              className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
                             >
-                              {staff.full_name}
+                              Tất cả nhân sự
                             </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                            {staffList.map(staff => (
+                              <div
+                                key={staff.user_id}
+                                onClick={() => { setFilterUser(staff.user_id); setIsDesktopStaffOpen(false); }}
+                                className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              >
+                                {staff.full_name}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {canEditDelete && selectedIds.size > 0 && (
@@ -1276,13 +1314,13 @@ export default function AttendancePage() {
                                         <span className="material-symbols-outlined text-[16px]">add</span>
                                         Thêm công việc
                                       </button>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
-                                      <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
-                                        }`}>
-                                        {row.overallProgress}%
-                                      </span>
-                                    </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
+                                        <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
+                                          }`}>
+                                          {row.overallProgress}%
+                                        </span>
+                                      </div>
                                     </div>
                                   </div>
 
@@ -1299,118 +1337,149 @@ export default function AttendancePage() {
                                   <thead className="bg-white text-[10px] text-slate-400 uppercase font-bold">
                                     <tr>
                                       <th className="px-4 py-2">Công việc</th>
-                                      <th className="px-4 py-2 text-center">Bắt đầu</th>
-                                      <th className="px-4 py-2 text-center">Kết thúc</th>
-                                      <th className="px-4 py-2 w-1/4">Tiến độ</th>
-                                      <th className="px-4 py-2">Nhận xét</th>
+                                      <th className="px-4 py-2">Trạng thái</th>
+                                      <th className="px-4 py-2 w-1/5">Tiến độ</th>
+                                      <th className="px-4 py-2">Báo cáo / Nhận xét</th>
                                       <th className="px-4 py-2 text-right">Thao tác</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-50">
-                                    {row.tasks_data && row.tasks_data.length > 0 ? row.tasks_data.map((task, tidx) => (
-                                      <tr key={tidx} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-4 py-3">
-                                          <div className="font-bold text-slate-700 text-[12px]">{task.title}</div>
-                                          <div className="text-[10px] text-slate-400 font-medium">ID: {task.subtask_id}</div>
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                          <div className="text-[12px] font-bold text-slate-600">{task.start_fmt}</div>
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                          <div className="flex flex-col items-center">
-                                            <div className="text-[12px] font-bold text-slate-600">{task.end_fmt}</div>
-                                            {task.duration && (
-                                              <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 rounded-full font-bold mt-0.5">
-                                                {task.duration}
+                                    {row.tasks_data && row.tasks_data.length > 0 ? (() => {
+                                      // Group subtasks by parent_task_name
+                                      const groups = row.tasks_data.reduce((acc, task) => {
+                                        const key = task.parent_task_name || 'Công việc khác'
+                                        if (!acc[key]) acc[key] = []
+                                        acc[key].push(task)
+                                        return acc
+                                      }, {})
+                                      return Object.entries(groups).map(([groupName, tasks]) => (
+                                        <React.Fragment key={groupName}>
+                                          {/* Group header row */}
+                                          <tr className="bg-slate-50/80">
+                                            <td colSpan={5} className="px-4 py-2">
+                                              <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                                <span className="material-symbols-outlined text-[14px] text-blue-400">folder_open</span>
+                                                {groupName}
+                                                <span className="ml-1 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded-full text-[9px] font-bold">{tasks.length}</span>
                                               </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          {(() => {
+                                            </td>
+                                          </tr>
+                                          {tasks.map((task, tidx) => {
+                                            const tStatus = task.status || 'in_progress'
                                             const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
                                             const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                                            const statusCfg = {
+                                              in_progress: { label: 'Đang làm', cls: 'bg-blue-50 text-blue-600 border-blue-100', dot: 'bg-blue-400' },
+                                              pending_approval: { label: 'Chờ duyệt', cls: 'bg-amber-50 text-amber-600 border-amber-200', dot: 'bg-amber-400 animate-pulse' },
+                                              completed: { label: 'Nghiệm thu', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500' },
+                                              rejected: { label: 'Từ chối', cls: 'bg-red-50 text-red-600 border-red-100', dot: 'bg-red-400' },
+                                            }[tStatus] || { label: tStatus, cls: 'bg-slate-50 text-slate-500 border-slate-100', dot: 'bg-slate-400' }
                                             return (
-                                          <div className="flex items-center gap-3">
-                                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                              <div
-                                                className={`h-full transition-all duration-500 ${task.is_approved ? 'bg-emerald-500' : 'bg-blue-600'
-                                                  }`}
-                                                style={{ width: `${safePct}%` }}
-                                              />
-                                            </div>
-                                            <span className={`text-[11px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                              {safePct}%
-                                            </span>
-                                          </div>
+                                              <tr key={task.subtask_id || tidx} className="hover:bg-slate-50/50 transition-colors">
+                                                {/* Task name */}
+                                                <td className="px-4 py-3">
+                                                  <div className="font-bold text-slate-700 text-[12px]">{task.title}</div>
+                                                  <div className="text-[10px] text-slate-400">{task.start_fmt} {task.end_fmt ? `→ ${task.end_fmt}` : ''}</div>
+                                                </td>
+                                                {/* Status badge */}
+                                                <td className="px-4 py-3">
+                                                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-bold ${statusCfg.cls}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
+                                                    {statusCfg.label}
+                                                  </span>
+                                                </td>
+                                                {/* Progress bar */}
+                                                <td className="px-4 py-3">
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                      <div className={`h-full transition-all duration-500 ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
+                                                        style={{ width: `${safePct}%` }} />
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-slate-600">{safePct}%</span>
+                                                  </div>
+                                                </td>
+                                                {/* Report content / comment */}
+                                                <td className="px-4 py-3 max-w-[220px]">
+                                                  {task.report_content ? (
+                                                    <div>
+                                                      <p className="text-[11px] text-slate-600 line-clamp-2">{task.report_content}</p>
+                                                      {task.report_images?.length > 0 && (
+                                                        <div className="flex gap-1 mt-1">
+                                                          {task.report_images.slice(0, 3).map((url, i) => (
+                                                            <a key={i} href={url} target="_blank" rel="noreferrer"
+                                                              className="w-8 h-8 rounded border border-slate-200 overflow-hidden block">
+                                                              <img src={url} alt="" className="w-full h-full object-cover" />
+                                                            </a>
+                                                          ))}
+                                                          {task.report_images.length > 3 && (
+                                                            <span className="w-8 h-8 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500">
+                                                              +{task.report_images.length - 3}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                      )}
+                                                      {task.comment && tStatus === 'rejected' && (
+                                                        <p className="mt-1 text-[10px] text-red-500 italic border-l-2 border-red-200 pl-2">{task.comment}</p>
+                                                      )}
+                                                    </div>
+                                                  ) : (
+                                                    <span className="text-slate-300 text-[11px] italic">Chưa có báo cáo</span>
+                                                  )}
+                                                </td>
+                                                {/* Actions */}
+                                                <td className="px-4 py-3 text-right">
+                                                  <div className="flex justify-end gap-1.5">
+                                                    {role === 'admin' ? (
+                                                      tStatus === 'pending_approval' ? (
+                                                        <>
+                                                          <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
+                                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all text-[10px] font-black active:scale-95 shadow-sm shadow-emerald-100">
+                                                            <span className="material-symbols-outlined text-[13px]">verified</span>
+                                                            NGHIỆM THU
+                                                          </button>
+                                                          <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
+                                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-500 hover:text-white transition-all text-[10px] font-black active:scale-95">
+                                                            <span className="material-symbols-outlined text-[13px]">cancel</span>
+                                                            TỪ CHỐI
+                                                          </button>
+                                                        </>
+                                                      ) : tStatus === 'completed' ? (
+                                                        <span className="text-emerald-600 font-bold text-[10px] flex items-center gap-1">
+                                                          <span className="material-symbols-outlined text-[14px]">check_circle</span>Đã nghiệm thu
+                                                        </span>
+                                                      ) : (
+                                                        <span className="text-slate-400 text-[10px] italic">Chờ nhân viên báo cáo</span>
+                                                      )
+                                                    ) : (
+                                                      // Employee view
+                                                      tStatus === 'in_progress' || tStatus === 'rejected' ? (
+                                                        <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
+                                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100">
+                                                          <span className="material-symbols-outlined text-[13px]">upload_file</span>
+                                                          {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
+                                                        </button>
+                                                      ) : tStatus === 'pending_approval' ? (
+                                                        <span className="flex items-center gap-1 text-amber-600 font-bold bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[10px]">
+                                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                          CHỜ DUYỆT
+                                                        </span>
+                                                      ) : (
+                                                        <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
+                                                          <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                                                          ĐÃ DUYỆT
+                                                        </span>
+                                                      )
+                                                    )}
+                                                  </div>
+                                                </td>
+                                              </tr>
                                             )
-                                          })()}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <div className="text-[11px] text-slate-500 italic max-w-xs truncate">
-                                            {task.comment || <span className="text-slate-300">Chưa có nhận xét...</span>}
-                                          </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                          <div className="flex justify-end gap-2">
-                                            {role === 'admin' ? (
-                                              <>
-                                                <button
-                                                  onClick={() => setCommentModal({
-                                                    open: true,
-                                                    sessionId: row.id,
-                                                    subtaskId: task.subtask_id,
-                                                    comment: task.comment || ''
-                                                  })}
-                                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.comment
-                                                    ? 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-600 hover:text-white'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white'
-                                                    }`}
-                                                >
-                                                  <Edit3 size={11} />
-                                                  {task.comment ? 'SỬA' : 'GÓP Ý'}
-                                                </button>
-
-                                                <button
-                                                  onClick={() => handleApproveTask(row.id, task.subtask_id)}
-                                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-[10px] font-bold active:scale-95 shadow-sm ${task.is_approved
-                                                    ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                                                    : 'bg-white border border-blue-200 text-blue-600 hover:bg-blue-50'
-                                                    }`}
-                                                >
-                                                  {task.is_approved ? 'HỦY' : 'DUYỆT'}
-                                                </button>
-                                              </>
-                                            ) : (
-                                              // Đối với Employee: Nút Kết thúc hoặc Badge trạng thái
-                                              <div className="flex items-center gap-2">
-                                                {!task.end_time && (
-                                                  <button
-                                                    disabled={loadingAction === task.subtask_id}
-                                                    onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100"
-                                                  >
-                                                    {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                  </button>
-                                                )}
-
-                                                {task.is_approved ? (
-                                                  <span className="text-emerald-600 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
-                                                    ĐÀ DUYỆT
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100 text-[10px]">
-                                                    CHỜ DUYỆT
-                                                  </span>
-                                                )}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    )) : (
+                                          })}
+                                        </React.Fragment>
+                                      ))
+                                    })() : (
                                       <tr>
-                                        <td colSpan="6" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
+                                        <td colSpan="5" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
                                           Không có dữ liệu công việc trong ca làm việc này.
                                         </td>
                                       </tr>
@@ -1537,67 +1606,93 @@ export default function AttendancePage() {
                           <span className="text-[10px] font-black text-blue-600">{row.overallProgress}%</span>
                         </div>
 
-                        {row.tasks_data && row.tasks_data.length > 0 ? row.tasks_data.map((task, tidx) => (
-                          <div key={tidx} className="bg-slate-50 rounded-lg p-2 border border-slate-100">
-                            {(() => {
-                              const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
-                              const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
-                              return (
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="text-[11px] font-bold text-slate-700 leading-tight">{task.title}</span>
-                              <span className={`text-[9px] font-bold ${task.is_approved ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                {safePct}%
-                              </span>
+                        {row.tasks_data && row.tasks_data.length > 0 ? (() => {
+                          const groups = row.tasks_data.reduce((acc, task) => {
+                            const key = task.parent_task_name || 'Công việc khác'
+                            if (!acc[key]) acc[key] = []
+                            acc[key].push(task)
+                            return acc
+                          }, {})
+                          return Object.entries(groups).map(([groupName, tasks]) => (
+                            <div key={groupName}>
+                              {/* Group header */}
+                              <div className="flex items-center gap-1 mb-1.5 px-1">
+                                <span className="material-symbols-outlined text-[12px] text-blue-400">folder_open</span>
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{groupName}</span>
+                              </div>
+                              <div className="space-y-2 mb-3">
+                                {tasks.map((task, tidx) => {
+                                  const tStatus = task.status || 'in_progress'
+                                  const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
+                                  const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                                  const statusCfg = {
+                                    in_progress: { label: 'Đang làm', cls: 'bg-blue-50 text-blue-600 border-blue-100' },
+                                    pending_approval: { label: 'Chờ duyệt', cls: 'bg-amber-50 text-amber-600 border-amber-100' },
+                                    completed: { label: 'Nghiệm thu', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+                                    rejected: { label: 'Từ chối', cls: 'bg-red-50 text-red-600 border-red-100' },
+                                  }[tStatus] || { label: tStatus, cls: 'bg-slate-50 text-slate-500 border-slate-100' }
+                                  return (
+                                    <div key={task.subtask_id || tidx} className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
+                                      <div className="flex justify-between items-start mb-1.5">
+                                        <span className="text-[11px] font-bold text-slate-700 leading-tight flex-1 mr-2">{task.title}</span>
+                                        <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[8px] font-bold ${statusCfg.cls}`}>{statusCfg.label}</span>
+                                      </div>
+                                      {/* Progress bar */}
+                                      <div className="flex items-center gap-2 mb-1.5">
+                                        <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
+                                          <div className={`h-full ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
+                                            style={{ width: `${safePct}%` }} />
+                                        </div>
+                                        <span className="text-[9px] font-bold text-slate-600">{safePct}%</span>
+                                      </div>
+                                      {/* Report content preview */}
+                                      {task.report_content && (
+                                        <p className="text-[9px] text-slate-500 line-clamp-2 mb-1">{task.report_content}</p>
+                                      )}
+                                      {task.report_images?.length > 0 && (
+                                        <div className="flex gap-1 mb-1.5">
+                                          {task.report_images.slice(0, 3).map((url, i) => (
+                                            <a key={i} href={url} target="_blank" rel="noreferrer"
+                                              className="w-7 h-7 rounded border border-slate-200 overflow-hidden block">
+                                              <img src={url} alt="" className="w-full h-full object-cover" />
+                                            </a>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {task.comment && tStatus === 'rejected' && (
+                                        <p className="text-[9px] text-red-500 italic border-l-2 border-red-200 pl-1.5 mb-1">{task.comment}</p>
+                                      )}
+                                      {/* Actions */}
+                                      <div className="mt-1.5 flex justify-end gap-1.5">
+                                        {role === 'admin' ? (
+                                          tStatus === 'pending_approval' ? (
+                                            <>
+                                              <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
+                                                className="px-2 py-1 bg-emerald-500 text-white rounded-md text-[8px] font-black active:scale-95">
+                                                NGHIỆM THU
+                                              </button>
+                                              <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
+                                                className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-md text-[8px] font-black active:scale-95">
+                                                TỪ CHỐI
+                                              </button>
+                                            </>
+                                          ) : null
+                                        ) : (
+                                          tStatus === 'in_progress' || tStatus === 'rejected' ? (
+                                            <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
+                                              className="px-3 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95">
+                                              {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
+                                            </button>
+                                          ) : null
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
                             </div>
-                              )
-                            })()}
-                            <div className="flex items-center justify-between text-[9px] text-slate-400">
-                              <span>{task.start_fmt} - {task.end_fmt || '...'}</span>
-                              <span className="font-bold">{task.duration}</span>
-                            </div>
-                            {task.comment && (
-                              <p className="mt-1 text-[9px] text-slate-500 italic border-l-2 border-blue-200 pl-2">
-                                {task.comment}
-                              </p>
-                            )}
-                            
-                            {/* Nút hành động nhanh trên Mobile */}
-                            <div className="mt-2 flex justify-end gap-2">
-                              {role === 'admin' ? (
-                                <>
-                                  <button
-                                    onClick={() => setCommentModal({
-                                      open: true,
-                                      sessionId: row.id,
-                                      subtaskId: task.subtask_id,
-                                      comment: task.comment || ''
-                                    })}
-                                    className={`p-1 px-1.5 rounded-md text-[8px] font-bold transition-all ${task.comment 
-                                      ? 'bg-amber-50 text-amber-600 border border-amber-200' 
-                                      : 'bg-white border border-slate-200 text-slate-600'}`}
-                                  >
-                                    {task.comment ? 'SỬA' : 'GÓP Ý'}
-                                  </button>
-                                  <button
-                                    onClick={() => handleApproveTask(row.id, task.subtask_id)}
-                                    className={`p-1 px-1.5 rounded-md text-[8px] font-bold transition-all ${task.is_approved ? 'bg-emerald-500 text-white' : 'bg-white border border-blue-200 text-blue-600'}`}
-                                  >
-                                    {task.is_approved ? 'HỦY' : 'DUYỆT'}
-                                  </button>
-                                </>
-                              ) : (
-                                !task.end_time && (
-                                  <button
-                                    onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                    className="p-1 px-3 bg-blue-600 text-white rounded-md text-[8px] font-black"
-                                  >
-                                    KẾT THÚC
-                                  </button>
-                                )
-                              )}
-                            </div>
-                          </div>
-                        )) : (
+                          ))
+                        })() : (
                           <p className="text-center py-2 text-[10px] text-slate-400 italic">Không có dữ liệu công việc</p>
                         )}
                       </div>
@@ -1846,44 +1941,49 @@ export default function AttendancePage() {
                 </div>
               </Modal>
             )}
-            {/* MODAL NHẬN XÉT */}
-            {commentModal.open && (
-              <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
-                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
-                        <Edit3 size={20} className="text-white" />
-                      </div>
-                      <h3 className="font-bold text-slate-800">Nhận Xét Công Việc</h3>
-                    </div>
+            {/* MODAL: Từ chối công việc (Admin) */}
+            {rejectModal.open && (
+              <Modal
+                title="Từ chối công việc"
+                subtitle="Nhân viên sẽ nhận được lý do và cập nhật lại báo cáo"
+                onClose={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
+                footer={
+                  <div className="flex gap-3 w-full">
+                    <button
+                      onClick={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={handleRejectTask}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                    >
+                      XÁC NHẬN TỪ CHỐI
+                    </button>
                   </div>
-
-                  <div className="p-6 space-y-4">
+                }
+              >
+                <div className="py-2 space-y-3">
+                  <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                    <span className="material-symbols-outlined text-red-500 text-[20px]">warning</span>
+                    <p className="text-[12px] text-red-700 font-medium">Nhân viên sẽ cần gửi lại báo cáo sau khi bị từ chối.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      Lý do từ chối <span className="text-red-500">*</span>
+                    </label>
                     <textarea
-                      value={commentModal.comment}
-                      onChange={(e) => setCommentModal({ ...commentModal, comment: e.target.value })}
-                      placeholder="Nhập nhận xét hoặc feedback cho nhân sự..."
-                      className="w-full h-32 p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 outline-none text-[13px] resize-none"
+                      autoFocus
+                      value={rejectModal.reason}
+                      onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+                      placeholder="Nhập lý do từ chối để nhân viên cải thiện..."
+                      rows={4}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none text-[13px] resize-none"
                     />
-
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })}
-                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all active:scale-95"
-                      >
-                        HỦY
-                      </button>
-                      <button
-                        onClick={handleSaveComment}
-                        className="flex-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
-                      >
-                        LƯU NHẬN XÉT
-                      </button>
-                    </div>
                   </div>
                 </div>
-              </div>
+              </Modal>
             )}
 
             {/* MODAL: Thêm công việc */}
@@ -1932,6 +2032,17 @@ export default function AttendancePage() {
                       required
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      Nhóm Task cha <span className="text-slate-400 font-normal">(tùy chọn)</span>
+                    </label>
+                    <input
+                      value={newTaskForm.parent_task_name}
+                      onChange={(e) => setNewTaskForm(v => ({ ...v, parent_task_name: e.target.value }))}
+                      placeholder="Ví dụ: Phát triển trang chủ"
+                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium"
+                    />
+                  </div>
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -1965,6 +2076,15 @@ export default function AttendancePage() {
                 </form>
               </Modal>
             )}
+
+            {/* REPORT MODAL: Nhân viên gửi báo cáo */}
+            <ReportModal
+              open={reportModal.open}
+              onClose={() => setReportModal({ open: false, sessionId: null, task: null })}
+              task={reportModal.task}
+              sessionId={reportModal.sessionId}
+              onSave={handleSaveReport}
+            />
           </div>
         </main >
       </div >
