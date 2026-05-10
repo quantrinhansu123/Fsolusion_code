@@ -8,7 +8,7 @@ const supabaseKey =
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error(
-    'Missing Supabase env vars. Set VITE_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in the project root .env or app/.env.local (Supabase Dashboard -> Project Settings -> API), then restart the dev server.'
+    'Missing Supabase env vars. For local dev: create .env at the repo root (same folder as package.json workspace root) with VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from Supabase → Project Settings → API, then restart the dev server. For production: set the same VITE_* names in your host (e.g. Vercel Environment Variables) and redeploy so `vite build` can embed them. See root .env.example.'
   );
 }
 
