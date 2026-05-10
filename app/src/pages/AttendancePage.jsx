@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
+import { uploadImageBlobToCloudinary, isCloudinaryUploadConfigured } from '../utils/cloudinaryUpload'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
 import ReportModal from '../components/ReportModal'
@@ -75,14 +76,19 @@ export default function AttendancePage() {
   const [isAddingTask, setIsAddingTask] = useState(false)
   const [newTaskForm, setNewTaskForm] = useState({
     project_id: '',
+    pick_row_key: '',
     task_id: '',
     title: '',
+    work_detail: '',
     percent: 0,
     parent_task_name: '',
   })
   const [addTaskTargetSessionId, setAddTaskTargetSessionId] = useState(null)
   const [pickListProjects, setPickListProjects] = useState([])
   const [pickListLoading, setPickListLoading] = useState(false)
+  /** Subtask đang làm / chờ, được giao cho chủ ca — lọc theo dự án đang chọn */
+  const [addTaskAssigneeSubtasks, setAddTaskAssigneeSubtasks] = useState([])
+  const [addTaskAssigneeSubtasksLoading, setAddTaskAssigneeSubtasksLoading] = useState(false)
   const [addTaskProjectQuery, setAddTaskProjectQuery] = useState('')
   const [addTaskTaskQuery, setAddTaskTaskQuery] = useState('')
   const [addTaskShowProjectSuggest, setAddTaskShowProjectSuggest] = useState(false)
@@ -93,9 +99,14 @@ export default function AttendancePage() {
     sessionId: null,
     subtaskId: null,
     title: '',
+    work_detail: '',
+    report_content: '',
+    report_images: [],
     percent: 0,
   })
   const [isSavingPercent, setIsSavingPercent] = useState(false)
+  const [editImagesUploading, setEditImagesUploading] = useState(0)
+  const editTaskReportFileRef = useRef(null)
   const [loadingAction, setLoadingAction] = useState(null)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
@@ -406,6 +417,7 @@ export default function AttendancePage() {
           subtask_id: st.subtask_id,
           title: st.name,
           parent_task_name: parentTask?.name || null,
+          work_detail: '',
           percent: 0,
           comment: '',
           is_approved: false,
@@ -679,12 +691,15 @@ export default function AttendancePage() {
     task_id: task?.task_id ?? null,
     title: task?.title ?? '',
     parent_task_name: task?.parent_task_name ?? null,
+    work_detail: typeof task?.work_detail === 'string' ? task.work_detail : '',
     percent: typeof task?.percent === 'number' ? task.percent : (task?.is_approved ? 100 : 0),
     comment: task?.comment ?? '',
     is_approved: !!task?.is_approved,
     status: task?.status ?? 'in_progress',
     report_content: task?.report_content ?? '',
-    report_images: task?.report_images ?? [],
+    report_images: Array.isArray(task?.report_images)
+      ? task.report_images.filter(u => typeof u === 'string' && u.trim())
+      : [],
     reported_at: task?.reported_at ?? null,
     start_time: task?.start_time ?? null,
     end_time: task?.end_time ?? null,
@@ -695,6 +710,36 @@ export default function AttendancePage() {
   const canEditTaskPercent = (row) =>
     canEditDelete || (currentUser?.user_id && row?.ownerUserId === currentUser.user_id)
 
+  const uploadEditTaskReportImages = async (fileList) => {
+    const files = Array.from(fileList || []).filter(f => f?.type?.startsWith('image/'))
+    if (files.length === 0) return
+    if (!isCloudinaryUploadConfigured()) {
+      setToast({
+        message: 'Chưa cấu hình Cloudinary. Thêm VITE_CLOUDINARY_CLOUD_NAME và VITE_CLOUDINARY_UPLOAD_PRESET vào .env rồi khởi động lại dev server.',
+        type: 'warning',
+      })
+      return
+    }
+    setEditImagesUploading(n => n + 1)
+    try {
+      const urls = []
+      for (const file of files) {
+        const name = file instanceof File && file.name ? file.name : `paste_${Date.now()}.png`
+        urls.push(await uploadImageBlobToCloudinary(file, name))
+      }
+      setEditPercentModal(m => ({
+        ...m,
+        report_images: [...(Array.isArray(m.report_images) ? m.report_images : []), ...urls],
+      }))
+      setToast({ message: `Đã thêm ${urls.length} ảnh lên Cloudinary.`, type: 'success' })
+    } catch (err) {
+      console.error(err)
+      setToast({ message: err.message || 'Lỗi tải ảnh lên Cloudinary', type: 'error' })
+    } finally {
+      setEditImagesUploading(n => Math.max(0, n - 1))
+    }
+  }
+
   const openEditPercentModal = (sessionId, task) => {
     const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
     const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
@@ -703,17 +748,36 @@ export default function AttendancePage() {
       sessionId,
       subtaskId: task.subtask_id,
       title: task.title || '',
+      work_detail: typeof task.work_detail === 'string' ? task.work_detail : '',
+      report_content: typeof task.report_content === 'string' ? task.report_content : '',
+      report_images: Array.isArray(task.report_images)
+        ? task.report_images.filter(u => typeof u === 'string' && u.trim())
+        : [],
       percent: safePct,
     })
   }
 
   const handleSaveTaskPercent = async (e) => {
     e.preventDefault()
-    const { sessionId, subtaskId, percent } = editPercentModal
+    if (editImagesUploading > 0) {
+      setToast({ message: 'Vẫn đang tải ảnh lên Cloudinary, vui lòng đợi.', type: 'warning' })
+      return
+    }
+    const { sessionId, subtaskId, percent, title, work_detail, report_content, report_images } = editPercentModal
     const p = Math.round(Number(percent))
+    const titleTrim = (title || '').trim()
+    const detailTrim = (work_detail || '').trim()
+    const reportTrim = (report_content || '').trim()
+    const imagesArr = Array.isArray(report_images)
+      ? report_images.filter(u => typeof u === 'string' && u.trim())
+      : []
 
     if (!sessionId || subtaskId == null) {
       setToast({ message: 'Thiếu thông tin phiên làm việc.', type: 'warning' })
+      return
+    }
+    if (!titleTrim) {
+      setToast({ message: 'Tên công việc không được để trống.', type: 'warning' })
       return
     }
     if (!Number.isFinite(p) || p < 0 || p > 100) {
@@ -732,7 +796,16 @@ export default function AttendancePage() {
     setIsSavingPercent(true)
     try {
       const updatedTasksData = session.tasks_data
-        .map(t => (t.subtask_id === subtaskId ? { ...t, percent: p } : t))
+        .map(t => (t.subtask_id === subtaskId
+          ? {
+              ...t,
+              percent: p,
+              title: titleTrim,
+              work_detail: detailTrim,
+              report_content: reportTrim,
+              report_images: imagesArr,
+            }
+          : t))
         .map(normalizeTaskForDb)
 
       const { error: updateError } = await supabase
@@ -742,12 +815,12 @@ export default function AttendancePage() {
 
       if (updateError) throw updateError
 
-      setToast({ message: 'Đã cập nhật % hoàn thành.', type: 'success' })
-      setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })
+      setToast({ message: 'Đã cập nhật công việc.', type: 'success' })
+      setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })
       fetchAttendanceData()
     } catch (err) {
       console.error(err)
-      setToast({ message: err.message || 'Lỗi khi lưu % hoàn thành', type: 'error' })
+      setToast({ message: err.message || 'Lỗi khi lưu công việc', type: 'error' })
     } finally {
       setIsSavingPercent(false)
     }
@@ -764,11 +837,14 @@ export default function AttendancePage() {
     setAddTaskTargetSessionId(sessionId ?? null)
     setNewTaskForm({
       project_id: '',
+      pick_row_key: '',
       task_id: '',
       title: '',
+      work_detail: '',
       percent: 0,
       parent_task_name: '',
     })
+    setAddTaskAssigneeSubtasks([])
     resetAddTaskSearchUi()
     setAddTaskModalOpen(true)
   }
@@ -810,22 +886,97 @@ export default function AttendancePage() {
     return () => { cancelled = true }
   }, [addTaskModalOpen, user?.user_id, role])
 
+  // Tải subtask đang làm / chờ được giao cho chủ ca (theo dự án đang chọn trong modal)
+  useEffect(() => {
+    if (!addTaskModalOpen || !newTaskForm.project_id) {
+      setAddTaskAssigneeSubtasks([])
+      return
+    }
+    const sessionId = addTaskTargetSessionId || activeSessionId
+    const sessionRow = sessionId ? attendanceList.find(s => s.id === sessionId) : null
+    const assigneeId = sessionRow?.ownerUserId ?? currentUser?.user_id ?? user?.user_id
+    if (!assigneeId) {
+      setAddTaskAssigneeSubtasks([])
+      return
+    }
+    const projectId = newTaskForm.project_id
+    let cancelled = false
+    ;(async () => {
+      setAddTaskAssigneeSubtasksLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('subtasks')
+          .select(`
+            subtask_id,
+            name,
+            status,
+            task_id,
+            task:tasks(name, feature:features(name, project_id))
+          `)
+          .eq('assigned_to', assigneeId)
+          .in('status', ['in_progress', 'pending'])
+        if (error) throw error
+        const rows = []
+        for (const st of data || []) {
+          const taskRel = Array.isArray(st.task) ? st.task[0] : st.task
+            ?? (Array.isArray(st.tasks) ? st.tasks[0] : st.tasks)
+          const feat = taskRel?.feature
+          const feature = Array.isArray(feat) ? feat[0] : feat
+          if (!feature || feature.project_id !== projectId) continue
+          rows.push({
+            subtask_id: st.subtask_id,
+            task_id: st.task_id,
+            name: st.name,
+            status: st.status,
+            featureName: feature.name || '',
+            parentTaskName: taskRel?.name || '',
+          })
+        }
+        rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'))
+        if (!cancelled) setAddTaskAssigneeSubtasks(rows)
+      } catch (e) {
+        console.error(e)
+        if (!cancelled) setAddTaskAssigneeSubtasks([])
+      } finally {
+        if (!cancelled) setAddTaskAssigneeSubtasksLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [addTaskModalOpen, newTaskForm.project_id, addTaskTargetSessionId, activeSessionId, attendanceList, currentUser?.user_id, user?.user_id])
+
   const tasksForPickedProject = useMemo(() => {
     const p = pickListProjects.find(x => x.project_id === newTaskForm.project_id)
-    if (!p?.features?.length) return []
-    const out = []
+    const subRows = (addTaskAssigneeSubtasks || []).map(s => ({
+      rowKey: `sub-${s.subtask_id}`,
+      pickKind: 'subtask',
+      task_id: s.task_id,
+      subtask_id: s.subtask_id,
+      name: s.name,
+      status: s.status,
+      featureName: s.featureName,
+      parentTaskName: s.parentTaskName,
+      suggestLabel: `${s.featureName} › ${s.parentTaskName} › ${s.name}`,
+    }))
+    if (!p?.features?.length) return subRows
+    const parentRows = []
     for (const f of p.features) {
       for (const t of f.tasks || []) {
-        out.push({
+        parentRows.push({
+          rowKey: `task-${t.task_id}`,
+          pickKind: 'task',
           task_id: t.task_id,
+          subtask_id: null,
           name: t.name,
           status: t.status,
           featureName: f.name,
+          parentTaskName: '',
+          suggestLabel: `${f.name} › ${t.name}`,
         })
       }
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-  }, [pickListProjects, newTaskForm.project_id])
+    parentRows.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+    return [...subRows, ...parentRows]
+  }, [pickListProjects, newTaskForm.project_id, addTaskAssigneeSubtasks])
 
   const addTaskProjectSuggestions = useMemo(() => {
     const q = addTaskProjectQuery.trim().toLowerCase()
@@ -836,17 +987,25 @@ export default function AttendancePage() {
     return list.slice(0, 40)
   }, [pickListProjects, addTaskProjectQuery])
 
-  const addTaskTaskSuggestions = useMemo(() => {
+  /** Mục gợi ý task: có dòng phân loại “đang làm” vs task trong cây dự án */
+  const addTaskTaskPickEntries = useMemo(() => {
     const q = addTaskTaskQuery.trim().toLowerCase()
-    let list = tasksForPickedProject
-    if (q) {
-      list = list.filter(t =>
-        (t.name || '').toLowerCase().includes(q) ||
-        (t.featureName || '').toLowerCase().includes(q) ||
-        (t.status || '').toLowerCase().includes(q)
-      )
+    const match = (r) =>
+      !q ||
+      (r.suggestLabel || '').toLowerCase().includes(q) ||
+      (r.status || '').toLowerCase().includes(q)
+    const subs = tasksForPickedProject.filter(r => r.pickKind === 'subtask').filter(match)
+    const tasks = tasksForPickedProject.filter(r => r.pickKind === 'task').filter(match)
+    const out = []
+    if (subs.length) {
+      out.push({ kind: 'header', key: 'hdr-doing', label: 'Công việc đang làm (được giao)' })
+      subs.forEach(r => out.push({ kind: 'row', key: r.rowKey, row: r }))
     }
-    return list.slice(0, 60)
+    if (tasks.length) {
+      out.push({ kind: 'header', key: 'hdr-tree', label: 'Task theo tính năng' })
+      tasks.forEach(r => out.push({ kind: 'row', key: r.rowKey, row: r }))
+    }
+    return out.slice(0, 80)
   }, [tasksForPickedProject, addTaskTaskQuery])
 
   const handleAddTaskToSession = async (e) => {
@@ -858,7 +1017,7 @@ export default function AttendancePage() {
     }
 
     const percent = Number(newTaskForm.percent)
-    const picked = tasksForPickedProject.find(t => t.task_id === newTaskForm.task_id)
+    const picked = tasksForPickedProject.find(t => t.rowKey === newTaskForm.pick_row_key)
     const title = picked?.name?.trim() || (newTaskForm.title || '').trim()
     const project = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
 
@@ -866,8 +1025,8 @@ export default function AttendancePage() {
       setToast({ message: 'Vui lòng chọn dự án (project).', type: 'warning' })
       return
     }
-    if (!newTaskForm.task_id || !picked) {
-      setToast({ message: 'Vui lòng chọn task trong dự án.', type: 'warning' })
+    if (!newTaskForm.pick_row_key || !picked) {
+      setToast({ message: 'Vui lòng chọn công việc trong danh sách.', type: 'warning' })
       return
     }
     if (!title) {
@@ -882,25 +1041,46 @@ export default function AttendancePage() {
 
     setIsAddingTask(true)
     try {
+      const workDetail = (newTaskForm.work_detail || '').trim()
       const parentLabel = project && picked
-        ? `${project.name} › ${picked.featureName}`
+        ? (picked.pickKind === 'subtask'
+          ? `${project.name} › ${picked.featureName} › ${picked.parentTaskName}`
+          : `${project.name} › ${picked.featureName}`)
         : null
 
-      const newTask = {
-        subtask_id: `task_${newTaskForm.task_id}`,
-        task_id: newTaskForm.task_id,
-        title,
-        parent_task_name: parentLabel,
-        percent,
-        comment: '',
-        is_approved: false,
-        status: 'in_progress',
-        report_content: '',
-        report_images: [],
-        reported_at: null,
-        start_time: new Date().toISOString(),
-        end_time: null,
-      }
+      const newTask = picked.pickKind === 'subtask'
+        ? {
+            subtask_id: picked.subtask_id,
+            task_id: picked.task_id,
+            title,
+            parent_task_name: parentLabel,
+            work_detail: workDetail,
+            percent,
+            comment: '',
+            is_approved: false,
+            status: 'in_progress',
+            report_content: '',
+            report_images: [],
+            reported_at: null,
+            start_time: new Date().toISOString(),
+            end_time: null,
+          }
+        : {
+            subtask_id: `task_${picked.task_id}`,
+            task_id: picked.task_id,
+            title,
+            parent_task_name: parentLabel,
+            work_detail: workDetail,
+            percent,
+            comment: '',
+            is_approved: false,
+            status: 'in_progress',
+            report_content: '',
+            report_images: [],
+            reported_at: null,
+            start_time: new Date().toISOString(),
+            end_time: null,
+          }
 
       const targetRow = attendanceList.find(s => s.id === targetSessionId) || null
       const currentTasks = (targetRow?.tasks_data || []).map(normalizeTaskForDb)
@@ -918,8 +1098,10 @@ export default function AttendancePage() {
       setAddTaskTargetSessionId(null)
       setNewTaskForm({
         project_id: '',
+        pick_row_key: '',
         task_id: '',
         title: '',
+        work_detail: '',
         percent: 0,
         parent_task_name: '',
       })
@@ -1322,6 +1504,9 @@ export default function AttendancePage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="font-bold text-slate-800 text-[12px] truncate">{t.title || 'Công việc'}</div>
+                                {t.work_detail ? (
+                                  <p className="text-[10px] text-slate-600 mt-1 line-clamp-2 whitespace-pre-wrap">{t.work_detail}</p>
+                                ) : null}
                                 <div className="text-[10px] text-slate-400 font-medium">
                                   {t.start_fmt ? `Bắt đầu: ${t.start_fmt}` : ''}
                                 </div>
@@ -1335,7 +1520,7 @@ export default function AttendancePage() {
                                       onClick={() => openEditPercentModal(activeSessionId, t)}
                                       className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
                                     >
-                                      Sửa %
+                                      Sửa
                                     </button>
                                   )}
                                 </div>
@@ -1589,19 +1774,18 @@ export default function AttendancePage() {
                                         acc[key].push(task)
                                         return acc
                                       }, {})
-                                      return Object.entries(groups).map(([groupName, tasks]) => (
-                                        <React.Fragment key={groupName}>
-                                          {/* Group header row */}
-                                          <tr className="bg-slate-50/80">
-                                            <td colSpan={5} className="px-4 py-2">
-                                              <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                                                <span className="material-symbols-outlined text-[14px] text-blue-400">folder_open</span>
-                                                {groupName}
-                                                <span className="ml-1 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded-full text-[9px] font-bold">{tasks.length}</span>
-                                              </span>
-                                            </td>
-                                          </tr>
-                                          {tasks.map((task, tidx) => {
+                                      return Object.entries(groups).flatMap(([groupName, tasks]) => [
+                                        /* Group header row — flatMap keeps <tr> as direct tbody children (no Fragment) for reliable table layout */
+                                        <tr key={`${groupName}__hdr`} className="bg-slate-50/80">
+                                          <td colSpan={5} className="px-4 py-2">
+                                            <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                              <span className="material-symbols-outlined text-[14px] text-blue-400">folder_open</span>
+                                              {groupName}
+                                              <span className="ml-1 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded-full text-[9px] font-bold">{tasks.length}</span>
+                                            </span>
+                                          </td>
+                                        </tr>,
+                                        ...tasks.map((task, tidx) => {
                                             const tStatus = task.status || 'in_progress'
                                             const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
                                             const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
@@ -1611,11 +1795,15 @@ export default function AttendancePage() {
                                               completed: { label: 'Nghiệm thu', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500' },
                                               rejected: { label: 'Từ chối', cls: 'bg-red-50 text-red-600 border-red-100', dot: 'bg-red-400' },
                                             }[tStatus] || { label: tStatus, cls: 'bg-slate-50 text-slate-500 border-slate-100', dot: 'bg-slate-400' }
+                                            const rowKey = `${groupName}__${task?.subtask_id != null ? String(task.subtask_id) : 'noid'}__${tidx}`
                                             return (
-                                              <tr key={task.subtask_id || tidx} className="hover:bg-slate-50/50 transition-colors">
+                                              <tr key={rowKey} className="hover:bg-slate-50/50 transition-colors">
                                                 {/* Task name */}
                                                 <td className="px-4 py-3">
-                                                  <div className="font-bold text-slate-700 text-[12px]">{task.title}</div>
+                                                  <div className="font-bold text-slate-700 text-[12px]">{task.title || '—'}</div>
+                                                  {task.work_detail ? (
+                                                    <p className="text-[10px] text-slate-600 mt-1 leading-snug line-clamp-3 whitespace-pre-wrap">{task.work_detail}</p>
+                                                  ) : null}
                                                   <div className="text-[10px] text-slate-400">{task.start_fmt} {task.end_fmt ? `→ ${task.end_fmt}` : ''}</div>
                                                 </td>
                                                 {/* Status badge */}
@@ -1640,7 +1828,7 @@ export default function AttendancePage() {
                                                         className="shrink-0 flex items-center gap-0.5 px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all"
                                                       >
                                                         <Edit3 size={10} />
-                                                        Sửa %
+                                                        Sửa
                                                       </button>
                                                     )}
                                                   </div>
@@ -1745,7 +1933,7 @@ export default function AttendancePage() {
                                                               className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700 hover:bg-blue-50"
                                                             >
                                                               <Edit3 size={11} />
-                                                              SỬA %
+                                                              SỬA
                                                             </button>
                                                           )}
                                                           {!task.end_time && (
@@ -1774,7 +1962,7 @@ export default function AttendancePage() {
                                                               className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700"
                                                             >
                                                               <Edit3 size={11} />
-                                                              SỬA %
+                                                              SỬA
                                                             </button>
                                                           )}
                                                           {!task.end_time && (
@@ -1815,9 +2003,8 @@ export default function AttendancePage() {
                                                 </td>
                                               </tr>
                                             )
-                                          })}
-                                        </React.Fragment>
-                                      ))
+                                          }),
+                                      ])
                                     })() : (
                                       <tr>
                                         <td colSpan="5" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
@@ -1978,6 +2165,9 @@ export default function AttendancePage() {
                                         <span className="text-[11px] font-bold text-slate-700 leading-tight flex-1 mr-2">{task.title}</span>
                                         <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[8px] font-bold ${statusCfg.cls}`}>{statusCfg.label}</span>
                                       </div>
+                                      {task.work_detail ? (
+                                        <p className="text-[9px] text-slate-600 mb-1.5 leading-snug line-clamp-3 whitespace-pre-wrap">{task.work_detail}</p>
+                                      ) : null}
                                       {/* Progress bar */}
                                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                         <div className="flex-1 min-w-[64px] h-1 bg-slate-200 rounded-full overflow-hidden">
@@ -1991,7 +2181,7 @@ export default function AttendancePage() {
                                             onClick={() => openEditPercentModal(row.id, task)}
                                             className="text-[8px] font-bold text-blue-600 underline shrink-0"
                                           >
-                                            Sửa %
+                                            Sửa
                                           </button>
                                         )}
                                       </div>
@@ -2047,7 +2237,7 @@ export default function AttendancePage() {
                                                 onClick={() => openEditPercentModal(row.id, task)}
                                                 className="px-2 py-1 bg-white border border-slate-200 text-slate-700 rounded-md text-[8px] font-bold"
                                               >
-                                                SỬA %
+                                                SỬA
                                               </button>
                                             )}
                                             {!task.end_time && (
@@ -2373,14 +2563,17 @@ export default function AttendancePage() {
             {addTaskModalOpen && (
               <Modal
                 title="Thêm công việc"
-                subtitle="Chọn dự án và task từ hệ thống, sau đó đặt % hoàn thành"
+                subtitle="Chọn dự án, công việc đang được giao hoặc task trong dự án, rồi đặt % hoàn thành"
                 onClose={() => {
                   setAddTaskModalOpen(false)
                   setAddTaskTargetSessionId(null)
+                  setAddTaskAssigneeSubtasks([])
                   setNewTaskForm({
                     project_id: '',
+                    pick_row_key: '',
                     task_id: '',
                     title: '',
+                    work_detail: '',
                     percent: 0,
                     parent_task_name: '',
                   })
@@ -2396,11 +2589,14 @@ export default function AttendancePage() {
                         setAddTaskTargetSessionId(null)
                         setNewTaskForm({
                           project_id: '',
+                          pick_row_key: '',
                           task_id: '',
                           title: '',
+                          work_detail: '',
                           percent: 0,
                           parent_task_name: '',
                         })
+                        setAddTaskAssigneeSubtasks([])
                         resetAddTaskSearchUi()
                       }}
                       className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
@@ -2444,7 +2640,7 @@ export default function AttendancePage() {
                           setAddTaskShowProjectSuggest(true)
                           const sel = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
                           if (sel && v !== sel.name) {
-                            setNewTaskForm(f => ({ ...f, project_id: '', task_id: '', title: '', parent_task_name: '' }))
+                            setNewTaskForm(f => ({ ...f, project_id: '', pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
                             setAddTaskTaskQuery('')
                           }
                         }}
@@ -2464,7 +2660,7 @@ export default function AttendancePage() {
                                   type="button"
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => {
-                                    setNewTaskForm(f => ({ ...f, project_id: p.project_id, task_id: '', title: '', parent_task_name: '' }))
+                                    setNewTaskForm(f => ({ ...f, project_id: p.project_id, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
                                     setAddTaskProjectQuery(p.name)
                                     setAddTaskTaskQuery('')
                                     setAddTaskShowProjectSuggest(false)
@@ -2489,8 +2685,11 @@ export default function AttendancePage() {
                   </div>
                   <div className="space-y-1.5 relative">
                     <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Task <span className="text-red-500">*</span>
+                      Công việc <span className="text-red-500">*</span>
                     </label>
+                    {addTaskAssigneeSubtasksLoading && (
+                      <p className="text-[10px] text-slate-400 font-medium">Đang tải việc được giao…</p>
+                    )}
                     <div className="relative">
                       <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
                       <input
@@ -2500,10 +2699,10 @@ export default function AttendancePage() {
                           const v = e.target.value
                           setAddTaskTaskQuery(v)
                           setAddTaskShowTaskSuggest(true)
-                          const cur = tasksForPickedProject.find(t => t.task_id === newTaskForm.task_id)
-                          const curLabel = cur ? `${cur.featureName} › ${cur.name}` : ''
+                          const cur = tasksForPickedProject.find(t => t.rowKey === newTaskForm.pick_row_key)
+                          const curLabel = cur ? cur.suggestLabel : ''
                           if (cur && v !== curLabel) {
-                            setNewTaskForm(f => ({ ...f, task_id: '', title: '', parent_task_name: '' }))
+                            setNewTaskForm(f => ({ ...f, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
                           }
                         }}
                         onFocus={() => newTaskForm.project_id && setAddTaskShowTaskSuggest(true)}
@@ -2512,50 +2711,79 @@ export default function AttendancePage() {
                           !newTaskForm.project_id
                             ? 'Chọn dự án trước…'
                             : tasksForPickedProject.length === 0
-                              ? 'Dự án không có task'
-                              : 'Gõ để tìm task (tên, tính năng)…'
+                              ? 'Dự án chưa có công việc khớp'
+                              : 'Gõ để tìm (tên nhiệm vụ, tính năng, task cha)…'
                         }
                         autoComplete="off"
                         disabled={pickListLoading || !newTaskForm.project_id || tasksForPickedProject.length === 0}
                         className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-50 disabled:text-slate-400"
                       />
                       {addTaskShowTaskSuggest && newTaskForm.project_id && tasksForPickedProject.length > 0 && (
-                        addTaskTaskSuggestions.length > 0 ? (
+                        addTaskTaskPickEntries.length > 0 ? (
                           <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
-                            {addTaskTaskSuggestions.map(t => (
-                              <li key={t.task_id}>
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    const proj = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
-                                    setNewTaskForm(f => ({
-                                      ...f,
-                                      task_id: t.task_id,
-                                      title: t.name,
-                                      parent_task_name: proj ? `${proj.name} › ${t.featureName}` : '',
-                                    }))
-                                    setAddTaskTaskQuery(`${t.featureName} › ${t.name}`)
-                                    setAddTaskShowTaskSuggest(false)
-                                  }}
-                                  className="w-full text-left px-3 py-2 hover:bg-blue-50"
-                                >
-                                  <div className="text-[12px] font-bold text-slate-800 truncate">{t.featureName} › {t.name}</div>
-                                  <div className="text-[10px] text-slate-400 font-medium">{t.status}</div>
-                                </button>
-                              </li>
+                            {addTaskTaskPickEntries.map(entry => (
+                              entry.kind === 'header' ? (
+                                <li key={entry.key} className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border-y border-slate-100 first:border-t-0 pointer-events-none">
+                                  {entry.label}
+                                </li>
+                              ) : (
+                                <li key={entry.key}>
+                                  <button
+                                    type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const t = entry.row
+                                      const proj = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
+                                      setNewTaskForm(f => ({
+                                        ...f,
+                                        pick_row_key: t.rowKey,
+                                        task_id: t.task_id,
+                                        title: t.name,
+                                        parent_task_name: proj
+                                          ? (t.pickKind === 'subtask'
+                                            ? `${proj.name} › ${t.featureName} › ${t.parentTaskName}`
+                                            : `${proj.name} › ${t.featureName}`)
+                                          : '',
+                                      }))
+                                      setAddTaskTaskQuery(t.suggestLabel)
+                                      setAddTaskShowTaskSuggest(false)
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-blue-50"
+                                  >
+                                    <div className="text-[12px] font-bold text-slate-800 truncate">{entry.row.suggestLabel}</div>
+                                    <div className="text-[10px] text-slate-400 font-medium">
+                                      {entry.row.pickKind === 'subtask' ? 'Được giao · ' : ''}{entry.row.status}
+                                    </div>
+                                  </button>
+                                </li>
+                              )
                             ))}
                           </ul>
                         ) : (
                           <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
-                            {addTaskTaskQuery.trim() ? 'Không có task khớp.' : 'Không có task.'}
+                            {addTaskTaskQuery.trim() ? 'Không có công việc khớp.' : 'Không có công việc.'}
                           </div>
                         )
                       )}
                     </div>
-                    {newTaskForm.task_id && (
-                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn task</p>
+                    {newTaskForm.pick_row_key && (
+                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn công việc</p>
                     )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      Chi tiết CV
+                    </label>
+                    <textarea
+                      value={newTaskForm.work_detail}
+                      onChange={(e) => setNewTaskForm(f => ({ ...f, work_detail: e.target.value }))}
+                      placeholder="Mô tả ngắn nội dung đang làm, kết quả trong ca…"
+                      rows={3}
+                      maxLength={2000}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px] placeholder:text-slate-400"
+                    />
+                    <p className="text-[9px] text-slate-400 font-medium">Tuỳ chọn — hiển thị trong bảng chi tiết ca làm việc.</p>
                   </div>
 
                   <div className="space-y-1.5">
@@ -2600,18 +2828,20 @@ export default function AttendancePage() {
               onSave={handleSaveReport}
             />
 
-            {/* MODAL: Sửa % hoàn thành */}
+            {/* MODAL: Sửa nội dung công việc (tên, chi tiết, báo cáo, %) */}
             {editPercentModal.open && (
               <Modal
-                title="Sửa % hoàn thành"
-                subtitle={editPercentModal.title ? `Công việc: ${editPercentModal.title}` : undefined}
-                onClose={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })}
+                title="Sửa công việc"
+                subtitle="Tên, chi tiết CV, báo cáo, ảnh (Cloudinary) và % — Ctrl+V trong ô báo cáo để dán ảnh"
+                maxWidthClassName="max-w-2xl"
+                bodyClassName="px-6 py-4 space-y-4 flex-grow overflow-y-auto max-h-[70vh]"
+                onClose={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
                 footerClassName="justify-between"
                 footer={
                   <>
                     <button
                       type="button"
-                      onClick={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', percent: 0 })}
+                      onClick={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
                       className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
                     >
                       Hủy
@@ -2619,7 +2849,7 @@ export default function AttendancePage() {
                     <button
                       type="submit"
                       form="edit-percent-form"
-                      disabled={isSavingPercent}
+                      disabled={isSavingPercent || editImagesUploading > 0}
                       className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
                     >
                       {isSavingPercent ? (
@@ -2635,6 +2865,128 @@ export default function AttendancePage() {
                 }
               >
                 <form id="edit-percent-form" onSubmit={handleSaveTaskPercent} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      Tên công việc <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editPercentModal.title}
+                      onChange={(e) => setEditPercentModal(m => ({ ...m, title: e.target.value }))}
+                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px]"
+                      placeholder="Tên hiển thị trong ca làm việc"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Chi tiết CV</label>
+                    <textarea
+                      value={editPercentModal.work_detail}
+                      onChange={(e) => setEditPercentModal(m => ({ ...m, work_detail: e.target.value }))}
+                      rows={3}
+                      maxLength={2000}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px]"
+                      placeholder="Mô tả nội dung đang làm…"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Báo cáo / nhận xét</label>
+                    <textarea
+                      value={editPercentModal.report_content}
+                      onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
+                      onPaste={(e) => {
+                        const files = []
+                        if (e.clipboardData?.items?.length) {
+                          for (let i = 0; i < e.clipboardData.items.length; i++) {
+                            const it = e.clipboardData.items[i]
+                            if (it.kind === 'file' && it.type?.startsWith('image/')) {
+                              const f = it.getAsFile()
+                              if (f) files.push(f)
+                            }
+                          }
+                        }
+                        if (files.length === 0 && e.clipboardData?.files?.length) {
+                          for (let i = 0; i < e.clipboardData.files.length; i++) {
+                            const f = e.clipboardData.files[i]
+                            if (f?.type?.startsWith('image/')) files.push(f)
+                          }
+                        }
+                        if (files.length === 0) return
+                        e.preventDefault()
+                        void uploadEditTaskReportImages(files)
+                      }}
+                      rows={4}
+                      maxLength={8000}
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[96px]"
+                      placeholder="Nội dung báo cáo (nếu có)… Dán ảnh: Ctrl+V"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Hình ảnh (Cloudinary)</label>
+                    {!isCloudinaryUploadConfigured() ? (
+                      <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-snug">
+                        Chưa cấu hình Cloudinary — có thể xóa ảnh đã lưu; để thêm ảnh mới, đặt <span className="font-mono">VITE_CLOUDINARY_CLOUD_NAME</span> và{' '}
+                        <span className="font-mono">VITE_CLOUDINARY_UPLOAD_PRESET</span> trong <span className="font-mono">.env</span> (upload preset dạng Unsigned).
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Dán ảnh trong ô báo cáo phía trên (<kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">Ctrl</kbd>
+                        {' + '}
+                        <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">V</kbd>
+                        ) hoặc chọn nhiều file — mỗi ảnh tải lên Cloudinary và lưu URL.
+                      </p>
+                    )}
+                    {(editPercentModal.report_images || []).length > 0 && (
+                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                        {(editPercentModal.report_images || []).map((url, idx) => (
+                          <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                            <a href={url} target="_blank" rel="noreferrer" className="block w-full h-full">
+                              <img src={url} alt="" className="w-full h-full object-cover" />
+                            </a>
+                            <button
+                              type="button"
+                              title="Gỡ ảnh"
+                              onClick={() => setEditPercentModal(m => ({
+                                ...m,
+                                report_images: (m.report_images || []).filter((_, i) => i !== idx),
+                              }))}
+                              className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-90 hover:opacity-100 shadow-sm"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">close</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!isCloudinaryUploadConfigured() || editImagesUploading > 0}
+                        onClick={() => editTaskReportFileRef.current?.click()}
+                        className="h-9 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
+                        Chọn ảnh
+                      </button>
+                      {editImagesUploading > 0 && (
+                        <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                          <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                          Đang tải ảnh…
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      ref={editTaskReportFileRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(ev) => {
+                        const f = ev.target.files
+                        if (f?.length) void uploadEditTaskReportImages(f)
+                        ev.target.value = ''
+                      }}
+                    />
+                  </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
