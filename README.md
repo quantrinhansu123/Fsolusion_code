@@ -1,4 +1,4 @@
-# Fsolution Code
+# F-solution Code
 
 Ứng dụng quản lý dự án (React, Vite, Supabase).
 

@@ -1693,7 +1693,7 @@ function ModalTaskCard({
           role="dialog"
           aria-modal="true"
           aria-label="Xem ảnh phóng to"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#131b2e]/88 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
           onClick={() => setImageLightboxUrl(null)}
         >
           <button
@@ -1710,7 +1710,7 @@ function ModalTaskCard({
           <img
             src={imageLightboxUrl}
             alt=""
-            className="max-w-full max-h-[min(92vh,920px)] w-auto h-auto object-contain rounded-lg shadow-2xl"
+            className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
             onClick={e => e.stopPropagation()}
           />
         </div>
@@ -4028,7 +4028,7 @@ export default function ProjectsPage() {
           role="dialog"
           aria-modal="true"
           aria-label="Xem ảnh tiểu mục"
-          className="fixed inset-0 z-[140] flex items-center justify-center bg-[#131b2e]/88 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
           onClick={() => setTableSubtaskLightboxUrl(null)}
         >
           <button
@@ -4045,7 +4045,7 @@ export default function ProjectsPage() {
           <img
             src={tableSubtaskLightboxUrl}
             alt=""
-            className="max-w-full max-h-[min(92vh,920px)] w-auto h-auto object-contain rounded-lg shadow-2xl"
+            className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
             onClick={e => e.stopPropagation()}
           />
         </div>

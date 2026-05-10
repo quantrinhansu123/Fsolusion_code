@@ -762,19 +762,25 @@ export default function StaffSubtasksPage() {
 
             {lightboxUrl && (
               <div
-                className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300"
+                className="fixed inset-0 z-[999] bg-black/92 backdrop-blur-sm flex items-center justify-center p-0 animate-in fade-in duration-300"
                 onClick={() => setLightboxUrl(null)}
               >
                 <button
-                  className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors"
-                  onClick={() => setLightboxUrl(null)}
+                  type="button"
+                  className="absolute top-4 right-4 sm:top-6 sm:right-6 z-10 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white transition-colors"
+                  aria-label="Đóng"
+                  onClick={e => {
+                    e.stopPropagation()
+                    setLightboxUrl(null)
+                  }}
                 >
-                  <span className="material-symbols-outlined text-[32px]">close</span>
+                  <span className="material-symbols-outlined text-[26px] leading-none block">close</span>
                 </button>
                 <img
                   src={lightboxUrl}
-                  alt="Full size"
-                  className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
+                  alt=""
+                  className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl animate-in zoom-in-95 duration-300"
+                  onClick={e => e.stopPropagation()}
                 />
               </div>
             )}

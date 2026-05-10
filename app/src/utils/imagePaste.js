@@ -49,18 +49,32 @@ export async function imageFileToDataUrl(file) {
   })
 }
 
-/** Lấy file ảnh tầng đầu tiên trong ClipboardEvent */
-export function getImageFromClipboardEvent(e) {
+/** Mọi file ảnh trong ClipboardEvent (Ctrl+V nhiều ảnh nếu trình duyệt hỗ trợ) */
+export function getImageFilesFromClipboardEvent(e) {
+  const files = []
   const items = e.clipboardData?.items
-  if (!items) return null
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i]
-    if (it.kind === 'file' && it.type.startsWith('image/')) {
-      const f = it.getAsFile()
-      if (f) return f
+  if (items?.length) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.kind === 'file' && it.type?.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) files.push(f)
+      }
     }
   }
-  return null
+  if (files.length === 0 && e.clipboardData?.files?.length) {
+    for (let i = 0; i < e.clipboardData.files.length; i++) {
+      const f = e.clipboardData.files[i]
+      if (f?.type?.startsWith('image/')) files.push(f)
+    }
+  }
+  return files
+}
+
+/** Lấy file ảnh tầng đầu tiên trong ClipboardEvent */
+export function getImageFromClipboardEvent(e) {
+  const first = getImageFilesFromClipboardEvent(e)[0]
+  return first ?? null
 }
 
 /** Lấy file ảnh từ DragEvent */

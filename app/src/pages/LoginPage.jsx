@@ -221,7 +221,7 @@ function humanizeAuthError(message) {
 
               <footer className="mt-10 text-center">
                 <p className="text-slate-500 text-sm font-medium">
-                  © 2026 F-Solution. Bản quyền được bảo lưu.
+                  © 2026 F-solution. Bản quyền được bảo lưu.
                 </p>
               </footer>
             </div>

@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar'
 import TopBar from '../components/TopBar'
 import { supabase } from '../utils/supabase'
 import { uploadImageBlobToCloudinary, isCloudinaryUploadConfigured } from '../utils/cloudinaryUpload'
+import { getImageFilesFromClipboardEvent } from '../utils/imagePaste'
 import { useAuth } from '../utils/AuthContext'
 import Modal from '../components/Modal'
 import ReportModal from '../components/ReportModal'
@@ -107,6 +108,8 @@ export default function AttendancePage() {
   const [isSavingPercent, setIsSavingPercent] = useState(false)
   const [editImagesUploading, setEditImagesUploading] = useState(0)
   const editTaskReportFileRef = useRef(null)
+  /** Phóng to ảnh báo cáo (toàn màn hình) */
+  const [imageLightboxUrl, setImageLightboxUrl] = useState(null)
   const [loadingAction, setLoadingAction] = useState(null)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
@@ -354,6 +357,18 @@ export default function AttendancePage() {
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isWorking])
+
+  useEffect(() => {
+    if (!imageLightboxUrl) return
+    const onKey = e => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
+        setImageLightboxUrl(null)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [imageLightboxUrl])
 
   const formatTimer = (seconds) => {
     const h = String(Math.floor(seconds / 3600)).padStart(2, '0')
@@ -1168,6 +1183,7 @@ export default function AttendancePage() {
   }
 
   return (
+    <>
     <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
       <Sidebar />
 
@@ -1841,15 +1857,25 @@ export default function AttendancePage() {
                                                       {task.report_images?.length > 0 && (
                                                         <div className="flex gap-1 mt-1">
                                                           {task.report_images.slice(0, 3).map((url, i) => (
-                                                            <a key={i} href={url} target="_blank" rel="noreferrer"
-                                                              className="w-8 h-8 rounded border border-slate-200 overflow-hidden block">
-                                                              <img src={url} alt="" className="w-full h-full object-cover" />
-                                                            </a>
+                                                            <button
+                                                              key={i}
+                                                              type="button"
+                                                              title="Xem ảnh phóng to"
+                                                              onClick={() => setImageLightboxUrl(url)}
+                                                              className="w-8 h-8 rounded border border-slate-200 overflow-hidden block cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0"
+                                                            >
+                                                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                                            </button>
                                                           ))}
                                                           {task.report_images.length > 3 && (
-                                                            <span className="w-8 h-8 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500">
+                                                            <button
+                                                              type="button"
+                                                              title="Xem ảnh tiếp theo"
+                                                              onClick={() => setImageLightboxUrl(task.report_images[3])}
+                                                              className="w-8 h-8 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500 cursor-zoom-in hover:bg-slate-200"
+                                                            >
                                                               +{task.report_images.length - 3}
-                                                            </span>
+                                                            </button>
                                                           )}
                                                         </div>
                                                       )}
@@ -2190,13 +2216,28 @@ export default function AttendancePage() {
                                         <p className="text-[9px] text-slate-500 line-clamp-2 mb-1">{task.report_content}</p>
                                       )}
                                       {task.report_images?.length > 0 && (
-                                        <div className="flex gap-1 mb-1.5">
+                                        <div className="flex gap-1 mb-1.5 flex-wrap">
                                           {task.report_images.slice(0, 3).map((url, i) => (
-                                            <a key={i} href={url} target="_blank" rel="noreferrer"
-                                              className="w-7 h-7 rounded border border-slate-200 overflow-hidden block">
-                                              <img src={url} alt="" className="w-full h-full object-cover" />
-                                            </a>
+                                            <button
+                                              key={i}
+                                              type="button"
+                                              title="Xem ảnh phóng to"
+                                              onClick={() => setImageLightboxUrl(url)}
+                                              className="w-7 h-7 rounded border border-slate-200 overflow-hidden block cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0 shrink-0"
+                                            >
+                                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                            </button>
                                           ))}
+                                          {task.report_images.length > 3 && (
+                                            <button
+                                              type="button"
+                                              title="Xem ảnh tiếp theo"
+                                              onClick={() => setImageLightboxUrl(task.report_images[3])}
+                                              className="w-7 h-7 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 cursor-zoom-in hover:bg-slate-200 shrink-0"
+                                            >
+                                              +{task.report_images.length - 3}
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                       {task.comment && tStatus === 'rejected' && (
@@ -2894,22 +2935,7 @@ export default function AttendancePage() {
                       value={editPercentModal.report_content}
                       onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
                       onPaste={(e) => {
-                        const files = []
-                        if (e.clipboardData?.items?.length) {
-                          for (let i = 0; i < e.clipboardData.items.length; i++) {
-                            const it = e.clipboardData.items[i]
-                            if (it.kind === 'file' && it.type?.startsWith('image/')) {
-                              const f = it.getAsFile()
-                              if (f) files.push(f)
-                            }
-                          }
-                        }
-                        if (files.length === 0 && e.clipboardData?.files?.length) {
-                          for (let i = 0; i < e.clipboardData.files.length; i++) {
-                            const f = e.clipboardData.files[i]
-                            if (f?.type?.startsWith('image/')) files.push(f)
-                          }
-                        }
+                        const files = getImageFilesFromClipboardEvent(e)
                         if (files.length === 0) return
                         e.preventDefault()
                         void uploadEditTaskReportImages(files)
@@ -2939,9 +2965,14 @@ export default function AttendancePage() {
                       <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                         {(editPercentModal.report_images || []).map((url, idx) => (
                           <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                            <a href={url} target="_blank" rel="noreferrer" className="block w-full h-full">
-                              <img src={url} alt="" className="w-full h-full object-cover" />
-                            </a>
+                            <button
+                              type="button"
+                              title="Xem ảnh phóng to"
+                              onClick={() => setImageLightboxUrl(url)}
+                              className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
+                            >
+                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                            </button>
                             <button
                               type="button"
                               title="Gỡ ảnh"
@@ -3023,5 +3054,34 @@ export default function AttendancePage() {
         </main >
       </div >
     </div >
+
+    {imageLightboxUrl ? (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Xem ảnh phóng to"
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
+        onClick={() => setImageLightboxUrl(null)}
+      >
+        <button
+          type="button"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white z-10"
+          aria-label="Đóng"
+          onClick={e => {
+            e.stopPropagation()
+            setImageLightboxUrl(null)
+          }}
+        >
+          <span className="material-symbols-outlined text-[22px] leading-none block">close</span>
+        </button>
+        <img
+          src={imageLightboxUrl}
+          alt=""
+          className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        />
+      </div>
+    ) : null}
+    </>
   )
 }

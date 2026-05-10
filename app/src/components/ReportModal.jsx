@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import Modal from './Modal'
 import { supabase } from '../utils/supabase'
+import { getImageFilesFromClipboardEvent } from '../utils/imagePaste'
 
 export default function ReportModal({ open, onClose, task, sessionId, onSave }) {
   const [content, setContent] = useState('')
@@ -9,6 +10,7 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
   const [previewUrls, setPreviewUrls] = useState([])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
+  const [imageLightboxUrl, setImageLightboxUrl] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -18,13 +20,36 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
       setNewImages([])
       setPreviewUrls([])
       setError(null)
+      setImageLightboxUrl(null)
     }
   }, [task])
 
+  useEffect(() => {
+    if (!imageLightboxUrl) return
+    const onKey = e => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
+        setImageLightboxUrl(null)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [imageLightboxUrl])
+
   const handleFileChange = (e) => {
-    const files = Array.from(e.target.files)
-    setNewImages(files)
-    setPreviewUrls(files.map(f => URL.createObjectURL(f)))
+    const files = Array.from(e.target.files || []).filter(f => f?.type?.startsWith('image/'))
+    if (files.length === 0) return
+    setNewImages(prev => [...prev, ...files])
+    setPreviewUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
+    e.target.value = ''
+  }
+
+  const appendPastedImages = (e) => {
+    const files = getImageFilesFromClipboardEvent(e)
+    if (files.length === 0) return
+    e.preventDefault()
+    setNewImages(prev => [...prev, ...files])
+    setPreviewUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
   }
 
   const handleRemoveNewImage = (idx) => {
@@ -79,6 +104,7 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
   const isRejected = task.status === 'rejected'
 
   return (
+    <>
     <Modal
       title={isRejected ? 'Cập nhật báo cáo' : 'Gửi báo cáo công việc'}
       subtitle={task.title}
@@ -120,10 +146,18 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
         <textarea
           value={content}
           onChange={e => setContent(e.target.value)}
-          placeholder="Mô tả chi tiết công việc đã thực hiện..."
+          onPaste={appendPastedImages}
+          placeholder="Mô tả chi tiết công việc đã thực hiện… (dán ảnh: Ctrl+V khi đang gõ ở đây)"
           rows={5}
           className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-[13px] resize-none text-slate-700"
         />
+        <p className="text-[10px] text-slate-500 leading-snug">
+          Dán ảnh chụp màn hình hoặc ảnh từ clipboard vào ô trên:{' '}
+          <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-white font-mono text-[9px]">Ctrl</kbd>
+          {' + '}
+          <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-white font-mono text-[9px]">V</kbd>
+          . Ảnh sẽ hiện trong mục &quot;Ảnh mới sẽ tải lên&quot; khi gửi báo cáo.
+        </p>
       </div>
 
       {/* Percent slider */}
@@ -158,10 +192,15 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
             <p className="text-[10px] text-slate-400 mb-1.5">Ảnh đã tải lên</p>
             <div className="grid grid-cols-3 gap-2">
               {existingImages.map((url, idx) => (
-                <a key={idx} href={url} target="_blank" rel="noreferrer"
-                  className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50 block">
-                  <img src={url} alt={`ảnh ${idx + 1}`} className="w-full h-full object-cover" />
-                </a>
+                <button
+                  key={idx}
+                  type="button"
+                  title="Xem ảnh phóng to"
+                  onClick={() => setImageLightboxUrl(url)}
+                  className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50 block w-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0"
+                >
+                  <img src={url} alt={`ảnh ${idx + 1}`} className="w-full h-full object-cover pointer-events-none" />
+                </button>
               ))}
             </div>
           </div>
@@ -173,9 +212,16 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
             <div className="grid grid-cols-3 gap-2">
               {previewUrls.map((url, idx) => (
                 <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border-2 border-blue-300 bg-slate-50">
-                  <img src={url} alt={`preview ${idx + 1}`} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    title="Xem ảnh phóng to"
+                    onClick={() => setImageLightboxUrl(url)}
+                    className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
+                  >
+                    <img src={url} alt={`preview ${idx + 1}`} className="w-full h-full object-cover pointer-events-none" />
+                  </button>
                   <button type="button" onClick={() => handleRemoveNewImage(idx)}
-                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors">
+                    className="absolute top-1 right-1 z-[1] w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors">
                     <span className="material-symbols-outlined text-[12px]">close</span>
                   </button>
                 </div>
@@ -187,7 +233,7 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
         <button type="button" onClick={() => fileRef.current?.click()}
           className="w-full h-10 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center gap-2 text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors text-[12px] font-bold">
           <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
-          Chọn ảnh
+          Chọn ảnh (hoặc dán trong ô nội dung báo cáo)
         </button>
         <input ref={fileRef} type="file" multiple accept="image/*"
           className="hidden" onChange={handleFileChange} />
@@ -199,5 +245,34 @@ export default function ReportModal({ open, onClose, task, sessionId, onSave }) 
         </p>
       )}
     </Modal>
+
+    {imageLightboxUrl ? (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Xem ảnh phóng to"
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
+        onClick={() => setImageLightboxUrl(null)}
+      >
+        <button
+          type="button"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white z-10"
+          aria-label="Đóng"
+          onClick={e => {
+            e.stopPropagation()
+            setImageLightboxUrl(null)
+          }}
+        >
+          <span className="material-symbols-outlined text-[22px] leading-none block">close</span>
+        </button>
+        <img
+          src={imageLightboxUrl}
+          alt=""
+          className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        />
+      </div>
+    ) : null}
+    </>
   )
 }
