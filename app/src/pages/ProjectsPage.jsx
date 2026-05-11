@@ -3024,7 +3024,7 @@ export default function ProjectsPage() {
         />
         <main className="flex-1 px-3 py-4">
           <div className="w-full space-y-5 pb-20">
-            <div className={`grid gap-3 ${userRole === 'admin' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
+            <div className={`grid gap-3 ${isManagerOrAdmin ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
               <div className="flex items-center gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#00236f]">
                   <span className="material-symbols-outlined">inventory_2</span>
@@ -3052,7 +3052,7 @@ export default function ProjectsPage() {
                   <p className="text-[22px] font-bold tabular-nums text-orange-500 leading-tight">{projectListStats.due}</p>
                 </div>
               </div>
-              {userRole === 'admin' && (
+              {isManagerOrAdmin && (
                 <div className="flex items-stretch gap-2 sm:col-span-2 lg:col-span-1 lg:justify-end">
                   <button
                     type="button"
@@ -3412,7 +3412,7 @@ export default function ProjectsPage() {
                   </button>
                 )}
               </div>
-            ) : userRole === 'admin' ? (
+            ) : isManagerOrAdmin ? (
               <button
                 type="button"
                 onClick={() => m.open('add_project', { initial: { customer_id: projectsModalCustomer.customer_id } })}
