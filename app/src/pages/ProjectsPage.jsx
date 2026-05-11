@@ -3024,50 +3024,50 @@ export default function ProjectsPage() {
         />
         <main className="flex-1 px-3 py-4">
           <div className="w-full space-y-5 pb-20">
-            <div className={`grid gap-2.5 sm:gap-3 ${userRole === 'admin' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'}`}>
-              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
-                  <span className="material-symbols-outlined text-[16px]">folder</span>
+            <div className={`grid gap-3 ${userRole === 'admin' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'}`}>
+              <div className="flex items-center gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#00236f]">
+                  <span className="material-symbols-outlined">inventory_2</span>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Tổng dự án</div>
-                  <div className="text-[15px] font-bold tabular-nums text-[#131b2e] leading-snug">{projectListStats.total}</div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] leading-tight">Tổng dự án</p>
+                  <p className="text-[22px] font-bold tabular-nums text-[#00236f] leading-tight">{projectListStats.total}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
-                  <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+              <div className="flex items-center gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                  <span className="material-symbols-outlined">play_circle</span>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Đang hoạt động</div>
-                  <div className="text-[15px] font-bold tabular-nums text-emerald-700 leading-snug">{projectListStats.active}</div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] leading-tight">Đang hoạt động</p>
+                  <p className="text-[22px] font-bold tabular-nums text-emerald-600 leading-tight">{projectListStats.active}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-[#f1f5f9] bg-white p-2 shadow-sm">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
+              <div className="flex items-center gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+                  <span className="material-symbols-outlined">warning</span>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b] leading-tight">Sắp đến hạn</div>
-                  <div className="text-[15px] font-bold tabular-nums text-amber-700 leading-snug">{projectListStats.due}</div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] leading-tight">Sắp đến hạn</p>
+                  <p className="text-[22px] font-bold tabular-nums text-orange-500 leading-tight">{projectListStats.due}</p>
                 </div>
               </div>
               {userRole === 'admin' && (
-                <div className="flex gap-2">
+                <div className="flex items-stretch gap-2 sm:col-span-2 lg:col-span-1 lg:justify-end">
                   <button
                     type="button"
                     onClick={() => navigate('/task-templates')}
-                    className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[12px] font-medium text-indigo-800 shadow-sm hover:bg-indigo-100/90"
+                    className="inline-flex flex-1 lg:flex-initial items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-[12px] font-medium text-indigo-800 shadow-sm hover:bg-indigo-100/90 transition-all"
                   >
-                    <span className="material-symbols-outlined text-[16px] text-indigo-700">auto_awesome</span>
+                    <span className="material-symbols-outlined text-[18px] text-indigo-700">auto_awesome</span>
                     Task mẫu
                   </button>
                   <button
                     type="button"
                     onClick={() => m.open('add_project')}
-                    className="inline-flex h-full min-h-[52px] items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-800 shadow-sm hover:bg-sky-100/90"
+                    className="inline-flex flex-1 lg:flex-initial items-center justify-center gap-1.5 rounded-xl bg-[#00236f] px-4 py-2.5 text-[12px] font-bold text-white shadow-md hover:brightness-110 active:scale-95 transition-all"
                   >
-                    <span className="material-symbols-outlined text-[16px] text-sky-700">add</span>
+                    <span className="material-symbols-outlined text-[18px]">add</span>
                     Dự án mới
                   </button>
                 </div>
@@ -3147,109 +3147,136 @@ export default function ProjectsPage() {
                 </p>
               ) : null}
               {projectViewMode === 'kanban' ? (
-                <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full items-stretch pb-2">
-                  {KANBAN_COLUMNS.map(col => (
-                    <div
-                      key={col.key}
-                      className={`flex min-w-0 flex-col max-h-[min(78vh,52rem)] rounded-2xl border border-[#bec8d2]/30 bg-[#f4f6fc]/80 border-t-[4px] ${col.topBar} shadow-md overflow-hidden`}
-                    >
-                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[#e8ecf0] bg-white shrink-0">
-                        <p className="text-[13px] font-bold tracking-tight text-[#131b2e]">{col.title}</p>
-                        <span className="shrink-0 rounded-full bg-[#eef1f6] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
-                          {projectListKanbanGrouped[col.key].length}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-h-0 p-2 space-y-2 overflow-y-auto custom-scrollbar touch-pan-y">
-                        {projectListKanbanGrouped[col.key].map(({ customer: c, project: p }) => {
-                          const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
-                          const dashKey = projectDashboardKey(p)
-                          const sm = DASH_STATUS_META[dashKey]
-                          const assignments = p.project_assignments || []
-                          const memberChips = assignments.slice(0, 3).map((a, idx) => {
-                            const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
-                            const ini = userInitials(nm)
-                            return (
-                              <div
-                                key={a.user_id}
-                                className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-white bg-[#e0e7ff] text-[9px] font-semibold text-[#4338ca]"
-                                style={{ marginLeft: idx ? -6 : 0, zIndex: 10 - idx }}
-                                title={nm}
-                              >
-                                {ini.slice(0, 2)}
-                              </div>
-                            )
-                          })
-                          return (
-                            <div
-                              key={p.project_id}
-                              onClick={() => {
-                                setProjectsModalCustomerId(c.customer_id)
-                                setProjectTasksViewId(p.project_id)
-                              }}
-                              className="w-full rounded-xl border border-[#e8ecf0] bg-white shadow-sm cursor-pointer hover:bg-blue-50/30 hover:border-blue-100 transition-all"
-                            >
-                              <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
-                                <span className="flex-1 min-w-0 truncate text-[13px] font-bold text-[#131b2e]" title={p.name}>
-                                  {p.name}
-                                </span>
-                                {memberChips.length > 0 && <div className="flex items-center shrink-0">{memberChips}</div>}
-                                {isManagerOrAdmin && (
-                                  <div className="relative shrink-0" data-project-dd onClick={e => e.stopPropagation()}>
-                                    <button
-                                      type="button"
-                                      onClick={e => {
-                                        e.stopPropagation()
-                                        setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
-                                      }}
-                                      className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-md text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
-                                      aria-label="Thao tác dự án"
-                                    >
-                                      <span className="material-symbols-outlined text-[18px]">more_horiz</span>
-                                    </button>
-                                    {openProjectMenuId === p.project_id && (
-                                      <div className="absolute right-0 top-7 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
-                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                          onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
-                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem nhiệm vụ
+                <div className="grid grid-cols-1 min-[700px]:grid-cols-2 xl:grid-cols-4 gap-3 w-full items-start pb-2">
+                  {KANBAN_COLUMNS.map(col => {
+                    const meta = ({
+                      pending:     { side: 'border-blue-400',   bar: '#60a5fa', icon: 'inbox' },
+                      in_progress: { side: 'border-[#00236f]',  bar: '#00236f', icon: 'sync' },
+                      overdue:     { side: 'border-orange-400', bar: '#fb923c', icon: 'task_alt' },
+                      completed:   { side: 'border-green-500',  bar: '#22c55e', icon: 'verified' },
+                    })[col.key] || { side: 'border-slate-300', bar: '#64748b', icon: 'folder' }
+                    const items = projectListKanbanGrouped[col.key]
+                    return (
+                      <div key={col.key} className="flex flex-col gap-2.5 min-w-0">
+                        <div className={`flex items-center justify-between rounded-lg border-l-4 bg-[#eef1f6] px-3 py-2 ${meta.side}`}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[14px] font-bold tracking-tight text-[#131b2e]">{col.title}</span>
+                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#475569]">
+                              {items.length}
+                            </span>
+                          </div>
+                        </div>
+                        {items.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#cbd5e1] bg-white/40 py-10 min-h-[180px]">
+                            <span className="material-symbols-outlined text-[32px] text-[#cbd5e1] mb-1 opacity-70">{meta.icon}</span>
+                            <p className="text-[11px] italic text-[#94a3b8]">Trống</p>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2 overflow-y-auto max-h-[min(72vh,46rem)] pr-1 custom-scrollbar touch-pan-y">
+                            {items.map(({ customer: c, project: p }) => {
+                              const { total: taskTotal, done: taskDone, pct } = countTasksInProject(p)
+                              const dashKey = projectDashboardKey(p)
+                              const sm = DASH_STATUS_META[dashKey]
+                              const assignments = p.project_assignments || []
+                              const memberChips = assignments.slice(0, 3).map((a, idx) => {
+                                const nm = a.users?.full_name || allUsers.find(u => u.user_id === a.user_id)?.full_name || '?'
+                                const ini = userInitials(nm)
+                                return (
+                                  <div
+                                    key={a.user_id}
+                                    className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-[#e0e7ff] text-[8px] font-semibold text-[#4338ca]"
+                                    style={{ marginLeft: idx ? -5 : 0, zIndex: 10 - idx }}
+                                    title={nm}
+                                  >
+                                    {ini.slice(0, 2)}
+                                  </div>
+                                )
+                              })
+                              const extraAssignees = Math.max(0, assignments.length - memberChips.length)
+                              return (
+                                <div
+                                  key={p.project_id}
+                                  onClick={() => {
+                                    setProjectsModalCustomerId(c.customer_id)
+                                    setProjectTasksViewId(p.project_id)
+                                  }}
+                                  className="group cursor-pointer rounded-lg border border-[#e2e8f0] bg-white px-2.5 py-2 shadow-sm transition-all hover:border-sky-200 hover:shadow-md"
+                                >
+                                  <div className="mb-0.5 flex items-start justify-between gap-1.5">
+                                    <h4 className="truncate text-[12px] font-bold text-[#131b2e] transition-colors group-hover:text-[#00236f]" title={p.name}>
+                                      {p.name}
+                                    </h4>
+                                    {isManagerOrAdmin && (
+                                      <div className="relative shrink-0" data-project-dd onClick={e => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={e => {
+                                            e.stopPropagation()
+                                            setOpenProjectMenuId(cur => cur === p.project_id ? null : p.project_id)
+                                          }}
+                                          className="inline-flex h-5 w-5 items-center justify-center rounded text-[#94a3b8] hover:bg-slate-100 hover:text-[#475569] transition-colors"
+                                          aria-label="Thao tác dự án"
+                                        >
+                                          <span className="material-symbols-outlined text-[16px]">more_horiz</span>
                                         </button>
-                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
-                                          onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
-                                          <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
-                                        </button>
-                                        <div className="my-1 h-px bg-[#e2e8f0]" />
-                                        <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
-                                          onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
-                                          <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
-                                        </button>
+                                        {openProjectMenuId === p.project_id && (
+                                          <div className="absolute right-0 top-6 z-40 min-w-[168px] rounded-xl border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                                            <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                              onClick={() => { setOpenProjectMenuId(null); setProjectsModalCustomerId(c.customer_id); setProjectTasksViewId(p.project_id) }}>
+                                              <span className="material-symbols-outlined text-[15px] text-[#64748b]">view_kanban</span>Xem nhiệm vụ
+                                            </button>
+                                            <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#131b2e] hover:bg-[#f8fafc]"
+                                              onClick={() => { setOpenProjectMenuId(null); m.open('edit_project', { id: p.project_id, ...p }) }}>
+                                              <span className="material-symbols-outlined text-[15px] text-[#64748b]">edit</span>Chỉnh sửa
+                                            </button>
+                                            <div className="my-1 h-px bg-[#e2e8f0]" />
+                                            <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-700 hover:bg-red-50"
+                                              onClick={() => { setOpenProjectMenuId(null); deleteEntity('projects', 'project_id', p.project_id) }}>
+                                              <span className="material-symbols-outlined text-[15px]">delete</span>Xoá dự án
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
-                                )}
-                              </div>
-                              <p className="px-3 pb-1 text-[10px] text-[#64748b] truncate" title={c.name}>{c.name}</p>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2.5 text-[10px] text-[#94a3b8]">
-                                <div className="flex items-center gap-0.5 shrink-0">
-                                  <span className="material-symbols-outlined text-[11px]">schedule</span>
-                                  <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
+                                  <p className="mb-1 truncate text-[10px] text-[#64748b]" title={c.name}>{c.name}</p>
+                                  <div className="mb-1 flex items-center justify-between text-[10px]">
+                                    <div className="flex items-center gap-0.5 text-[#64748b]">
+                                      <span className="material-symbols-outlined text-[12px]">schedule</span>
+                                      <span className="tabular-nums">{formatDeadlineDisplay(p.deadline)}</span>
+                                    </div>
+                                    <span className="font-bold tabular-nums text-[#00236f]">{pct}%</span>
+                                  </div>
+                                  <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-100">
+                                    <div
+                                      className="h-full rounded-full transition-all"
+                                      style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : (sm?.bar || meta.bar) }}
+                                    />
+                                  </div>
+                                  <div className="mt-1.5 flex items-center justify-between">
+                                    <span className="text-[10px] tabular-nums text-[#64748b]">{taskDone}/{taskTotal} tasks</span>
+                                    {memberChips.length > 0 && (
+                                      <div className="flex items-center">
+                                        {memberChips}
+                                        {extraAssignees > 0 && (
+                                          <div
+                                            className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#f1f5f9] px-1 text-[8px] font-semibold text-[#475569]"
+                                            style={{ marginLeft: -5, zIndex: 1 }}
+                                          >
+                                            +{extraAssignees}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                                <span className="tabular-nums">{pct}%</span>
-                                <div className="min-w-[48px] flex-1 h-[3px] overflow-hidden rounded-full bg-slate-100">
-                                  <div
-                                    className="h-full rounded-full transition-all"
-                                    style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : sm.bar }}
-                                  />
-                                </div>
-                                <span className="tabular-nums shrink-0">{taskDone}/{taskTotal}</span>
-                              </div>
-                            </div>
-                          )
-                        })}
-                        {projectListKanbanGrouped[col.key].length === 0 && (
-                          <p className="text-[11px] text-[#94a3b8] italic text-center py-4">Chưa có dự án</p>
+                              )
+                            })}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
