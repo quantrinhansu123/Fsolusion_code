@@ -127,7 +127,6 @@ export default function AttendancePage() {
     if (!user?.user_id) return
     setCurrentUser(user)
 
-    // Khôi phục session checkin chỉ khi session thuộc về user này
     const storedSessionId = localStorage.getItem('checkin_session_id')
     const storedUserId = localStorage.getItem('checkin_user_id')
     const storedStartTime = localStorage.getItem('checkin_start_time')
@@ -136,12 +135,79 @@ export default function AttendancePage() {
       setIsWorking(true)
       setSessionStartTime(Number(storedStartTime))
     } else {
-      // Xóa session cũ không hợp lệ
       localStorage.removeItem('checkin_session_id')
       localStorage.removeItem('checkin_user_id')
       localStorage.removeItem('checkin_start_time')
     }
   }, [user])
+
+  // -- REALTIME: TỰ ĐỘNG CẬP NHẬT CÔNG VIỆC MỚI KHI ĐANG TRONG CA --
+  useEffect(() => {
+    if (!currentUser?.user_id || !isWorking || !activeSessionId) return
+
+    const channel = supabase
+      .channel(`realtime_tasks_${activeSessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'work_schedules',
+          filter: `assigned_to=eq.${currentUser.user_id}`
+        },
+        async (payload) => {
+          const newWS = payload.new
+
+          // Kiểm tra xem việc mới này có phải của ngày hôm nay không
+          const now = new Date()
+          const local = new Date(now.getTime() - (now.getTimezoneOffset() * 60000))
+          const today = local.toISOString().split('T')[0]
+          const startOfDay = `${today}T00:00:00.000`
+          const endOfDay = `${today}T23:59:59.999`
+
+          if (newWS.scheduled_at >= startOfDay && newWS.scheduled_at <= endOfDay) {
+            // Lấy dữ liệu session hiện tại để gộp task mới
+            const { data: session, error: sessionErr } = await supabase
+              .from('work_sessions')
+              .select('tasks_data')
+              .eq('session_id', activeSessionId)
+              .single()
+
+            if (session && !sessionErr) {
+              const currentTasks = session.tasks_data || []
+              // Tránh trùng lặp
+              if (!currentTasks.some(t => t.subtask_id === newWS.schedule_id)) {
+                const newTask = {
+                  subtask_id: newWS.schedule_id,
+                  title: newWS.title,
+                  status: newWS.status || 'in_progress',
+                  percent: 0,
+                  work_detail: newWS.description,
+                  report_images: newWS.image_urls || []
+                }
+                const updatedTasks = [...currentTasks, newTask]
+
+                // Cập nhật Database
+                const { error: updateErr } = await supabase
+                  .from('work_sessions')
+                  .update({ tasks_data: updatedTasks })
+                  .eq('session_id', activeSessionId)
+
+                if (!updateErr) {
+                  setToast({ message: `Sếp vừa giao thêm việc: ${newWS.title}`, type: 'success' })
+                  fetchAttendanceData() // Tải lại giao diện
+                }
+              }
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [currentUser, isWorking, activeSessionId])
 
   // 2. Lấy danh sách nhân viên để đổ vào Dropdown bộ lọc
   useEffect(() => {
@@ -229,7 +295,7 @@ export default function AttendancePage() {
           let end = new Date(session.check_out_time)
 
           let diffMs = end - start
-          if (diffMs < -1000 * 60 * 30) { 
+          if (diffMs < -1000 * 60 * 30) {
             // Chỉ cộng 1 ngày nếu lệch âm đáng kể (> 30 phút), hỗ trợ ca đêm xuyên ngày
             end.setDate(end.getDate() + 1)
             diffMs = end - start
@@ -383,28 +449,81 @@ export default function AttendancePage() {
       return
     }
     try {
-      const today = new Date().toISOString().split('T')[0]
-      // Dùng currentUser.user_id (user đang đăng nhập), KHÔNG dùng filterUser
+      // 1. Lấy ngày hôm nay theo giờ địa phương (tránh lệch múi giờ quốc tế)
+      const now = new Date()
+      const localDate = new Date(now.getTime() - (now.getTimezoneOffset() * 60000))
+      const today = localDate.toISOString().split('T')[0]
+      const startOfDay = `${today}T00:00:00.000`
+      const endOfDay = `${today}T23:59:59.999`
+
+      // 2. Lấy việc từ bảng Lịch trình (Chỉ lấy việc của ngày hôm nay)
+      const { data: wsTasks } = await supabase
+        .from('work_schedules')
+        .select('*')
+        .eq('assigned_to', currentUser.user_id)
+        .gte('scheduled_at', startOfDay)
+        .lte('scheduled_at', endOfDay)
+        .neq('status', 'completed')
+
+      // 3. Lấy việc từ bảng Nhân sự (Công việc của nhân viên: Hạn chót hôm nay HOẶC đang làm dở)
+      const { data: stTasks } = await supabase
+        .from('subtasks')
+        .select('subtask_id, name, status, plan_target_at, deadline')
+        .eq('assigned_to', currentUser.user_id)
+        .neq('status', 'completed')
+        .or(`plan_target_at.lte.${endOfDay},deadline.lte.${endOfDay},status.eq.in_progress`)
+
+      const tasksData = []
+
+      // Nạp việc từ Lịch trình
+      wsTasks?.forEach(ws => {
+        tasksData.push({
+          subtask_id: ws.schedule_id,
+          title: ws.title,
+          status: ws.status || 'in_progress',
+          percent: 0,
+          work_detail: ws.description,
+          report_images: ws.image_urls || []
+        })
+      })
+
+      // Nạp việc từ Nhân sự (Tránh trùng lặp ID nếu có)
+      stTasks?.forEach(st => {
+        if (!tasksData.some(t => t.subtask_id === st.subtask_id)) {
+          tasksData.push({
+            subtask_id: st.subtask_id,
+            title: st.name,
+            status: st.status || 'in_progress',
+            percent: 0,
+            work_detail: '',
+            report_images: []
+          })
+        }
+      })
+
+      // 4. Tạo ca làm việc mới
       const { data, error } = await supabase
         .from('work_sessions')
         .insert({
           user_id: currentUser.user_id,
           work_date: today,
-          status: 'working'
+          status: 'working',
+          tasks_data: tasksData
         })
         .select('*')
         .single()
+
       if (error) throw error
       const startTime = Date.now()
       localStorage.setItem('checkin_session_id', data.session_id)
-      localStorage.setItem('checkin_user_id', currentUser.user_id)  // Lưu thêm user_id để validate
+      localStorage.setItem('checkin_user_id', currentUser.user_id)
       localStorage.setItem('checkin_start_time', String(startTime))
       setActiveSessionId(data.session_id)
       setIsWorking(true)
       setSessionStartTime(startTime)
       setSessionTimer(0)
-      setToast({ message: 'Đã Check-in thành công!', type: 'success' })
-      fetchAttendanceData() // Tải lại bảng
+      setToast({ message: `Đã Check-in! Nạp thành công ${tasksData.length} việc từ Lịch trình hôm nay.`, type: 'success' })
+      fetchAttendanceData()
     } catch (err) {
       console.error(err)
       setToast({ message: err.message || 'Lỗi check-in', type: 'error' })
@@ -414,44 +533,12 @@ export default function AttendancePage() {
   const handleCheckOut = async () => {
     if (!activeSessionId) return
     try {
-      const today = new Date().toISOString().split('T')[0]
-      // 1. Lấy danh sách subtasks đã hoàn thành hôm nay, join task cha để lấy tên nhóm
-      const { data: completedSubtasks, error: subtaskError } = await supabase
-        .from('subtasks')
-        .select('subtask_id, name, created_at, completed_at, task:task_id(name)')
-        .eq('assigned_to', currentUser.user_id)
-        .eq('status', 'completed')
-        .gte('completed_at', today + 'T00:00:00')
-
-      if (subtaskError) throw subtaskError
-
-      // 2. Map sang cấu trúc JSONB với workflow Báo cáo - Duyệt
-      const tasksData = (completedSubtasks || []).map(st => {
-        const parentTask = Array.isArray(st.task) ? st.task[0] : st.task
-        return {
-          subtask_id: st.subtask_id,
-          title: st.name,
-          parent_task_name: parentTask?.name || null,
-          work_detail: '',
-          percent: 0,
-          comment: '',
-          is_approved: false,
-          status: 'in_progress',
-          report_content: '',
-          report_images: [],
-          reported_at: null,
-          start_time: st.created_at || new Date().toISOString(),
-          end_time: st.completed_at || null,
-        }
-      })
-
-      // 3. Cập nhật work_sessions
+      // 1. Chỉ cập nhật giờ ra và trạng thái hoàn thành ca làm việc
       const { error } = await supabase
         .from('work_sessions')
         .update({
           check_out_time: new Date().toISOString(),
           status: 'completed',
-          tasks_data: tasksData
         })
         .eq('session_id', activeSessionId)
 
@@ -813,13 +900,13 @@ export default function AttendancePage() {
       const updatedTasksData = session.tasks_data
         .map(t => (t.subtask_id === subtaskId
           ? {
-              ...t,
-              percent: p,
-              title: titleTrim,
-              work_detail: detailTrim,
-              report_content: reportTrim,
-              report_images: imagesArr,
-            }
+            ...t,
+            percent: p,
+            title: titleTrim,
+            work_detail: detailTrim,
+            report_content: reportTrim,
+            report_images: imagesArr,
+          }
           : t))
         .map(normalizeTaskForDb)
 
@@ -867,12 +954,12 @@ export default function AttendancePage() {
   useEffect(() => {
     if (!addTaskModalOpen || !user?.user_id) return
     let cancelled = false
-    ;(async () => {
-      setPickListLoading(true)
-      try {
-        const { data, error } = await supabase
-          .from('projects')
-          .select(`
+      ; (async () => {
+        setPickListLoading(true)
+        try {
+          const { data, error } = await supabase
+            .from('projects')
+            .select(`
             project_id,
             name,
             project_assignments(user_id),
@@ -882,22 +969,22 @@ export default function AttendancePage() {
               tasks(task_id, name, status)
             )
           `)
-          .order('name', { ascending: true })
-        if (error) throw error
-        let list = data || []
-        if (role === 'employee') {
-          list = list.filter(p =>
-            p.project_assignments?.some(a => a.user_id === user.user_id)
-          )
+            .order('name', { ascending: true })
+          if (error) throw error
+          let list = data || []
+          if (role === 'employee') {
+            list = list.filter(p =>
+              p.project_assignments?.some(a => a.user_id === user.user_id)
+            )
+          }
+          if (!cancelled) setPickListProjects(list)
+        } catch (e) {
+          console.error(e)
+          if (!cancelled) setPickListProjects([])
+        } finally {
+          if (!cancelled) setPickListLoading(false)
         }
-        if (!cancelled) setPickListProjects(list)
-      } catch (e) {
-        console.error(e)
-        if (!cancelled) setPickListProjects([])
-      } finally {
-        if (!cancelled) setPickListLoading(false)
-      }
-    })()
+      })()
     return () => { cancelled = true }
   }, [addTaskModalOpen, user?.user_id, role])
 
@@ -916,46 +1003,46 @@ export default function AttendancePage() {
     }
     const projectId = newTaskForm.project_id
     let cancelled = false
-    ;(async () => {
-      setAddTaskAssigneeSubtasksLoading(true)
-      try {
-        const { data, error } = await supabase
-          .from('subtasks')
-          .select(`
+      ; (async () => {
+        setAddTaskAssigneeSubtasksLoading(true)
+        try {
+          const { data, error } = await supabase
+            .from('subtasks')
+            .select(`
             subtask_id,
             name,
             status,
             task_id,
             task:tasks(name, feature:features(name, project_id))
           `)
-          .eq('assigned_to', assigneeId)
-          .in('status', ['in_progress', 'pending'])
-        if (error) throw error
-        const rows = []
-        for (const st of data || []) {
-          const taskRel = Array.isArray(st.task) ? st.task[0] : st.task
-            ?? (Array.isArray(st.tasks) ? st.tasks[0] : st.tasks)
-          const feat = taskRel?.feature
-          const feature = Array.isArray(feat) ? feat[0] : feat
-          if (!feature || feature.project_id !== projectId) continue
-          rows.push({
-            subtask_id: st.subtask_id,
-            task_id: st.task_id,
-            name: st.name,
-            status: st.status,
-            featureName: feature.name || '',
-            parentTaskName: taskRel?.name || '',
-          })
+            .eq('assigned_to', assigneeId)
+            .in('status', ['in_progress', 'pending'])
+          if (error) throw error
+          const rows = []
+          for (const st of data || []) {
+            const taskRel = Array.isArray(st.task) ? st.task[0] : st.task
+              ?? (Array.isArray(st.tasks) ? st.tasks[0] : st.tasks)
+            const feat = taskRel?.feature
+            const feature = Array.isArray(feat) ? feat[0] : feat
+            if (!feature || feature.project_id !== projectId) continue
+            rows.push({
+              subtask_id: st.subtask_id,
+              task_id: st.task_id,
+              name: st.name,
+              status: st.status,
+              featureName: feature.name || '',
+              parentTaskName: taskRel?.name || '',
+            })
+          }
+          rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'))
+          if (!cancelled) setAddTaskAssigneeSubtasks(rows)
+        } catch (e) {
+          console.error(e)
+          if (!cancelled) setAddTaskAssigneeSubtasks([])
+        } finally {
+          if (!cancelled) setAddTaskAssigneeSubtasksLoading(false)
         }
-        rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'))
-        if (!cancelled) setAddTaskAssigneeSubtasks(rows)
-      } catch (e) {
-        console.error(e)
-        if (!cancelled) setAddTaskAssigneeSubtasks([])
-      } finally {
-        if (!cancelled) setAddTaskAssigneeSubtasksLoading(false)
-      }
-    })()
+      })()
     return () => { cancelled = true }
   }, [addTaskModalOpen, newTaskForm.project_id, addTaskTargetSessionId, activeSessionId, attendanceList, currentUser?.user_id, user?.user_id])
 
@@ -1065,37 +1152,37 @@ export default function AttendancePage() {
 
       const newTask = picked.pickKind === 'subtask'
         ? {
-            subtask_id: picked.subtask_id,
-            task_id: picked.task_id,
-            title,
-            parent_task_name: parentLabel,
-            work_detail: workDetail,
-            percent,
-            comment: '',
-            is_approved: false,
-            status: 'in_progress',
-            report_content: '',
-            report_images: [],
-            reported_at: null,
-            start_time: new Date().toISOString(),
-            end_time: null,
-          }
+          subtask_id: picked.subtask_id,
+          task_id: picked.task_id,
+          title,
+          parent_task_name: parentLabel,
+          work_detail: workDetail,
+          percent,
+          comment: '',
+          is_approved: false,
+          status: 'in_progress',
+          report_content: '',
+          report_images: [],
+          reported_at: null,
+          start_time: new Date().toISOString(),
+          end_time: null,
+        }
         : {
-            subtask_id: `task_${picked.task_id}`,
-            task_id: picked.task_id,
-            title,
-            parent_task_name: parentLabel,
-            work_detail: workDetail,
-            percent,
-            comment: '',
-            is_approved: false,
-            status: 'in_progress',
-            report_content: '',
-            report_images: [],
-            reported_at: null,
-            start_time: new Date().toISOString(),
-            end_time: null,
-          }
+          subtask_id: `task_${picked.task_id}`,
+          task_id: picked.task_id,
+          title,
+          parent_task_name: parentLabel,
+          work_detail: workDetail,
+          percent,
+          comment: '',
+          is_approved: false,
+          status: 'in_progress',
+          report_content: '',
+          report_images: [],
+          reported_at: null,
+          start_time: new Date().toISOString(),
+          end_time: null,
+        }
 
       const targetRow = attendanceList.find(s => s.id === targetSessionId) || null
       const currentTasks = (targetRow?.tasks_data || []).map(normalizeTaskForDb)
@@ -1182,493 +1269,542 @@ export default function AttendancePage() {
     }
   }
 
+  // -- TỰ ĐỘNG ĐỒNG BỘ VIỆC MỚI (REALTIME) --
+  useEffect(() => {
+    if (!isWorking || !currentUser || !activeSessionId) return
+
+    const channel = supabase
+      .channel(`sync_work_${activeSessionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'work_schedules',
+        filter: `assigned_to=eq.${currentUser.user_id}`
+      }, async (payload) => {
+        const newTask = payload.new
+        const today = new Date().toISOString().split('T')[0]
+
+        if (newTask.scheduled_at?.startsWith(today) || newTask.deadline?.startsWith(today)) {
+          try {
+            const { data: session } = await supabase
+              .from('work_sessions')
+              .select('tasks_data')
+              .eq('session_id', activeSessionId)
+              .single()
+
+            const currentTasks = session?.tasks_data || []
+            // Kiểm tra tránh trùng lặp
+            if (!currentTasks.find(t => t.subtask_id === newTask.schedule_id)) {
+              const updatedTasks = [...currentTasks, {
+                subtask_id: newTask.schedule_id,
+                title: newTask.title,
+                status: 'in_progress',
+                percent: 0,
+                work_detail: newTask.description,
+                report_images: newTask.image_urls || []
+              }]
+
+              await supabase.from('work_sessions').update({ tasks_data: updatedTasks }).eq('session_id', activeSessionId)
+              fetchAttendanceData()
+              setToast({ message: '🔔 Sếp vừa giao thêm việc mới cho bạn!', type: 'info' })
+            }
+          } catch (err) {
+            console.error('Auto-sync error:', err)
+          }
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [isWorking, currentUser, activeSessionId])
+
   return (
     <>
-    <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
-      <Sidebar />
+      <div className="flex h-screen overflow-hidden bg-[#faf8ff] text-[13px]">
+        <Sidebar />
 
-      <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
-        <TopBar title="Bảng Chấm Công" />
+        <div className="flex-1 md:ml-64 flex flex-col h-screen overflow-y-auto">
+          <TopBar title="Bảng Chấm Công" />
 
-        <main className="flex-1 p-4 md:p-8">
-          <div className="max-w-7xl mx-auto space-y-6 pb-20">
+          <main className="flex-1 p-4 md:p-8">
+            <div className="max-w-7xl mx-auto space-y-6 pb-20">
 
-            {/* Toast Notification */}
-            {toast && (
-              <div className={`fixed top-4 right-4 px-5 py-3 rounded-2xl shadow-2xl text-white z-[100] animate-in fade-in slide-in-from-top-4 flex items-center gap-3 font-bold border border-white/20 ${toast.type === 'success' ? 'bg-emerald-500' :
-                toast.type === 'error' ? 'bg-red-500' :
-                  'bg-amber-500'
-                }`}>
-                <span className="material-symbols-outlined">
-                  {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'warning'}
-                </span>
-                {toast.message}
-              </div>
-            )}
+              {/* Toast Notification */}
+              {toast && (
+                <div className={`fixed top-4 right-4 px-5 py-3 rounded-2xl shadow-2xl text-white z-[100] animate-in fade-in slide-in-from-top-4 flex items-center gap-3 font-bold border border-white/20 ${toast.type === 'success' ? 'bg-emerald-500' :
+                  toast.type === 'error' ? 'bg-red-500' :
+                    'bg-amber-500'
+                  }`}>
+                  <span className="material-symbols-outlined">
+                    {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'warning'}
+                  </span>
+                  {toast.message}
+                </div>
+              )}
 
-            {/* 1. Mobile Header (Dành riêng cho < 640px) */}
-            {showMobileHeader ? (
-              <div className="block sm:hidden bg-white border border-slate-200 rounded-2xl sticky top-[72px] z-[30] mb-4 p-3 shadow-lg animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2.5">
-                {/* Lớp 1: Tiêu đề & Nút đóng */}
-                <div className="flex items-center justify-between">
-                  <h1 className="text-[11px] font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight">
-                    <div className="w-1 h-3 bg-blue-600 rounded-full"></div>
-                    Bảng Chấm Công
-                  </h1>
-                  <div className="flex items-center gap-1">
+              {/* 1. Mobile Header (Dành riêng cho < 640px) */}
+              {showMobileHeader ? (
+                <div className="block sm:hidden bg-white border border-slate-200 rounded-2xl sticky top-[72px] z-[30] mb-4 p-3 shadow-lg animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2.5">
+                  {/* Lớp 1: Tiêu đề & Nút đóng */}
+                  <div className="flex items-center justify-between">
+                    <h1 className="text-[11px] font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight">
+                      <div className="w-1 h-3 bg-blue-600 rounded-full"></div>
+                      Bảng Chấm Công
+                    </h1>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => fetchAttendanceData()}
+                        className="p-1.5 hover:bg-slate-100 rounded-full transition-colors active:scale-90"
+                      >
+                        <span className="material-symbols-outlined text-[14px] text-slate-400">refresh</span>
+                      </button>
+                      <button
+                        onClick={() => setShowMobileHeader(false)}
+                        className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full transition-colors active:scale-90"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">close</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lớp 2: Nhóm Hành động & Đồng hồ LED */}
+                  <div className="grid grid-cols-3 items-center gap-2 p-1 bg-slate-50 rounded-xl border border-slate-100">
                     <button
-                      onClick={() => fetchAttendanceData()}
-                      className="p-1.5 hover:bg-slate-100 rounded-full transition-colors active:scale-90"
+                      onClick={handleCheckIn}
+                      disabled={isWorking}
+                      className="h-8 flex items-center justify-center gap-1.5 bg-white border border-blue-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
                     >
-                      <span className="material-symbols-outlined text-[14px] text-slate-400">refresh</span>
+                      <span className="material-symbols-outlined text-[12px] text-blue-600">login</span>
+                      <span className="text-[9px] font-bold text-blue-700">Vào</span>
                     </button>
+
+                    <div className="h-8 flex items-center justify-center bg-[#0a0a0a] rounded-lg border border-slate-800 shadow-[inset_0_0_8px_rgba(34,197,94,0.3)]">
+                      <span className="font-mono text-[11px] font-black text-green-400 drop-shadow-[0_0_3px_rgba(74,222,128,0.5)] tracking-tighter">
+                        {formatTimer(sessionTimer)}
+                      </span>
+                    </div>
+
                     <button
-                      onClick={() => setShowMobileHeader(false)}
-                      className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full transition-colors active:scale-90"
+                      onClick={handleCheckOut}
+                      disabled={!isWorking}
+                      className="h-8 flex items-center justify-center gap-1.5 bg-white border border-red-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
                     >
-                      <span className="material-symbols-outlined text-[18px]">close</span>
+                      <span className="material-symbols-outlined text-[12px] text-red-600">logout</span>
+                      <span className="text-[9px] font-bold text-red-700">Ra</span>
                     </button>
+                  </div>
+
+                  {/* Lớp 3: Bộ lọc (Tinh gọn) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative group">
+                      <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-slate-400">event</span>
+                      <input
+                        type="date"
+                        value={filterDate}
+                        onChange={e => {
+                          setFilterDate(e.target.value)
+                          if (e.target.value) setFilterMonth('')
+                        }}
+                        className="w-full h-7 pl-7 pr-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-medium outline-none"
+                      />
+                    </div>
+                    {role !== 'employee' && (
+                      <div className="relative">
+                        <div
+                          onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
+                          className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
+                        >
+                          <span className="material-symbols-outlined absolute left-2 text-[12px] text-slate-400">group</span>
+                          <span className="truncate">
+                            {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
+                          </span>
+                          <span className="material-symbols-outlined absolute right-1 text-[12px] text-slate-400">expand_more</span>
+                        </div>
+
+                        {isMobileStaffOpen && (
+                          <>
+                            <div className="fixed inset-0 z-[90]" onClick={() => setIsMobileStaffOpen(false)} />
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
+                              <div
+                                onClick={() => { setFilterUser('all'); setIsMobileStaffOpen(false); }}
+                                className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              >
+                                Tất cả nhân sự
+                              </div>
+                              {staffList.map(staff => (
+                                <div
+                                  key={staff.user_id}
+                                  onClick={() => { setFilterUser(staff.user_id); setIsMobileStaffOpen(false); }}
+                                  className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                                >
+                                  {staff.full_name}
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowMobileHeader(true)}
+                  className="block sm:hidden fixed top-[80px] right-4 z-[30] bg-blue-600 text-white p-2.5 rounded-full shadow-lg animate-in fade-in slide-in-from-right-4 active:scale-90 transition-all border border-white/20"
+                >
+                  <span className="material-symbols-outlined text-[18px] animate-spin-slow">refresh</span>
+                </button>
+              )}
+
+              {/* 1. Desktop Header (Ẩn trên Mobile) */}
+              <div className="hidden sm:flex bg-white/60 backdrop-blur-md rounded-2xl border border-slate-200/60 p-4 shadow-sm flex-col xl:flex-row xl:items-center justify-between gap-6">
+
+                {/* Cánh trái: Tiêu đề & Badge */}
+                <div className="flex items-center gap-4">
+                  <div className="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-200">
+                    <span className="material-symbols-outlined text-white text-[22px] block">calendar_month</span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800 leading-tight">Bảng Chấm Công</h2>
+                    {selectedIds.size > 0 ? (
+                      <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
+                        Đã chọn {selectedIds.size} bản ghi
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                        Quản lý ca làm việc
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {/* Lớp 2: Nhóm Hành động & Đồng hồ LED */}
-                <div className="grid grid-cols-3 items-center gap-2 p-1 bg-slate-50 rounded-xl border border-slate-100">
+                {/* Cụm trung tâm: CHECK-IN/OUT & TIMER (Gọn gàng hơn) */}
+                <div className="flex items-center gap-2 mx-auto xl:mx-0">
                   <button
+                    type="button"
                     onClick={handleCheckIn}
                     disabled={isWorking}
-                    className="h-8 flex items-center justify-center gap-1.5 bg-white border border-blue-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
+                    className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${isWorking
+                      ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
+                      : 'bg-white border-blue-100 text-blue-700 shadow-sm hover:shadow-md hover:border-blue-200'
+                      }`}
                   >
-                    <span className="material-symbols-outlined text-[12px] text-blue-600">login</span>
-                    <span className="text-[9px] font-bold text-blue-700">Vào</span>
+                    <span className="material-symbols-outlined text-[18px]">login</span>
+                    Check-in
                   </button>
 
-                  <div className="h-8 flex items-center justify-center bg-[#0a0a0a] rounded-lg border border-slate-800 shadow-[inset_0_0_8px_rgba(34,197,94,0.3)]">
-                    <span className="font-mono text-[11px] font-black text-green-400 drop-shadow-[0_0_3px_rgba(74,222,128,0.5)] tracking-tighter">
+                  <div className={`flex items-center justify-center px-3 min-w-[90px] h-9 rounded-xl border border-slate-200/60 bg-white/50 shadow-inner ${isWorking ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    <span className="font-mono text-[14px] font-bold tracking-wider leading-none">
                       {formatTimer(sessionTimer)}
                     </span>
                   </div>
 
                   <button
+                    type="button"
                     onClick={handleCheckOut}
                     disabled={!isWorking}
-                    className="h-8 flex items-center justify-center gap-1.5 bg-white border border-red-100 rounded-lg shadow-sm active:scale-95 disabled:opacity-50 transition-all"
+                    className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${!isWorking
+                      ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
+                      : 'bg-white border-red-100 text-red-600 shadow-sm hover:shadow-md hover:border-red-200'
+                      }`}
                   >
-                    <span className="material-symbols-outlined text-[12px] text-red-600">logout</span>
-                    <span className="text-[9px] font-bold text-red-700">Ra</span>
+                    <span className="material-symbols-outlined text-[18px]">logout</span>
+                    Check-out
                   </button>
-                </div>
 
-                {/* Lớp 3: Bộ lọc (Tinh gọn) */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="relative group">
-                    <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-slate-400">event</span>
-                    <input
-                      type="date"
-                      value={filterDate}
-                      onChange={e => {
-                        setFilterDate(e.target.value)
-                        if (e.target.value) setFilterMonth('')
-                      }}
-                      className="w-full h-7 pl-7 pr-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-medium outline-none"
-                    />
-                  </div>
-                  {role !== 'employee' && (
-                    <div className="relative">
-                      <div
-                        onClick={() => setIsMobileStaffOpen(!isMobileStaffOpen)}
-                        className="w-full h-7 pl-7 pr-6 bg-slate-50 border border-slate-200 rounded-lg text-[10px] flex items-center cursor-pointer font-medium"
-                      >
-                        <span className="material-symbols-outlined absolute left-2 text-[12px] text-slate-400">group</span>
-                        <span className="truncate">
-                          {staffList.find(s => s.user_id === filterUser)?.full_name || 'Nhân sự'}
-                        </span>
-                        <span className="material-symbols-outlined absolute right-1 text-[12px] text-slate-400">expand_more</span>
-                      </div>
-
-                      {isMobileStaffOpen && (
-                        <>
-                          <div className="fixed inset-0 z-[90]" onClick={() => setIsMobileStaffOpen(false)} />
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
-                            <div
-                              onClick={() => { setFilterUser('all'); setIsMobileStaffOpen(false); }}
-                              className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                            >
-                              Tất cả nhân sự
-                            </div>
-                            {staffList.map(staff => (
-                              <div
-                                key={staff.user_id}
-                                onClick={() => { setFilterUser(staff.user_id); setIsMobileStaffOpen(false); }}
-                                className={`py-1.5 px-3 text-[10px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                              >
-                                {staff.full_name}
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowMobileHeader(true)}
-                className="block sm:hidden fixed top-[80px] right-4 z-[30] bg-blue-600 text-white p-2.5 rounded-full shadow-lg animate-in fade-in slide-in-from-right-4 active:scale-90 transition-all border border-white/20"
-              >
-                <span className="material-symbols-outlined text-[18px] animate-spin-slow">refresh</span>
-              </button>
-            )}
-
-            {/* 1. Desktop Header (Ẩn trên Mobile) */}
-            <div className="hidden sm:flex bg-white/60 backdrop-blur-md rounded-2xl border border-slate-200/60 p-4 shadow-sm flex-col xl:flex-row xl:items-center justify-between gap-6">
-
-              {/* Cánh trái: Tiêu đề & Badge */}
-              <div className="flex items-center gap-4">
-                <div className="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-200">
-                  <span className="material-symbols-outlined text-white text-[22px] block">calendar_month</span>
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800 leading-tight">Bảng Chấm Công</h2>
-                  {selectedIds.size > 0 ? (
-                    <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
-                      Đã chọn {selectedIds.size} bản ghi
-                    </span>
-                  ) : (
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                      Quản lý ca làm việc
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Cụm trung tâm: CHECK-IN/OUT & TIMER (Gọn gàng hơn) */}
-              <div className="flex items-center gap-2 mx-auto xl:mx-0">
-                <button
-                  type="button"
-                  onClick={handleCheckIn}
-                  disabled={isWorking}
-                  className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${isWorking
-                    ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
-                    : 'bg-white border-blue-100 text-blue-700 shadow-sm hover:shadow-md hover:border-blue-200'
-                    }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">login</span>
-                  Check-in
-                </button>
-
-                <div className={`flex items-center justify-center px-3 min-w-[90px] h-9 rounded-xl border border-slate-200/60 bg-white/50 shadow-inner ${isWorking ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  <span className="font-mono text-[14px] font-bold tracking-wider leading-none">
-                    {formatTimer(sessionTimer)}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCheckOut}
-                  disabled={!isWorking}
-                  className={`flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-bold border transition-all active:scale-95 ${!isWorking
-                    ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
-                    : 'bg-white border-red-100 text-red-600 shadow-sm hover:shadow-md hover:border-red-200'
-                    }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">logout</span>
-                  Check-out
-                </button>
-
-                <div className="w-px h-5 bg-slate-200 mx-1" />
+                  <div className="w-px h-5 bg-slate-200 mx-1" />
 
 
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilterDate('')
-                    setFilterMonth('')
-                    setFilterUser('all')
-                  }}
-                  className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all group/reset"
-                  title="Đặt lại bộ lọc"
-                >
-                  <span className="material-symbols-outlined text-[20px] group-active/reset:rotate-180 transition-transform duration-300">restart_alt</span>
-                </button>
-              </div>
-
-              {/* Cánh phải: Bộ lọc & Action */}
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200/60">
-                  <div className="relative group">
-                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 group-focus-within:text-blue-500 transition-colors">event</span>
-                    <input
-                      type="date"
-                      value={filterDate}
-                      onChange={e => {
-                        setFilterDate(e.target.value)
-                        if (e.target.value) setFilterMonth('')
-                      }}
-                      className="h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] w-[145px] transition-all"
-                    />
-                  </div>
-
-                  <div className="relative group">
-                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 group-focus-within:text-blue-500 transition-colors">calendar_view_month</span>
-                    <input
-                      type="month"
-                      value={filterMonth}
-                      onChange={e => {
-                        setFilterMonth(e.target.value)
-                        if (e.target.value) setFilterDate('')
-                      }}
-                      className="h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] w-[145px] transition-all"
-                    />
-                  </div>
-
-                  {role !== 'employee' && (
-                    <div className="relative">
-                      <div
-                        onClick={() => setIsDesktopStaffOpen(!isDesktopStaffOpen)}
-                        className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[180px] flex items-center cursor-pointer hover:border-blue-400 transition-all"
-                      >
-                        <span className="material-symbols-outlined absolute left-2.5 text-[18px] text-slate-400">group</span>
-                        <span className="truncate max-w-[120px]">
-                          {staffList.find(s => s.user_id === filterUser)?.full_name || 'Tất cả nhân sự'}
-                        </span>
-                        <span className="material-symbols-outlined absolute right-2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
-                      </div>
-
-                      {isDesktopStaffOpen && (
-                        <>
-                          <div className="fixed inset-0 z-[90]" onClick={() => setIsDesktopStaffOpen(false)} />
-                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
-                            <div
-                              onClick={() => { setFilterUser('all'); setIsDesktopStaffOpen(false); }}
-                              className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                            >
-                              Tất cả nhân sự
-                            </div>
-                            {staffList.map(staff => (
-                              <div
-                                key={staff.user_id}
-                                onClick={() => { setFilterUser(staff.user_id); setIsDesktopStaffOpen(false); }}
-                                className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
-                              >
-                                {staff.full_name}
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {canEditDelete && selectedIds.size > 0 && (
                   <button
                     type="button"
-                    onClick={handleDeleteSelected}
-                    disabled={deleting}
-                    className="h-10 px-5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl font-bold text-[12px] shadow-lg shadow-red-200 transition-all flex items-center gap-2 active:scale-95"
+                    onClick={() => {
+                      setFilterDate('')
+                      setFilterMonth('')
+                      setFilterUser('all')
+                    }}
+                    className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all group/reset"
+                    title="Đặt lại bộ lọc"
                   >
-                    <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
-                    XÓA {selectedIds.size} DÒNG
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Trạng thái lỗi (nếu có) */}
-            {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded-lg shadow-sm flex items-center gap-3 mt-4">
-                <span className="material-symbols-outlined">warning</span>
-                <span className="font-medium">{error}</span>
-              </div>
-            )}
-
-            {/* Thêm công việc trong ca đang làm */}
-            {isWorking && activeSessionId && (
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-4 py-3 sm:px-6 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ClipboardList size={16} className="text-blue-600 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider truncate">
-                        Công việc trong ca hiện tại
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-medium truncate">
-                        {activeSessionRow?.user?.name ? `Nhân sự: ${activeSessionRow.user.name}` : `Session: ${activeSessionId}`}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openAddTaskModal(activeSessionId)}
-                    className="h-9 px-3 sm:px-4 rounded-xl bg-blue-600 text-white font-bold text-[11px] shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">add</span>
-                    Thêm công việc
+                    <span className="material-symbols-outlined text-[20px] group-active/reset:rotate-180 transition-transform duration-300">restart_alt</span>
                   </button>
                 </div>
 
-                <div className="p-4 sm:p-6">
-                  {activeSessionRow?.tasks_data?.length ? (
-                    <div className="space-y-3">
-                      {activeSessionRow.tasks_data.map((t, idx) => {
-                        const pct = typeof t.percent === 'number' ? t.percent : (t.is_approved ? 100 : 0)
-                        const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
-                        return (
-                          <div key={`${t.subtask_id || idx}`} className="p-3 rounded-2xl border border-slate-200 bg-white">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="font-bold text-slate-800 text-[12px] truncate">{t.title || 'Công việc'}</div>
-                                {t.work_detail ? (
-                                  <p className="text-[10px] text-slate-600 mt-1 line-clamp-2 whitespace-pre-wrap">{t.work_detail}</p>
-                                ) : null}
-                                <div className="text-[10px] text-slate-400 font-medium">
-                                  {t.start_fmt ? `Bắt đầu: ${t.start_fmt}` : ''}
-                                </div>
-                              </div>
-                              <div className="shrink-0 text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <div className="text-[12px] font-black text-blue-600">{safePct}%</div>
-                                  {activeSessionRow && canEditTaskPercent(activeSessionRow) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => openEditPercentModal(activeSessionId, t)}
-                                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
-                                    >
-                                      Sửa
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                  {t.is_approved ? 'Đã duyệt' : 'Chưa duyệt'}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="mt-2 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                {/* Cánh phải: Bộ lọc & Action */}
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200/60">
+                    <div className="relative group">
+                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 group-focus-within:text-blue-500 transition-colors">event</span>
+                      <input
+                        type="date"
+                        value={filterDate}
+                        onChange={e => {
+                          setFilterDate(e.target.value)
+                          if (e.target.value) setFilterMonth('')
+                        }}
+                        className="h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] w-[145px] transition-all"
+                      />
+                    </div>
+
+                    <div className="relative group">
+                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 group-focus-within:text-blue-500 transition-colors">calendar_view_month</span>
+                      <input
+                        type="month"
+                        value={filterMonth}
+                        onChange={e => {
+                          setFilterMonth(e.target.value)
+                          if (e.target.value) setFilterDate('')
+                        }}
+                        className="h-9 pl-9 pr-3 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] w-[145px] transition-all"
+                      />
+                    </div>
+
+                    {role !== 'employee' && (
+                      <div className="relative">
+                        <div
+                          onClick={() => setIsDesktopStaffOpen(!isDesktopStaffOpen)}
+                          className="h-9 pl-9 pr-8 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 shadow-sm text-[12px] min-w-[180px] flex items-center cursor-pointer hover:border-blue-400 transition-all"
+                        >
+                          <span className="material-symbols-outlined absolute left-2.5 text-[18px] text-slate-400">group</span>
+                          <span className="truncate max-w-[120px]">
+                            {staffList.find(s => s.user_id === filterUser)?.full_name || 'Tất cả nhân sự'}
+                          </span>
+                          <span className="material-symbols-outlined absolute right-2 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+                        </div>
+
+                        {isDesktopStaffOpen && (
+                          <>
+                            <div className="fixed inset-0 z-[90]" onClick={() => setIsDesktopStaffOpen(false)} />
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto py-1 animate-in fade-in zoom-in-95 duration-100">
                               <div
-                                className="h-full bg-blue-600 transition-all duration-500"
-                                style={{ width: `${safePct}%` }}
-                              />
+                                onClick={() => { setFilterUser('all'); setIsDesktopStaffOpen(false); }}
+                                className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === 'all' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                              >
+                                Tất cả nhân sự
+                              </div>
+                              {staffList.map(staff => (
+                                <div
+                                  key={staff.user_id}
+                                  onClick={() => { setFilterUser(staff.user_id); setIsDesktopStaffOpen(false); }}
+                                  className={`py-2 px-4 text-[12px] truncate cursor-pointer hover:bg-slate-50 transition-colors ${filterUser === staff.user_id ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}`}
+                                >
+                                  {staff.full_name}
+                                </div>
+                              ))}
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-slate-500 italic text-[12px]">
-                      Chưa có công việc nào. Bấm <strong>Thêm công việc</strong> để tạo công việc và % hoàn thành.
-                    </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {canEditDelete && selectedIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelected}
+                      disabled={deleting}
+                      className="h-10 px-5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl font-bold text-[12px] shadow-lg shadow-red-200 transition-all flex items-center gap-2 active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
+                      XÓA {selectedIds.size} DÒNG
+                    </button>
                   )}
                 </div>
               </div>
-            )}
 
-            {/* 2. Khu vực Bảng dữ liệu (Main Table) */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[300px] relative">
-              {/* Overlay Loading Siêu Xịn */}
-              {loading && (
-                <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-10 flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+              {/* Trạng thái lỗi (nếu có) */}
+              {error && (
+                <div className="bg-red-50 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded-lg shadow-sm flex items-center gap-3 mt-4">
+                  <span className="material-symbols-outlined">warning</span>
+                  <span className="font-medium">{error}</span>
                 </div>
               )}
 
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[800px]">
-                  <thead className="bg-slate-50 text-slate-500 text-[12px] uppercase whitespace-nowrap">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200 w-12">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.size > 0 && selectedIds.size === attendanceList.length}
-                          onChange={toggleSelectAll}
-                          className="w-4 h-4 cursor-pointer"
-                        />
-                      </th>
-                      <th className="px-2 py-3 border-b border-slate-200 w-10"></th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Người làm</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Ngày làm</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-in</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-out</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Tổng giờ</th>
-                      <th className="px-4 py-3 font-semibold border-b border-slate-200">Trạng thái</th>
-                      {/* <th className="px-4 py-3 font-semibold border-b border-slate-200 w-1/3">Task hoàn thành</th> */}
-                      {canEditDelete && <th className="px-4 py-3 font-semibold border-b border-slate-200 text-right">Thao tác</th>}
-                    </tr>
-                  </thead>
+              {/* Thêm công việc trong ca đang làm */}
+              {isWorking && activeSessionId && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 sm:px-6 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ClipboardList size={16} className="text-blue-600 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider truncate">
+                          Công việc trong ca hiện tại
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium truncate">
+                          {activeSessionRow?.user?.name ? `Nhân sự: ${activeSessionRow.user.name}` : `Session: ${activeSessionId}`}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openAddTaskModal(activeSessionId)}
+                      className="h-9 px-3 sm:px-4 rounded-xl bg-blue-600 text-white font-bold text-[11px] shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">add</span>
+                      Thêm công việc
+                    </button>
+                  </div>
 
-                  <tbody className="text-slate-700">
-                    {!loading && attendanceList.map((row) => (
-                      <React.Fragment key={row.id}>
-                        <tr className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${expandedRows.has(row.id) ? 'bg-blue-50/30' : ''}`}>
-                          <td className="px-4 py-3">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(row.id)}
-                              onChange={() => toggleSelectId(row.id)}
-                              className="w-4 h-4 cursor-pointer"
-                            />
-                          </td>
-                          <td className="px-2 py-3 text-center">
-                            <button
-                              onClick={() => toggleExpandRow(row.id)}
-                              className={`p-1 rounded-md transition-all duration-200 hover:bg-white hover:shadow-sm active:scale-90 ${expandedRows.has(row.id) ? 'bg-white shadow-sm text-blue-600 rotate-180' : 'text-slate-400'}`}
-                            >
-                              {expandedRows.has(row.id) ? <Minus size={16} /> : <Plus size={16} />}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
-                                {row.user.avatar}
+                  <div className="p-4 sm:p-6">
+                    {activeSessionRow?.tasks_data?.length ? (
+                      <div className="space-y-3">
+                        {activeSessionRow.tasks_data.map((t, idx) => {
+                          const pct = typeof t.percent === 'number' ? t.percent : (t.is_approved ? 100 : 0)
+                          const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                          return (
+                            <div key={`${t.subtask_id || idx}`} className="p-3 rounded-2xl border border-slate-200 bg-white">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-800 text-[12px] truncate">{t.title || 'Công việc'}</div>
+                                  {t.work_detail ? (
+                                    <p className="text-[10px] text-slate-600 mt-1 line-clamp-2 whitespace-pre-wrap">{t.work_detail}</p>
+                                  ) : null}
+                                  <div className="text-[10px] text-slate-400 font-medium">
+                                    {t.start_fmt ? `Bắt đầu: ${t.start_fmt}` : ''}
+                                  </div>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <div className="text-[12px] font-black text-blue-600">{safePct}%</div>
+                                    {activeSessionRow && canEditTaskPercent(activeSessionRow) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditPercentModal(activeSessionId, t)}
+                                        className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                                      >
+                                        Sửa
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    {t.is_approved ? 'Đã duyệt' : 'Chưa duyệt'}
+                                  </div>
+                                </div>
                               </div>
-                              <span className="font-medium whitespace-nowrap text-slate-800">{row.user.name}</span>
+                              <div className="mt-2 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-600 transition-all duration-500"
+                                  style={{ width: `${safePct}%` }}
+                                />
+                              </div>
                             </div>
-                          </td>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-slate-500 italic text-[12px]">
+                        Chưa có công việc nào. Bấm <strong>Thêm công việc</strong> để tạo công việc và % hoàn thành.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {row.work_date}
-                          </td>
+              {/* 2. Khu vực Bảng dữ liệu (Main Table) */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[300px] relative">
+                {/* Overlay Loading Siêu Xịn */}
+                {loading && (
+                  <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-10 flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  </div>
+                )}
 
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {row.check_in !== '-' ? (
-                              <span className="bg-slate-100 border border-slate-200 text-green-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
-                                {row.check_in}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[800px]">
+                    <thead className="bg-slate-50 text-slate-500 text-[12px] uppercase whitespace-nowrap">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200 w-12">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.size > 0 && selectedIds.size === attendanceList.length}
+                            onChange={toggleSelectAll}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                        </th>
+                        <th className="px-2 py-3 border-b border-slate-200 w-10"></th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Người làm</th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Ngày làm</th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-in</th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Check-out</th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Tổng giờ</th>
+                        <th className="px-4 py-3 font-semibold border-b border-slate-200">Trạng thái</th>
+                        {/* <th className="px-4 py-3 font-semibold border-b border-slate-200 w-1/3">Task hoàn thành</th> */}
+                        {canEditDelete && <th className="px-4 py-3 font-semibold border-b border-slate-200 text-right">Thao tác</th>}
+                      </tr>
+                    </thead>
 
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {row.check_out !== '-' ? (
-                              <span className="bg-slate-100 border border-slate-200 text-red-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
-                                {row.check_out}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
+                    <tbody className="text-slate-700">
+                      {!loading && attendanceList.map((row) => (
+                        <React.Fragment key={row.id}>
+                          <tr className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${expandedRows.has(row.id) ? 'bg-blue-50/30' : ''}`}>
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(row.id)}
+                                onChange={() => toggleSelectId(row.id)}
+                                className="w-4 h-4 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-2 py-3 text-center">
+                              <button
+                                onClick={() => toggleExpandRow(row.id)}
+                                className={`p-1 rounded-md transition-all duration-200 hover:bg-white hover:shadow-sm active:scale-90 ${expandedRows.has(row.id) ? 'bg-white shadow-sm text-blue-600 rotate-180' : 'text-slate-400'}`}
+                              >
+                                {expandedRows.has(row.id) ? <Minus size={16} /> : <Plus size={16} />}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
+                                  {row.user.avatar}
+                                </div>
+                                <span className="font-medium whitespace-nowrap text-slate-800">{row.user.name}</span>
+                              </div>
+                            </td>
 
-                          <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-800">
-                            {row.total_hours !== '-' ? row.total_hours : <span className="font-normal text-slate-400">—</span>}
-                          </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {row.work_date}
+                            </td>
 
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {row.isValidForSalary ? (
-                              <span className="flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 text-[11px]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Hợp lệ tính lương
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1.5 text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100 text-[11px]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                Chưa hoàn thành
-                              </span>
-                            )}
-                          </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {row.check_in !== '-' ? (
+                                <span className="bg-slate-100 border border-slate-200 text-green-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
+                                  {row.check_in}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
 
-                          {/* <td className="px-4 py-3">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {row.check_out !== '-' ? (
+                                <span className="bg-slate-100 border border-slate-200 text-red-600 px-2.5 py-1 rounded-md font-semibold text-xs tracking-wide">
+                                  {row.check_out}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+
+                            <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-800">
+                              {row.total_hours !== '-' ? row.total_hours : <span className="font-normal text-slate-400">—</span>}
+                            </td>
+
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {row.isValidForSalary ? (
+                                <span className="flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 text-[11px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  Hợp lệ tính lương
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1.5 text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100 text-[11px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                  Chưa hoàn thành
+                                </span>
+                              )}
+                            </td>
+
+                            {/* <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1.5">
                               {row.tasks.slice(0, 3).map((task, idx) => (
                                 <span key={idx} className="bg-slate-100 border border-slate-200/60 text-slate-600 px-2 py-0.5 rounded text-xs truncate max-w-[160px]">
@@ -1685,123 +1821,123 @@ export default function AttendancePage() {
                               )}
                             </div>
                           </td> */}
-                          {canEditDelete && (
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex justify-end items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
-                                    const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+                            {canEditDelete && (
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex justify-end items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                      const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
 
-                                    // Format date YYYY-MM-DD for input
-                                    const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+                                      // Format date YYYY-MM-DD for input
+                                      const getD = (d) => d ? d.toISOString().split('T')[0] : ''
 
-                                    setEditingRecord({
-                                      ...row,
-                                      in_date: getD(dIn),
-                                      in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
-                                      in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
-                                      out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
-                                      out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
-                                      out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
-                                    })
-                                  }}
-                                  className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
-                                >
-                                  <span className="material-symbols-outlined text-[16px]">edit</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openAddTaskModal(row.id)}
-                                  className="flex items-center gap-1 px-2 py-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-all font-bold text-[11px]"
-                                  title="Thêm công việc"
-                                >
-                                  <span className="material-symbols-outlined text-[16px]">add_task</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteSingle(row.id)}
-                                  disabled={deleting}
-                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                                >
-                                  <span className="material-symbols-outlined text-[18px]">delete</span>
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
+                                      setEditingRecord({
+                                        ...row,
+                                        in_date: getD(dIn),
+                                        in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                        in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                        out_date: getD(dOut) || getD(dIn), // Mặc định ngày ra giống ngày vào
+                                        out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                        out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
+                                      })
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-all font-bold text-[11px]"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openAddTaskModal(row.id)}
+                                    className="flex items-center gap-1 px-2 py-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-all font-bold text-[11px]"
+                                    title="Thêm công việc"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">add_task</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSingle(row.id)}
+                                    disabled={deleting}
+                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
 
-                        {/* Hàng mở rộng hiển thị nội dung chi tiết */}
-                        {expandedRows.has(row.id) && (
-                          <tr className="bg-blue-50/10 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <td colSpan={canEditDelete ? 9 : 8} className="px-6 py-4 border-b border-slate-100">
-                              <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-                                <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100">
-                                  <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                                      <ClipboardList size={14} className="text-blue-500" />
-                                      Chi tiết công việc đã thực hiện
-                                    </span>
-                                    <div className="flex items-center gap-3">
-                                      <button
-                                        type="button"
-                                        onClick={() => openAddTaskModal(row.id)}
-                                        className="h-8 px-3 rounded-xl bg-blue-600 text-white font-bold text-[10px] shadow-md shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5"
-                                      >
-                                        <span className="material-symbols-outlined text-[16px]">add</span>
-                                        Thêm công việc
-                                      </button>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
-                                        <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
-                                          }`}>
-                                          {row.overallProgress}%
-                                        </span>
+                          {/* Hàng mở rộng hiển thị nội dung chi tiết */}
+                          {expandedRows.has(row.id) && (
+                            <tr className="bg-blue-50/10 animate-in fade-in slide-in-from-top-1 duration-200">
+                              <td colSpan={canEditDelete ? 9 : 8} className="px-6 py-4 border-b border-slate-100">
+                                <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+                                  <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                                        <ClipboardList size={14} className="text-blue-500" />
+                                        Chi tiết công việc đã thực hiện
+                                      </span>
+                                      <div className="flex items-center gap-3">
+                                        <button
+                                          type="button"
+                                          onClick={() => openAddTaskModal(row.id)}
+                                          className="h-8 px-3 rounded-xl bg-blue-600 text-white font-bold text-[10px] shadow-md shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5"
+                                        >
+                                          <span className="material-symbols-outlined text-[16px]">add</span>
+                                          Thêm công việc
+                                        </button>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[11px] font-bold text-slate-400">TIẾN ĐỘ TỔNG:</span>
+                                          <span className={`text-[13px] font-black ${row.overallProgress === 100 ? 'text-emerald-600' : 'text-amber-600'
+                                            }`}>
+                                            {row.overallProgress}%
+                                          </span>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
 
-                                  {/* Thanh Progress Bar Tổng lớn */}
-                                  <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner border border-slate-300/50">
-                                    <div
-                                      className={`h-full transition-all duration-700 ease-out ${row.overallProgress === 100 ? 'bg-emerald-500' : 'bg-amber-500'
-                                        }`}
-                                      style={{ width: `${row.overallProgress}%` }}
-                                    />
+                                    {/* Thanh Progress Bar Tổng lớn */}
+                                    <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner border border-slate-300/50">
+                                      <div
+                                        className={`h-full transition-all duration-700 ease-out ${row.overallProgress === 100 ? 'bg-emerald-500' : 'bg-amber-500'
+                                          }`}
+                                        style={{ width: `${row.overallProgress}%` }}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                                <table className="w-full text-left">
-                                  <thead className="bg-white text-[10px] text-slate-400 uppercase font-bold">
-                                    <tr>
-                                      <th className="px-4 py-2">Công việc</th>
-                                      <th className="px-4 py-2">Trạng thái</th>
-                                      <th className="px-4 py-2 w-1/5">Tiến độ</th>
-                                      <th className="px-4 py-2">Báo cáo / Nhận xét</th>
-                                      <th className="px-4 py-2 text-right">Thao tác</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-50">
-                                    {row.tasks_data && row.tasks_data.length > 0 ? (() => {
-                                      // Group subtasks by parent_task_name
-                                      const groups = row.tasks_data.reduce((acc, task) => {
-                                        const key = task.parent_task_name || 'Công việc khác'
-                                        if (!acc[key]) acc[key] = []
-                                        acc[key].push(task)
-                                        return acc
-                                      }, {})
-                                      return Object.entries(groups).flatMap(([groupName, tasks]) => [
-                                        /* Group header row — flatMap keeps <tr> as direct tbody children (no Fragment) for reliable table layout */
-                                        <tr key={`${groupName}__hdr`} className="bg-slate-50/80">
-                                          <td colSpan={5} className="px-4 py-2">
-                                            <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                                              <span className="material-symbols-outlined text-[14px] text-blue-400">folder_open</span>
-                                              {groupName}
-                                              <span className="ml-1 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded-full text-[9px] font-bold">{tasks.length}</span>
-                                            </span>
-                                          </td>
-                                        </tr>,
-                                        ...tasks.map((task, tidx) => {
+                                  <table className="w-full text-left">
+                                    <thead className="bg-white text-[10px] text-slate-400 uppercase font-bold">
+                                      <tr>
+                                        <th className="px-4 py-2">Công việc</th>
+                                        <th className="px-4 py-2">Trạng thái</th>
+                                        <th className="px-4 py-2 w-1/5">Tiến độ</th>
+                                        <th className="px-4 py-2">Báo cáo / Nhận xét</th>
+                                        <th className="px-4 py-2 text-right">Thao tác</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                      {row.tasks_data && row.tasks_data.length > 0 ? (() => {
+                                        // Group subtasks by parent_task_name
+                                        const groups = row.tasks_data.reduce((acc, task) => {
+                                          const key = task.parent_task_name || 'Công việc khác'
+                                          if (!acc[key]) acc[key] = []
+                                          acc[key].push(task)
+                                          return acc
+                                        }, {})
+                                        return Object.entries(groups).flatMap(([groupName, tasks]) => [
+                                          /* Group header row — flatMap keeps <tr> as direct tbody children (no Fragment) for reliable table layout */
+                                          <tr key={`${groupName}__hdr`} className="bg-slate-50/80">
+                                            <td colSpan={5} className="px-4 py-2">
+                                              <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                                <span className="material-symbols-outlined text-[14px] text-blue-400">folder_open</span>
+                                                {groupName}
+                                                <span className="ml-1 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded-full text-[9px] font-bold">{tasks.length}</span>
+                                              </span>
+                                            </td>
+                                          </tr>,
+                                          ...tasks.map((task, tidx) => {
                                             const tStatus = task.status || 'in_progress'
                                             const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
                                             const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
@@ -1950,7 +2086,51 @@ export default function AttendancePage() {
                                                       )
                                                     ) : (
                                                       // Employee view
-                                                      tStatus === 'in_progress' || tStatus === 'rejected' ? (
+                                                      tStatus === 'pending_approval' ? (
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {canEditTaskPercent(row) && (
+                                                            <button
+                                                              type="button"
+                                                              onClick={() => openEditPercentModal(row.id, task)}
+                                                              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700"
+                                                            >
+                                                              <Edit3 size={11} />
+                                                              SỬA
+                                                            </button>
+                                                          )}
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="flex items-center gap-1 text-amber-600 font-bold bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[10px]">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                            CHỜ DUYỆT
+                                                          </span>
+                                                        </div>
+                                                      ) : tStatus === 'completed' || task.is_approved ? (
+                                                        <div className="flex flex-col items-end gap-1">
+                                                          {!task.end_time && (
+                                                            <button
+                                                              type="button"
+                                                              disabled={loadingAction === task.subtask_id}
+                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
+                                                            >
+                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                            </button>
+                                                          )}
+                                                          <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
+                                                            <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                                                            ĐÃ DUYỆT
+                                                          </span>
+                                                        </div>
+                                                      ) : (
                                                         <div className="flex flex-wrap justify-end gap-1.5 items-center">
                                                           {canEditTaskPercent(row) && (
                                                             <button
@@ -1979,50 +2159,6 @@ export default function AttendancePage() {
                                                             {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
                                                           </button>
                                                         </div>
-                                                      ) : tStatus === 'pending_approval' ? (
-                                                        <div className="flex flex-col items-end gap-1">
-                                                          {canEditTaskPercent(row) && (
-                                                            <button
-                                                              type="button"
-                                                              onClick={() => openEditPercentModal(row.id, task)}
-                                                              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-bold text-slate-700"
-                                                            >
-                                                              <Edit3 size={11} />
-                                                              SỬA
-                                                            </button>
-                                                          )}
-                                                          {!task.end_time && (
-                                                            <button
-                                                              type="button"
-                                                              disabled={loadingAction === task.subtask_id}
-                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
-                                                            >
-                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                            </button>
-                                                          )}
-                                                          <span className="flex items-center gap-1 text-amber-600 font-bold bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[10px]">
-                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                                                            CHỜ DUYỆT
-                                                          </span>
-                                                        </div>
-                                                      ) : (
-                                                        <div className="flex flex-col items-end gap-1">
-                                                          {!task.end_time && (
-                                                            <button
-                                                              type="button"
-                                                              disabled={loadingAction === task.subtask_id}
-                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black disabled:opacity-60"
-                                                            >
-                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                            </button>
-                                                          )}
-                                                          <span className="flex items-center gap-1 text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 text-[10px]">
-                                                            <span className="material-symbols-outlined text-[13px]">check_circle</span>
-                                                            ĐÃ DUYỆT
-                                                          </span>
-                                                        </div>
                                                       )
                                                     )}
                                                   </div>
@@ -2030,99 +2166,99 @@ export default function AttendancePage() {
                                               </tr>
                                             )
                                           }),
-                                      ])
-                                    })() : (
-                                      <tr>
-                                        <td colSpan="5" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
-                                          Không có dữ liệu công việc trong ca làm việc này.
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                                        ])
+                                      })() : (
+                                        <tr>
+                                          <td colSpan="5" className="px-4 py-8 text-center text-slate-400 italic text-[11px]">
+                                            Không có dữ liệu công việc trong ca làm việc này.
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-              {/* VIEW MOBILE: Vertical Mini Cards (SIÊU NÉN & THẲNG HÀNG) */}
-              <div className="lg:hidden p-4 space-y-3">
-                {!loading && attendanceList.map((row) => (
-                  <div key={row.id} className={`bg-white rounded-xl border p-3 shadow-sm transition-all ${selectedIds.has(row.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-100'}`}>
+                {/* VIEW MOBILE: Vertical Mini Cards (SIÊU NÉN & THẲNG HÀNG) */}
+                <div className="lg:hidden p-4 space-y-3">
+                  {!loading && attendanceList.map((row) => (
+                    <div key={row.id} className={`bg-white rounded-xl border p-3 shadow-sm transition-all ${selectedIds.has(row.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-100'}`}>
 
-                    {/* HÀNG 1: ĐỊNH DANH & HÀNH ĐỘNG (ÉP THẲNG HÀNG) */}
-                    <div className="flex items-center gap-2 w-full mb-2">
-                      {/* Checkbox */}
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(row.id)}
-                        onChange={() => toggleSelectId(row.id)}
-                        className="w-4 h-4 cursor-pointer shrink-0"
-                      />
+                      {/* HÀNG 1: ĐỊNH DANH & HÀNH ĐỘNG (ÉP THẲNG HÀNG) */}
+                      <div className="flex items-center gap-2 w-full mb-2">
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelectId(row.id)}
+                          className="w-4 h-4 cursor-pointer shrink-0"
+                        />
 
-                      {/* Icon 'Q' / Avatar */}
-                      <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] uppercase shrink-0 shadow-sm">
-                        {row.user.avatar}
+                        {/* Icon 'Q' / Avatar */}
+                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] uppercase shrink-0 shadow-sm">
+                          {row.user.avatar}
+                        </div>
+
+                        {/* Tên & Ngày (Tự xuống dòng, không đẩy icon) */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-bold text-slate-800 leading-tight break-words">{row.user.name}</p>
+                          <p className="text-[9px] text-slate-400 font-medium">{row.work_date}</p>
+                        </div>
+
+                        {/* Nhóm Nút (CHỈ ICON - KHÔNG CHỮ) */}
+                        <div className="flex items-center gap-2 ml-auto shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandRow(row.id)}
+                            className={`p-1.5 rounded-lg active:scale-90 transition-all ${expandedRows.has(row.id) ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
+                          >
+                            {expandedRows.has(row.id) ? <Minus size={14} /> : <Plus size={14} />}
+                          </button>
+
+                          {canEditDelete && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
+                                  const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
+                                  const getD = (d) => d ? d.toISOString().split('T')[0] : ''
+                                  setEditingRecord({
+                                    ...row,
+                                    in_date: getD(dIn),
+                                    in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
+                                    in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
+                                    out_date: getD(dOut) || getD(dIn),
+                                    out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
+                                    out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
+                                  })
+                                }}
+                                className="p-1.5 bg-blue-50 text-blue-600 rounded-lg active:scale-90 transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSingle(row.id)}
+                                disabled={deleting}
+                                className="p-1.5 bg-red-50 text-red-600 rounded-lg active:scale-90 transition-all disabled:opacity-50"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">delete</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Tên & Ngày (Tự xuống dòng, không đẩy icon) */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-bold text-slate-800 leading-tight break-words">{row.user.name}</p>
-                        <p className="text-[9px] text-slate-400 font-medium">{row.work_date}</p>
-                      </div>
-
-                      {/* Nhóm Nút (CHỈ ICON - KHÔNG CHỮ) */}
-                      <div className="flex items-center gap-2 ml-auto shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpandRow(row.id)}
-                          className={`p-1.5 rounded-lg active:scale-90 transition-all ${expandedRows.has(row.id) ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600'}`}
-                        >
-                          {expandedRows.has(row.id) ? <Minus size={14} /> : <Plus size={14} />}
-                        </button>
-
-                        {canEditDelete && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const dIn = row.check_in_raw ? new Date(row.check_in_raw) : null
-                                const dOut = row.check_out_raw ? new Date(row.check_out_raw) : null
-                                const getD = (d) => d ? d.toISOString().split('T')[0] : ''
-                                setEditingRecord({
-                                  ...row,
-                                  in_date: getD(dIn),
-                                  in_h: dIn ? dIn.getHours().toString().padStart(2, '0') : '08',
-                                  in_m: dIn ? dIn.getMinutes().toString().padStart(2, '0') : '00',
-                                  out_date: getD(dOut) || getD(dIn),
-                                  out_h: dOut ? dOut.getHours().toString().padStart(2, '0') : '',
-                                  out_m: dOut ? dOut.getMinutes().toString().padStart(2, '0') : ''
-                                })
-                              }}
-                              className="p-1.5 bg-blue-50 text-blue-600 rounded-lg active:scale-90 transition-all"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSingle(row.id)}
-                              disabled={deleting}
-                              className="p-1.5 bg-red-50 text-red-600 rounded-lg active:scale-90 transition-all disabled:opacity-50"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">delete</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Chi tiết Task (Dropdown nội bộ) */}
-                    {/* {showTasksId === row.id && (
+                      {/* Chi tiết Task (Dropdown nội bộ) */}
+                      {/* {showTasksId === row.id && (
                       <div className="mb-2 p-2 bg-slate-50 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-top-1">
                         <div className="flex flex-wrap gap-1">
                           {row.tasks.length > 0 ? row.tasks.map((task, idx) => (
@@ -2134,954 +2270,954 @@ export default function AttendancePage() {
                       </div>
                     )} */}
 
-                    {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
-                    <div className="grid grid-cols-3 gap-2" >
-                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Vào</span>
-                        <span className="text-[10px] font-mono font-bold text-green-600">{row.check_in}</span>
-                      </div>
-                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Ra</span>
-                        <span className="text-[10px] font-mono font-bold text-red-600">{row.check_out}</span>
-                      </div>
-                      <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Tổng</span>
-                        <span className="text-[11px] font-black text-slate-800">{row.total_hours}</span>
-                      </div>
-                    </div>
-
-                    {/* Chi tiết công việc trên Mobile */}
-                    {expandedRows.has(row.id) && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                            <ClipboardList size={10} /> Chi tiết công việc
-                          </span>
-                          <span className="text-[10px] font-black text-blue-600">{row.overallProgress}%</span>
+                      {/* HÀNG 2: THỐNG KÊ (GRID 3 CỘT) */}
+                      <div className="grid grid-cols-3 gap-2" >
+                        <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Vào</span>
+                          <span className="text-[10px] font-mono font-bold text-green-600">{row.check_in}</span>
                         </div>
+                        <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Ra</span>
+                          <span className="text-[10px] font-mono font-bold text-red-600">{row.check_out}</span>
+                        </div>
+                        <div className="flex flex-col items-center p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase mb-0.5">Tổng</span>
+                          <span className="text-[11px] font-black text-slate-800">{row.total_hours}</span>
+                        </div>
+                      </div>
 
-                        {row.tasks_data && row.tasks_data.length > 0 ? (() => {
-                          const groups = row.tasks_data.reduce((acc, task) => {
-                            const key = task.parent_task_name || 'Công việc khác'
-                            if (!acc[key]) acc[key] = []
-                            acc[key].push(task)
-                            return acc
-                          }, {})
-                          return Object.entries(groups).map(([groupName, tasks]) => (
-                            <div key={groupName}>
-                              {/* Group header */}
-                              <div className="flex items-center gap-1 mb-1.5 px-1">
-                                <span className="material-symbols-outlined text-[12px] text-blue-400">folder_open</span>
-                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{groupName}</span>
-                              </div>
-                              <div className="space-y-2 mb-3">
-                                {tasks.map((task, tidx) => {
-                                  const tStatus = task.status || 'in_progress'
-                                  const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
-                                  const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
-                                  const statusCfg = {
-                                    in_progress: { label: 'Đang làm', cls: 'bg-blue-50 text-blue-600 border-blue-100' },
-                                    pending_approval: { label: 'Chờ duyệt', cls: 'bg-amber-50 text-amber-600 border-amber-100' },
-                                    completed: { label: 'Nghiệm thu', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-                                    rejected: { label: 'Từ chối', cls: 'bg-red-50 text-red-600 border-red-100' },
-                                  }[tStatus] || { label: tStatus, cls: 'bg-slate-50 text-slate-500 border-slate-100' }
-                                  return (
-                                    <div key={task.subtask_id || tidx} className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
-                                      <div className="flex justify-between items-start mb-1.5">
-                                        <span className="text-[11px] font-bold text-slate-700 leading-tight flex-1 mr-2">{task.title}</span>
-                                        <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[8px] font-bold ${statusCfg.cls}`}>{statusCfg.label}</span>
-                                      </div>
-                                      {task.work_detail ? (
-                                        <p className="text-[9px] text-slate-600 mb-1.5 leading-snug line-clamp-3 whitespace-pre-wrap">{task.work_detail}</p>
-                                      ) : null}
-                                      {/* Progress bar */}
-                                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                        <div className="flex-1 min-w-[64px] h-1 bg-slate-200 rounded-full overflow-hidden">
-                                          <div className={`h-full ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
-                                            style={{ width: `${safePct}%` }} />
+                      {/* Chi tiết công việc trên Mobile */}
+                      {expandedRows.has(row.id) && (
+                        <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                              <ClipboardList size={10} /> Chi tiết công việc
+                            </span>
+                            <span className="text-[10px] font-black text-blue-600">{row.overallProgress}%</span>
+                          </div>
+
+                          {row.tasks_data && row.tasks_data.length > 0 ? (() => {
+                            const groups = row.tasks_data.reduce((acc, task) => {
+                              const key = task.parent_task_name || 'Công việc khác'
+                              if (!acc[key]) acc[key] = []
+                              acc[key].push(task)
+                              return acc
+                            }, {})
+                            return Object.entries(groups).map(([groupName, tasks]) => (
+                              <div key={groupName}>
+                                {/* Group header */}
+                                <div className="flex items-center gap-1 mb-1.5 px-1">
+                                  <span className="material-symbols-outlined text-[12px] text-blue-400">folder_open</span>
+                                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{groupName}</span>
+                                </div>
+                                <div className="space-y-2 mb-3">
+                                  {tasks.map((task, tidx) => {
+                                    const tStatus = task.status || 'in_progress'
+                                    const pct = typeof task.percent === 'number' ? task.percent : (task.is_approved ? 100 : 0)
+                                    const safePct = Math.max(0, Math.min(100, Number(pct) || 0))
+                                    const statusCfg = {
+                                      in_progress: { label: 'Đang làm', cls: 'bg-blue-50 text-blue-600 border-blue-100' },
+                                      pending_approval: { label: 'Chờ duyệt', cls: 'bg-amber-50 text-amber-600 border-amber-100' },
+                                      completed: { label: 'Nghiệm thu', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+                                      rejected: { label: 'Từ chối', cls: 'bg-red-50 text-red-600 border-red-100' },
+                                    }[tStatus] || { label: tStatus, cls: 'bg-slate-50 text-slate-500 border-slate-100' }
+                                    return (
+                                      <div key={task.subtask_id || tidx} className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
+                                        <div className="flex justify-between items-start mb-1.5">
+                                          <span className="text-[11px] font-bold text-slate-700 leading-tight flex-1 mr-2">{task.title}</span>
+                                          <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[8px] font-bold ${statusCfg.cls}`}>{statusCfg.label}</span>
                                         </div>
-                                        <span className="text-[9px] font-bold text-slate-600 shrink-0">{safePct}%</span>
-                                        {canEditTaskPercent(row) && (
-                                          <button
-                                            type="button"
-                                            onClick={() => openEditPercentModal(row.id, task)}
-                                            className="text-[8px] font-bold text-blue-600 underline shrink-0"
-                                          >
-                                            Sửa
-                                          </button>
-                                        )}
-                                      </div>
-                                      {/* Report content preview */}
-                                      {task.report_content && (
-                                        <p className="text-[9px] text-slate-500 line-clamp-2 mb-1">{task.report_content}</p>
-                                      )}
-                                      {task.report_images?.length > 0 && (
-                                        <div className="flex gap-1 mb-1.5 flex-wrap">
-                                          {task.report_images.slice(0, 3).map((url, i) => (
-                                            <button
-                                              key={i}
-                                              type="button"
-                                              title="Xem ảnh phóng to"
-                                              onClick={() => setImageLightboxUrl(url)}
-                                              className="w-7 h-7 rounded border border-slate-200 overflow-hidden block cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0 shrink-0"
-                                            >
-                                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
-                                            </button>
-                                          ))}
-                                          {task.report_images.length > 3 && (
+                                        {task.work_detail ? (
+                                          <p className="text-[9px] text-slate-600 mb-1.5 leading-snug line-clamp-3 whitespace-pre-wrap">{task.work_detail}</p>
+                                        ) : null}
+                                        {/* Progress bar */}
+                                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                          <div className="flex-1 min-w-[64px] h-1 bg-slate-200 rounded-full overflow-hidden">
+                                            <div className={`h-full ${tStatus === 'completed' ? 'bg-emerald-500' : tStatus === 'rejected' ? 'bg-red-400' : 'bg-blue-500'}`}
+                                              style={{ width: `${safePct}%` }} />
+                                          </div>
+                                          <span className="text-[9px] font-bold text-slate-600 shrink-0">{safePct}%</span>
+                                          {canEditTaskPercent(row) && (
                                             <button
                                               type="button"
-                                              title="Xem ảnh tiếp theo"
-                                              onClick={() => setImageLightboxUrl(task.report_images[3])}
-                                              className="w-7 h-7 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 cursor-zoom-in hover:bg-slate-200 shrink-0"
+                                              onClick={() => openEditPercentModal(row.id, task)}
+                                              className="text-[8px] font-bold text-blue-600 underline shrink-0"
                                             >
-                                              +{task.report_images.length - 3}
+                                              Sửa
                                             </button>
                                           )}
                                         </div>
-                                      )}
-                                      {task.comment && tStatus === 'rejected' && (
-                                        <p className="text-[9px] text-red-500 italic border-l-2 border-red-200 pl-1.5 mb-1">{task.comment}</p>
-                                      )}
-                                      {/* Actions */}
-                                      <div className="mt-1.5 flex flex-wrap justify-end gap-1.5">
-                                        {role === 'admin' ? (
-                                          <>
-                                            {!task.end_time && (
-                                              <button
-                                                type="button"
-                                                disabled={loadingAction === task.subtask_id}
-                                                onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                className="px-2 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95 disabled:opacity-60"
-                                              >
-                                                {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                              </button>
-                                            )}
-                                            {tStatus === 'pending_approval' ? (
-                                              <>
-                                                <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
-                                                  className="px-2 py-1 bg-emerald-500 text-white rounded-md text-[8px] font-black active:scale-95">
-                                                  NGHIỆM THU
-                                                </button>
-                                                <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
-                                                  className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-md text-[8px] font-black active:scale-95">
-                                                  TỪ CHỐI
-                                                </button>
-                                              </>
-                                            ) : null}
-                                          </>
-                                        ) : (
-                                          <>
-                                            {canEditTaskPercent(row) && (
-                                              <button
-                                                type="button"
-                                                onClick={() => openEditPercentModal(row.id, task)}
-                                                className="px-2 py-1 bg-white border border-slate-200 text-slate-700 rounded-md text-[8px] font-bold"
-                                              >
-                                                SỬA
-                                              </button>
-                                            )}
-                                            {!task.end_time && (
-                                              <button
-                                                type="button"
-                                                disabled={loadingAction === task.subtask_id}
-                                                onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                className="px-2 py-1 bg-slate-700 text-white rounded-md text-[8px] font-black disabled:opacity-60"
-                                              >
-                                                {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                              </button>
-                                            )}
-                                            {tStatus === 'in_progress' || tStatus === 'rejected' ? (
-                                              <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
-                                                className="px-3 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95">
-                                                {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
-                                              </button>
-                                            ) : null}
-                                          </>
+                                        {/* Report content preview */}
+                                        {task.report_content && (
+                                          <p className="text-[9px] text-slate-500 line-clamp-2 mb-1">{task.report_content}</p>
                                         )}
+                                        {task.report_images?.length > 0 && (
+                                          <div className="flex gap-1 mb-1.5 flex-wrap">
+                                            {task.report_images.slice(0, 3).map((url, i) => (
+                                              <button
+                                                key={i}
+                                                type="button"
+                                                title="Xem ảnh phóng to"
+                                                onClick={() => setImageLightboxUrl(url)}
+                                                className="w-7 h-7 rounded border border-slate-200 overflow-hidden block cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0 shrink-0"
+                                              >
+                                                <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                              </button>
+                                            ))}
+                                            {task.report_images.length > 3 && (
+                                              <button
+                                                type="button"
+                                                title="Xem ảnh tiếp theo"
+                                                onClick={() => setImageLightboxUrl(task.report_images[3])}
+                                                className="w-7 h-7 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 cursor-zoom-in hover:bg-slate-200 shrink-0"
+                                              >
+                                                +{task.report_images.length - 3}
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                        {task.comment && tStatus === 'rejected' && (
+                                          <p className="text-[9px] text-red-500 italic border-l-2 border-red-200 pl-1.5 mb-1">{task.comment}</p>
+                                        )}
+                                        {/* Actions */}
+                                        <div className="mt-1.5 flex flex-wrap justify-end gap-1.5">
+                                          {role === 'admin' ? (
+                                            <>
+                                              {!task.end_time && (
+                                                <button
+                                                  type="button"
+                                                  disabled={loadingAction === task.subtask_id}
+                                                  onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                  className="px-2 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95 disabled:opacity-60"
+                                                >
+                                                  {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                </button>
+                                              )}
+                                              {tStatus === 'pending_approval' ? (
+                                                <>
+                                                  <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
+                                                    className="px-2 py-1 bg-emerald-500 text-white rounded-md text-[8px] font-black active:scale-95">
+                                                    NGHIỆM THU
+                                                  </button>
+                                                  <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
+                                                    className="px-2 py-1 bg-red-50 text-red-600 border border-red-200 rounded-md text-[8px] font-black active:scale-95">
+                                                    TỪ CHỐI
+                                                  </button>
+                                                </>
+                                              ) : null}
+                                            </>
+                                          ) : (
+                                            <>
+                                              {canEditTaskPercent(row) && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openEditPercentModal(row.id, task)}
+                                                  className="px-2 py-1 bg-white border border-slate-200 text-slate-700 rounded-md text-[8px] font-bold"
+                                                >
+                                                  SỬA
+                                                </button>
+                                              )}
+                                              {!task.end_time && (
+                                                <button
+                                                  type="button"
+                                                  disabled={loadingAction === task.subtask_id}
+                                                  onClick={() => handleFinishTask(row.id, task.subtask_id)}
+                                                  className="px-2 py-1 bg-slate-700 text-white rounded-md text-[8px] font-black disabled:opacity-60"
+                                                >
+                                                  {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
+                                                </button>
+                                              )}
+                                              {tStatus === 'in_progress' || tStatus === 'rejected' ? (
+                                                <button onClick={() => setReportModal({ open: true, sessionId: row.id, task })}
+                                                  className="px-3 py-1 bg-blue-600 text-white rounded-md text-[8px] font-black active:scale-95">
+                                                  {tStatus === 'rejected' ? 'CẬP NHẬT' : 'BÁO CÁO'}
+                                                </button>
+                                              ) : null}
+                                            </>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )
-                                })}
+                                    )
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          ))
-                        })() : (
-                          <p className="text-center py-2 text-[10px] text-slate-400 italic">Không có dữ liệu công việc</p>
-                        )}
-                      </div>
-                    )}
+                            ))
+                          })() : (
+                            <p className="text-center py-2 text-[10px] text-slate-400 italic">Không có dữ liệu công việc</p>
+                          )}
+                        </div>
+                      )}
 
-                  </div>
-                ))}
-              </div>
-
-              {!loading && attendanceList.length === 0 && (
-                <div className="px-4 py-12 text-center text-slate-500 italic">
-                  Không có dữ liệu ca làm việc phù hợp với bộ lọc.
-                </div>
-              )}
-            </div>
-
-            {/* Phân trang */}
-            {!loading && totalRecords > PAGE_SIZE && (
-              <div className="flex items-center justify-between pt-6 pb-4">
-                <div className="text-sm text-slate-600">
-                  Hiển thị <span className="font-bold">{(currentPage - 1) * PAGE_SIZE + 1}</span>
-                  {' '}đến{' '}
-                  <span className="font-bold">{Math.min(currentPage * PAGE_SIZE, totalRecords)}</span>
-                  {' '}của{' '}
-                  <span className="font-bold">{totalRecords}</span> bản ghi
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1 || loading}
-                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
-                  >
-                    Trước
-                  </button>
-                  <span className="text-sm text-slate-600 px-3">
-                    Trang <span className="font-bold">{currentPage}</span> / <span className="font-bold">{Math.ceil(totalRecords / PAGE_SIZE)}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => p + 1)}
-                    disabled={currentPage >= Math.ceil(totalRecords / PAGE_SIZE) || loading}
-                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
-                  >
-                    Sau
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL SỬA BẢN GHI */}
-            {editingRecord && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
-                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
-                        <span className="material-symbols-outlined text-white text-[20px]">edit_calendar</span>
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-800">Sửa Chấm Công</h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{editingRecord.user.name}</p>
-                      </div>
                     </div>
+                  ))}
+                </div>
+
+                {!loading && attendanceList.length === 0 && (
+                  <div className="px-4 py-12 text-center text-slate-500 italic">
+                    Không có dữ liệu ca làm việc phù hợp với bộ lọc.
+                  </div>
+                )}
+              </div>
+
+              {/* Phân trang */}
+              {!loading && totalRecords > PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-6 pb-4">
+                  <div className="text-sm text-slate-600">
+                    Hiển thị <span className="font-bold">{(currentPage - 1) * PAGE_SIZE + 1}</span>
+                    {' '}đến{' '}
+                    <span className="font-bold">{Math.min(currentPage * PAGE_SIZE, totalRecords)}</span>
+                    {' '}của{' '}
+                    <span className="font-bold">{totalRecords}</span> bản ghi
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setEditingRecord(null)}
-                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 transition-colors"
+                      type="button"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1 || loading}
+                      className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
                     >
-                      <span className="material-symbols-outlined text-[20px]">close</span>
+                      Trước
+                    </button>
+                    <span className="text-sm text-slate-600 px-3">
+                      Trang <span className="font-bold">{currentPage}</span> / <span className="font-bold">{Math.ceil(totalRecords / PAGE_SIZE)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(p => p + 1)}
+                      disabled={currentPage >= Math.ceil(totalRecords / PAGE_SIZE) || loading}
+                      className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors"
+                    >
+                      Sau
                     </button>
                   </div>
+                </div>
+              )}
 
-                  <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
-                    {/* KHỐI CHECK-IN */}
-                    <div className="p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50 space-y-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="material-symbols-outlined text-blue-600 text-[16px]">login</span>
-                        <label className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">VÀO LÀM</label>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={editingRecord.in_date}
-                          onChange={e => setEditingRecord({ ...editingRecord, in_date: e.target.value })}
-                          className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-medium text-[13px]"
-                          required
-                        />
-                        <div className="flex flex-1 gap-1">
-                          <select
-                            value={editingRecord.in_h}
-                            onChange={e => setEditingRecord({ ...editingRecord, in_h: e.target.value })}
-                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
-                          >
-                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
-                          </select>
-                          <select
-                            value={editingRecord.in_m}
-                            onChange={e => setEditingRecord({ ...editingRecord, in_m: e.target.value })}
-                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
-                          >
-                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
-                          </select>
+              {/* MODAL SỬA BẢN GHI */}
+              {editingRecord && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+                    <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
+                          <span className="material-symbols-outlined text-white text-[20px]">edit_calendar</span>
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-800">Sửa Chấm Công</h3>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{editingRecord.user.name}</p>
                         </div>
                       </div>
+                      <button
+                        onClick={() => setEditingRecord(null)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">close</span>
+                      </button>
                     </div>
 
-                    {/* KHỐI CHECK-OUT */}
-                    <div className="p-4 bg-red-50/30 rounded-2xl border border-red-100/50 space-y-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="material-symbols-outlined text-red-600 text-[16px]">logout</span>
-                        <label className="text-[10px] font-bold text-red-700 uppercase tracking-wider">RA VỀ</label>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={editingRecord.out_date}
-                          onChange={e => setEditingRecord({ ...editingRecord, out_date: e.target.value })}
-                          className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-medium text-[13px]"
-                        />
-                        <div className="flex flex-1 gap-1">
-                          <select
-                            value={editingRecord.out_h}
-                            onChange={e => setEditingRecord({ ...editingRecord, out_h: e.target.value })}
-                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
-                          >
-                            <option value="">Giờ</option>
-                            {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
-                          </select>
-                          <select
-                            value={editingRecord.out_m}
-                            onChange={e => setEditingRecord({ ...editingRecord, out_m: e.target.value })}
-                            className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
-                          >
-                            <option value="">Phút</option>
-                            {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
-                          </select>
+                    <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+                      {/* KHỐI CHECK-IN */}
+                      <div className="p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50 space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="material-symbols-outlined text-blue-600 text-[16px]">login</span>
+                          <label className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">VÀO LÀM</label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            value={editingRecord.in_date}
+                            onChange={e => setEditingRecord({ ...editingRecord, in_date: e.target.value })}
+                            className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-medium text-[13px]"
+                            required
+                          />
+                          <div className="flex flex-1 gap-1">
+                            <select
+                              value={editingRecord.in_h}
+                              onChange={e => setEditingRecord({ ...editingRecord, in_h: e.target.value })}
+                              className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                            >
+                              {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                            </select>
+                            <select
+                              value={editingRecord.in_m}
+                              onChange={e => setEditingRecord({ ...editingRecord, in_m: e.target.value })}
+                              className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                            >
+                              {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                            </select>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="pt-4 flex gap-3">
+                      {/* KHỐI CHECK-OUT */}
+                      <div className="p-4 bg-red-50/30 rounded-2xl border border-red-100/50 space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="material-symbols-outlined text-red-600 text-[16px]">logout</span>
+                          <label className="text-[10px] font-bold text-red-700 uppercase tracking-wider">RA VỀ</label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            value={editingRecord.out_date}
+                            onChange={e => setEditingRecord({ ...editingRecord, out_date: e.target.value })}
+                            className="flex-[2] min-w-0 px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-medium text-[13px]"
+                          />
+                          <div className="flex flex-1 gap-1">
+                            <select
+                              value={editingRecord.out_h}
+                              onChange={e => setEditingRecord({ ...editingRecord, out_h: e.target.value })}
+                              className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                            >
+                              <option value="">Giờ</option>
+                              {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}h</option>)}
+                            </select>
+                            <select
+                              value={editingRecord.out_m}
+                              onChange={e => setEditingRecord({ ...editingRecord, out_m: e.target.value })}
+                              className="w-full px-1 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-[13px] appearance-none text-center"
+                            >
+                              <option value="">Phút</option>
+                              {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}p</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingRecord(null)}
+                          className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all active:scale-95"
+                        >
+                          HỦY
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isUpdating}
+                          className="flex-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          {isUpdating ? (
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          ) : (
+                            <>
+                              <span className="material-symbols-outlined text-[18px]">save</span>
+                              LƯU THAY ĐỔI
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+              {/* 6. Modal xác nhận xóa đơn */}
+              {confirmDeleteId && (
+                <Modal
+                  title="Xác nhận xóa"
+                  onClose={() => setConfirmDeleteId(null)}
+                  footer={
+                    <div className="flex gap-3 w-full">
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        onClick={() => performDeleteSingle(confirmDeleteId)}
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                      >
+                        Xóa ngay
+                      </button>
+                    </div>
+                  }
+                >
+                  <div className="py-4 flex flex-col items-center text-center">
+                    <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                      <span className="material-symbols-outlined text-red-600 text-3xl">delete_forever</span>
+                    </div>
+                    <p className="text-slate-600 font-medium">
+                      Bạn có chắc chắn muốn xóa bản ghi chấm công này không?
+                    </p>
+                    {confirmDeleteId === activeSessionId && (
+                      <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                        Cảnh báo: Đây là ca làm việc đang hoạt động!
+                      </p>
+                    )}
+                    <p className="mt-2 text-slate-400 text-xs italic">
+                      Hành động này không thể hoàn tác.
+                    </p>
+                  </div>
+                </Modal>
+              )}
+
+              {/* 7. Modal xác nhận xóa nhiều */}
+              {confirmDeleteBulk && (
+                <Modal
+                  title="Xóa nhiều bản ghi"
+                  onClose={() => setConfirmDeleteBulk(false)}
+                  footer={
+                    <div className="flex gap-3 w-full">
+                      <button
+                        onClick={() => setConfirmDeleteBulk(false)}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        onClick={performDeleteSelected}
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                      >
+                        Xóa {selectedIds.size} dòng
+                      </button>
+                    </div>
+                  }
+                >
+                  <div className="py-4 flex flex-col items-center text-center">
+                    <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                      <span className="material-symbols-outlined text-red-600 text-3xl">delete_sweep</span>
+                    </div>
+                    <p className="text-slate-600 font-medium">
+                      Bạn có chắc chắn muốn xóa <strong>{selectedIds.size}</strong> bản ghi chấm công đã chọn không?
+                    </p>
+                    {Array.from(selectedIds).includes(activeSessionId) && (
+                      <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                        Lưu ý: Có bao gồm ca làm việc đang hoạt động!
+                      </p>
+                    )}
+                    <p className="mt-2 text-slate-400 text-xs italic">
+                      Mọi dữ liệu liên quan sẽ bị xóa vĩnh viễn.
+                    </p>
+                  </div>
+                </Modal>
+              )}
+              {/* MODAL: Từ chối công việc (Admin) */}
+              {rejectModal.open && (
+                <Modal
+                  title="Từ chối công việc"
+                  subtitle="Nhân viên sẽ nhận được lý do và cập nhật lại báo cáo"
+                  onClose={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
+                  footer={
+                    <div className="flex gap-3 w-full">
+                      <button
+                        onClick={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        onClick={handleRejectTask}
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                      >
+                        XÁC NHẬN TỪ CHỐI
+                      </button>
+                    </div>
+                  }
+                >
+                  <div className="py-2 space-y-3">
+                    <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                      <span className="material-symbols-outlined text-red-500 text-[20px]">warning</span>
+                      <p className="text-[12px] text-red-700 font-medium">Nhân viên sẽ cần gửi lại báo cáo sau khi bị từ chối.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Lý do từ chối <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        autoFocus
+                        value={rejectModal.reason}
+                        onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+                        placeholder="Nhập lý do từ chối để nhân viên cải thiện..."
+                        rows={4}
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none text-[13px] resize-none"
+                      />
+                    </div>
+                  </div>
+                </Modal>
+              )}
+
+              {/* MODAL: Thêm công việc */}
+              {addTaskModalOpen && (
+                <Modal
+                  title="Thêm công việc"
+                  subtitle="Chọn dự án, công việc đang được giao hoặc task trong dự án, rồi đặt % hoàn thành"
+                  onClose={() => {
+                    setAddTaskModalOpen(false)
+                    setAddTaskTargetSessionId(null)
+                    setAddTaskAssigneeSubtasks([])
+                    setNewTaskForm({
+                      project_id: '',
+                      pick_row_key: '',
+                      task_id: '',
+                      title: '',
+                      work_detail: '',
+                      percent: 0,
+                      parent_task_name: '',
+                    })
+                    resetAddTaskSearchUi()
+                  }}
+                  footerClassName="justify-between"
+                  footer={
+                    <>
                       <button
                         type="button"
-                        onClick={() => setEditingRecord(null)}
-                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-all active:scale-95"
+                        onClick={() => {
+                          setAddTaskModalOpen(false)
+                          setAddTaskTargetSessionId(null)
+                          setNewTaskForm({
+                            project_id: '',
+                            pick_row_key: '',
+                            task_id: '',
+                            title: '',
+                            work_detail: '',
+                            percent: 0,
+                            parent_task_name: '',
+                          })
+                          setAddTaskAssigneeSubtasks([])
+                          resetAddTaskSearchUi()
+                        }}
+                        className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
                       >
-                        HỦY
+                        Hủy
                       </button>
                       <button
                         type="submit"
-                        disabled={isUpdating}
-                        className="flex-2 px-8 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        form="add-task-form"
+                        disabled={isAddingTask}
+                        className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
                       >
-                        {isUpdating ? (
-                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        {isAddingTask ? (
+                          <span className="text-[12px] font-black">...</span>
                         ) : (
                           <>
                             <span className="material-symbols-outlined text-[18px]">save</span>
-                            LƯU THAY ĐỔI
+                            Lưu công việc
                           </>
                         )}
                       </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-            {/* 6. Modal xác nhận xóa đơn */}
-            {confirmDeleteId && (
-              <Modal
-                title="Xác nhận xóa"
-                onClose={() => setConfirmDeleteId(null)}
-                footer={
-                  <div className="flex gap-3 w-full">
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      onClick={() => performDeleteSingle(confirmDeleteId)}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
-                    >
-                      Xóa ngay
-                    </button>
-                  </div>
-                }
-              >
-                <div className="py-4 flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
-                    <span className="material-symbols-outlined text-red-600 text-3xl">delete_forever</span>
-                  </div>
-                  <p className="text-slate-600 font-medium">
-                    Bạn có chắc chắn muốn xóa bản ghi chấm công này không?
-                  </p>
-                  {confirmDeleteId === activeSessionId && (
-                    <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
-                      Cảnh báo: Đây là ca làm việc đang hoạt động!
-                    </p>
-                  )}
-                  <p className="mt-2 text-slate-400 text-xs italic">
-                    Hành động này không thể hoàn tác.
-                  </p>
-                </div>
-              </Modal>
-            )}
-
-            {/* 7. Modal xác nhận xóa nhiều */}
-            {confirmDeleteBulk && (
-              <Modal
-                title="Xóa nhiều bản ghi"
-                onClose={() => setConfirmDeleteBulk(false)}
-                footer={
-                  <div className="flex gap-3 w-full">
-                    <button
-                      onClick={() => setConfirmDeleteBulk(false)}
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      onClick={performDeleteSelected}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
-                    >
-                      Xóa {selectedIds.size} dòng
-                    </button>
-                  </div>
-                }
-              >
-                <div className="py-4 flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
-                    <span className="material-symbols-outlined text-red-600 text-3xl">delete_sweep</span>
-                  </div>
-                  <p className="text-slate-600 font-medium">
-                    Bạn có chắc chắn muốn xóa <strong>{selectedIds.size}</strong> bản ghi chấm công đã chọn không?
-                  </p>
-                  {Array.from(selectedIds).includes(activeSessionId) && (
-                    <p className="mt-2 text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-100">
-                      Lưu ý: Có bao gồm ca làm việc đang hoạt động!
-                    </p>
-                  )}
-                  <p className="mt-2 text-slate-400 text-xs italic">
-                    Mọi dữ liệu liên quan sẽ bị xóa vĩnh viễn.
-                  </p>
-                </div>
-              </Modal>
-            )}
-            {/* MODAL: Từ chối công việc (Admin) */}
-            {rejectModal.open && (
-              <Modal
-                title="Từ chối công việc"
-                subtitle="Nhân viên sẽ nhận được lý do và cập nhật lại báo cáo"
-                onClose={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
-                footer={
-                  <div className="flex gap-3 w-full">
-                    <button
-                      onClick={() => setRejectModal({ open: false, sessionId: null, subtaskId: null, reason: '' })}
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      onClick={handleRejectTask}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
-                    >
-                      XÁC NHẬN TỪ CHỐI
-                    </button>
-                  </div>
-                }
-              >
-                <div className="py-2 space-y-3">
-                  <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
-                    <span className="material-symbols-outlined text-red-500 text-[20px]">warning</span>
-                    <p className="text-[12px] text-red-700 font-medium">Nhân viên sẽ cần gửi lại báo cáo sau khi bị từ chối.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Lý do từ chối <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      autoFocus
-                      value={rejectModal.reason}
-                      onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
-                      placeholder="Nhập lý do từ chối để nhân viên cải thiện..."
-                      rows={4}
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none text-[13px] resize-none"
-                    />
-                  </div>
-                </div>
-              </Modal>
-            )}
-
-            {/* MODAL: Thêm công việc */}
-            {addTaskModalOpen && (
-              <Modal
-                title="Thêm công việc"
-                subtitle="Chọn dự án, công việc đang được giao hoặc task trong dự án, rồi đặt % hoàn thành"
-                onClose={() => {
-                  setAddTaskModalOpen(false)
-                  setAddTaskTargetSessionId(null)
-                  setAddTaskAssigneeSubtasks([])
-                  setNewTaskForm({
-                    project_id: '',
-                    pick_row_key: '',
-                    task_id: '',
-                    title: '',
-                    work_detail: '',
-                    percent: 0,
-                    parent_task_name: '',
-                  })
-                  resetAddTaskSearchUi()
-                }}
-                footerClassName="justify-between"
-                footer={
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAddTaskModalOpen(false)
-                        setAddTaskTargetSessionId(null)
-                        setNewTaskForm({
-                          project_id: '',
-                          pick_row_key: '',
-                          task_id: '',
-                          title: '',
-                          work_detail: '',
-                          percent: 0,
-                          parent_task_name: '',
-                        })
-                        setAddTaskAssigneeSubtasks([])
-                        resetAddTaskSearchUi()
-                      }}
-                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="submit"
-                      form="add-task-form"
-                      disabled={isAddingTask}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
-                    >
-                      {isAddingTask ? (
-                        <span className="text-[12px] font-black">...</span>
-                      ) : (
-                        <>
-                          <span className="material-symbols-outlined text-[18px]">save</span>
-                          Lưu công việc
-                        </>
-                      )}
-                    </button>
-                  </>
-                }
-              >
-                <form id="add-task-form" onSubmit={handleAddTaskToSession} className="space-y-4">
-                  {pickListLoading && (
-                    <p className="text-[12px] text-slate-500">Đang tải danh sách dự án…</p>
-                  )}
-                  <div className="space-y-1.5 relative">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Dự án <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
-                      <input
-                        type="text"
-                        value={addTaskProjectQuery}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setAddTaskProjectQuery(v)
-                          setAddTaskShowProjectSuggest(true)
-                          const sel = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
-                          if (sel && v !== sel.name) {
-                            setNewTaskForm(f => ({ ...f, project_id: '', pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
-                            setAddTaskTaskQuery('')
-                          }
-                        }}
-                        onFocus={() => setAddTaskShowProjectSuggest(true)}
-                        onBlur={() => { window.setTimeout(() => setAddTaskShowProjectSuggest(false), 150) }}
-                        placeholder="Gõ để tìm dự án…"
-                        autoComplete="off"
-                        disabled={pickListLoading}
-                        className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px]"
-                      />
-                      {addTaskShowProjectSuggest && !pickListLoading && (
-                        addTaskProjectSuggestions.length > 0 ? (
-                          <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
-                            {addTaskProjectSuggestions.map(p => (
-                              <li key={p.project_id}>
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setNewTaskForm(f => ({ ...f, project_id: p.project_id, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
-                                    setAddTaskProjectQuery(p.name)
-                                    setAddTaskTaskQuery('')
-                                    setAddTaskShowProjectSuggest(false)
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-[12px] text-slate-700 hover:bg-blue-50 font-medium truncate"
-                                >
-                                  {p.name}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
-                            {addTaskProjectQuery.trim() ? 'Không có dự án khớp.' : 'Không có dự án.'}
-                          </div>
-                        )
-                      )}
-                    </div>
-                    {newTaskForm.project_id && (
-                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn dự án</p>
+                    </>
+                  }
+                >
+                  <form id="add-task-form" onSubmit={handleAddTaskToSession} className="space-y-4">
+                    {pickListLoading && (
+                      <p className="text-[12px] text-slate-500">Đang tải danh sách dự án…</p>
                     )}
-                  </div>
-                  <div className="space-y-1.5 relative">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Công việc <span className="text-red-500">*</span>
-                    </label>
-                    {addTaskAssigneeSubtasksLoading && (
-                      <p className="text-[10px] text-slate-400 font-medium">Đang tải việc được giao…</p>
-                    )}
-                    <div className="relative">
-                      <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
-                      <input
-                        type="text"
-                        value={addTaskTaskQuery}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setAddTaskTaskQuery(v)
-                          setAddTaskShowTaskSuggest(true)
-                          const cur = tasksForPickedProject.find(t => t.rowKey === newTaskForm.pick_row_key)
-                          const curLabel = cur ? cur.suggestLabel : ''
-                          if (cur && v !== curLabel) {
-                            setNewTaskForm(f => ({ ...f, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
-                          }
-                        }}
-                        onFocus={() => newTaskForm.project_id && setAddTaskShowTaskSuggest(true)}
-                        onBlur={() => { window.setTimeout(() => setAddTaskShowTaskSuggest(false), 150) }}
-                        placeholder={
-                          !newTaskForm.project_id
-                            ? 'Chọn dự án trước…'
-                            : tasksForPickedProject.length === 0
-                              ? 'Dự án chưa có công việc khớp'
-                              : 'Gõ để tìm (tên nhiệm vụ, tính năng, task cha)…'
-                        }
-                        autoComplete="off"
-                        disabled={pickListLoading || !newTaskForm.project_id || tasksForPickedProject.length === 0}
-                        className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-50 disabled:text-slate-400"
-                      />
-                      {addTaskShowTaskSuggest && newTaskForm.project_id && tasksForPickedProject.length > 0 && (
-                        addTaskTaskPickEntries.length > 0 ? (
-                          <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
-                            {addTaskTaskPickEntries.map(entry => (
-                              entry.kind === 'header' ? (
-                                <li key={entry.key} className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border-y border-slate-100 first:border-t-0 pointer-events-none">
-                                  {entry.label}
-                                </li>
-                              ) : (
-                                <li key={entry.key}>
+                    <div className="space-y-1.5 relative">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Dự án <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
+                        <input
+                          type="text"
+                          value={addTaskProjectQuery}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAddTaskProjectQuery(v)
+                            setAddTaskShowProjectSuggest(true)
+                            const sel = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
+                            if (sel && v !== sel.name) {
+                              setNewTaskForm(f => ({ ...f, project_id: '', pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
+                              setAddTaskTaskQuery('')
+                            }
+                          }}
+                          onFocus={() => setAddTaskShowProjectSuggest(true)}
+                          onBlur={() => { window.setTimeout(() => setAddTaskShowProjectSuggest(false), 150) }}
+                          placeholder="Gõ để tìm dự án…"
+                          autoComplete="off"
+                          disabled={pickListLoading}
+                          className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px]"
+                        />
+                        {addTaskShowProjectSuggest && !pickListLoading && (
+                          addTaskProjectSuggestions.length > 0 ? (
+                            <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
+                              {addTaskProjectSuggestions.map(p => (
+                                <li key={p.project_id}>
                                   <button
                                     type="button"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                      const t = entry.row
-                                      const proj = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
-                                      setNewTaskForm(f => ({
-                                        ...f,
-                                        pick_row_key: t.rowKey,
-                                        task_id: t.task_id,
-                                        title: t.name,
-                                        parent_task_name: proj
-                                          ? (t.pickKind === 'subtask'
-                                            ? `${proj.name} › ${t.featureName} › ${t.parentTaskName}`
-                                            : `${proj.name} › ${t.featureName}`)
-                                          : '',
-                                      }))
-                                      setAddTaskTaskQuery(t.suggestLabel)
-                                      setAddTaskShowTaskSuggest(false)
+                                      setNewTaskForm(f => ({ ...f, project_id: p.project_id, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
+                                      setAddTaskProjectQuery(p.name)
+                                      setAddTaskTaskQuery('')
+                                      setAddTaskShowProjectSuggest(false)
                                     }}
-                                    className="w-full text-left px-3 py-2 hover:bg-blue-50"
+                                    className="w-full text-left px-3 py-2 text-[12px] text-slate-700 hover:bg-blue-50 font-medium truncate"
                                   >
-                                    <div className="text-[12px] font-bold text-slate-800 truncate">{entry.row.suggestLabel}</div>
-                                    <div className="text-[10px] text-slate-400 font-medium">
-                                      {entry.row.pickKind === 'subtask' ? 'Được giao · ' : ''}{entry.row.status}
-                                    </div>
+                                    {p.name}
                                   </button>
                                 </li>
-                              )
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
-                            {addTaskTaskQuery.trim() ? 'Không có công việc khớp.' : 'Không có công việc.'}
-                          </div>
-                        )
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
+                              {addTaskProjectQuery.trim() ? 'Không có dự án khớp.' : 'Không có dự án.'}
+                            </div>
+                          )
+                        )}
+                      </div>
+                      {newTaskForm.project_id && (
+                        <p className="text-[10px] text-emerald-600 font-bold">Đã chọn dự án</p>
                       )}
                     </div>
-                    {newTaskForm.pick_row_key && (
-                      <p className="text-[10px] text-emerald-600 font-bold">Đã chọn công việc</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Chi tiết CV
-                    </label>
-                    <textarea
-                      value={newTaskForm.work_detail}
-                      onChange={(e) => setNewTaskForm(f => ({ ...f, work_detail: e.target.value }))}
-                      placeholder="Mô tả ngắn nội dung đang làm, kết quả trong ca…"
-                      rows={3}
-                      maxLength={2000}
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px] placeholder:text-slate-400"
-                    />
-                    <p className="text-[9px] text-slate-400 font-medium">Tuỳ chọn — hiển thị trong bảng chi tiết ca làm việc.</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
-                      <span className="text-[12px] font-black text-blue-600">{Number(newTaskForm.percent) || 0}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={newTaskForm.percent}
-                      onChange={(e) => setNewTaskForm(v => ({ ...v, percent: Number(e.target.value) }))}
-                      className="w-full"
-                    />
-                    <div className="grid grid-cols-5 gap-2">
-                      {[0, 25, 50, 75, 100].map(p => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setNewTaskForm(v => ({ ...v, percent: p }))}
-                          className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(newTaskForm.percent) === p
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                            }`}
-                        >
-                          {p}%
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </form>
-              </Modal>
-            )}
-
-            {/* REPORT MODAL: Nhân viên gửi báo cáo */}
-            <ReportModal
-              open={reportModal.open}
-              onClose={() => setReportModal({ open: false, sessionId: null, task: null })}
-              task={reportModal.task}
-              sessionId={reportModal.sessionId}
-              onSave={handleSaveReport}
-            />
-
-            {/* MODAL: Sửa nội dung công việc (tên, chi tiết, báo cáo, %) */}
-            {editPercentModal.open && (
-              <Modal
-                title="Sửa công việc"
-                subtitle="Tên, chi tiết CV, báo cáo, ảnh (Cloudinary) và % — Ctrl+V trong ô báo cáo để dán ảnh"
-                maxWidthClassName="max-w-2xl"
-                bodyClassName="px-6 py-4 space-y-4 flex-grow overflow-y-auto max-h-[70vh]"
-                onClose={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
-                footerClassName="justify-between"
-                footer={
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
-                      className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="submit"
-                      form="edit-percent-form"
-                      disabled={isSavingPercent || editImagesUploading > 0}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
-                    >
-                      {isSavingPercent ? (
-                        <span className="text-[12px] font-black">...</span>
-                      ) : (
-                        <>
-                          <span className="material-symbols-outlined text-[18px]">save</span>
-                          Lưu
-                        </>
+                    <div className="space-y-1.5 relative">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Công việc <span className="text-red-500">*</span>
+                      </label>
+                      {addTaskAssigneeSubtasksLoading && (
+                        <p className="text-[10px] text-slate-400 font-medium">Đang tải việc được giao…</p>
                       )}
-                    </button>
-                  </>
-                }
-              >
-                <form id="edit-percent-form" onSubmit={handleSaveTaskPercent} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                      Tên công việc <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={editPercentModal.title}
-                      onChange={(e) => setEditPercentModal(m => ({ ...m, title: e.target.value }))}
-                      className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px]"
-                      placeholder="Tên hiển thị trong ca làm việc"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Chi tiết CV</label>
-                    <textarea
-                      value={editPercentModal.work_detail}
-                      onChange={(e) => setEditPercentModal(m => ({ ...m, work_detail: e.target.value }))}
-                      rows={3}
-                      maxLength={2000}
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px]"
-                      placeholder="Mô tả nội dung đang làm…"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Báo cáo / nhận xét</label>
-                    <textarea
-                      value={editPercentModal.report_content}
-                      onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
-                      onPaste={(e) => {
-                        const files = getImageFilesFromClipboardEvent(e)
-                        if (files.length === 0) return
-                        e.preventDefault()
-                        void uploadEditTaskReportImages(files)
-                      }}
-                      rows={4}
-                      maxLength={8000}
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[96px]"
-                      placeholder="Nội dung báo cáo (nếu có)… Dán ảnh: Ctrl+V"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Hình ảnh (Cloudinary)</label>
-                    {!isCloudinaryUploadConfigured() ? (
-                      <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-snug">
-                        Chưa cấu hình Cloudinary — có thể xóa ảnh đã lưu; để thêm ảnh mới, đặt <span className="font-mono">VITE_CLOUDINARY_CLOUD_NAME</span> và{' '}
-                        <span className="font-mono">VITE_CLOUDINARY_UPLOAD_PRESET</span> trong <span className="font-mono">.env</span> (upload preset dạng Unsigned).
-                      </p>
-                    ) : (
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Dán ảnh trong ô báo cáo phía trên (<kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">Ctrl</kbd>
-                        {' + '}
-                        <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">V</kbd>
-                        ) hoặc chọn nhiều file — mỗi ảnh tải lên Cloudinary và lưu URL.
-                      </p>
-                    )}
-                    {(editPercentModal.report_images || []).length > 0 && (
-                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                        {(editPercentModal.report_images || []).map((url, idx) => (
-                          <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                            <button
-                              type="button"
-                              title="Xem ảnh phóng to"
-                              onClick={() => setImageLightboxUrl(url)}
-                              className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
-                            >
-                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Gỡ ảnh"
-                              onClick={() => setEditPercentModal(m => ({
-                                ...m,
-                                report_images: (m.report_images || []).filter((_, i) => i !== idx),
-                              }))}
-                              className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-90 hover:opacity-100 shadow-sm"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">close</span>
-                            </button>
-                          </div>
+                      <div className="relative">
+                        <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400 pointer-events-none">search</span>
+                        <input
+                          type="text"
+                          value={addTaskTaskQuery}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAddTaskTaskQuery(v)
+                            setAddTaskShowTaskSuggest(true)
+                            const cur = tasksForPickedProject.find(t => t.rowKey === newTaskForm.pick_row_key)
+                            const curLabel = cur ? cur.suggestLabel : ''
+                            if (cur && v !== curLabel) {
+                              setNewTaskForm(f => ({ ...f, pick_row_key: '', task_id: '', title: '', work_detail: '', parent_task_name: '' }))
+                            }
+                          }}
+                          onFocus={() => newTaskForm.project_id && setAddTaskShowTaskSuggest(true)}
+                          onBlur={() => { window.setTimeout(() => setAddTaskShowTaskSuggest(false), 150) }}
+                          placeholder={
+                            !newTaskForm.project_id
+                              ? 'Chọn dự án trước…'
+                              : tasksForPickedProject.length === 0
+                                ? 'Dự án chưa có công việc khớp'
+                                : 'Gõ để tìm (tên nhiệm vụ, tính năng, task cha)…'
+                          }
+                          autoComplete="off"
+                          disabled={pickListLoading || !newTaskForm.project_id || tasksForPickedProject.length === 0}
+                          className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-50 disabled:text-slate-400"
+                        />
+                        {addTaskShowTaskSuggest && newTaskForm.project_id && tasksForPickedProject.length > 0 && (
+                          addTaskTaskPickEntries.length > 0 ? (
+                            <ul className="absolute z-[120] left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl py-1">
+                              {addTaskTaskPickEntries.map(entry => (
+                                entry.kind === 'header' ? (
+                                  <li key={entry.key} className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 border-y border-slate-100 first:border-t-0 pointer-events-none">
+                                    {entry.label}
+                                  </li>
+                                ) : (
+                                  <li key={entry.key}>
+                                    <button
+                                      type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        const t = entry.row
+                                        const proj = pickListProjects.find(p => p.project_id === newTaskForm.project_id)
+                                        setNewTaskForm(f => ({
+                                          ...f,
+                                          pick_row_key: t.rowKey,
+                                          task_id: t.task_id,
+                                          title: t.name,
+                                          parent_task_name: proj
+                                            ? (t.pickKind === 'subtask'
+                                              ? `${proj.name} › ${t.featureName} › ${t.parentTaskName}`
+                                              : `${proj.name} › ${t.featureName}`)
+                                            : '',
+                                        }))
+                                        setAddTaskTaskQuery(t.suggestLabel)
+                                        setAddTaskShowTaskSuggest(false)
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-blue-50"
+                                    >
+                                      <div className="text-[12px] font-bold text-slate-800 truncate">{entry.row.suggestLabel}</div>
+                                      <div className="text-[10px] text-slate-400 font-medium">
+                                        {entry.row.pickKind === 'subtask' ? 'Được giao · ' : ''}{entry.row.status}
+                                      </div>
+                                    </button>
+                                  </li>
+                                )
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="absolute z-[120] left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-xl px-3 py-2 text-[11px] text-slate-400">
+                              {addTaskTaskQuery.trim() ? 'Không có công việc khớp.' : 'Không có công việc.'}
+                            </div>
+                          )
+                        )}
+                      </div>
+                      {newTaskForm.pick_row_key && (
+                        <p className="text-[10px] text-emerald-600 font-bold">Đã chọn công việc</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Chi tiết CV
+                      </label>
+                      <textarea
+                        value={newTaskForm.work_detail}
+                        onChange={(e) => setNewTaskForm(f => ({ ...f, work_detail: e.target.value }))}
+                        placeholder="Mô tả ngắn nội dung đang làm, kết quả trong ca…"
+                        rows={3}
+                        maxLength={2000}
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px] placeholder:text-slate-400"
+                      />
+                      <p className="text-[9px] text-slate-400 font-medium">Tuỳ chọn — hiển thị trong bảng chi tiết ca làm việc.</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
+                        <span className="text-[12px] font-black text-blue-600">{Number(newTaskForm.percent) || 0}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={newTaskForm.percent}
+                        onChange={(e) => setNewTaskForm(v => ({ ...v, percent: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                      <div className="grid grid-cols-5 gap-2">
+                        {[0, 25, 50, 75, 100].map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setNewTaskForm(v => ({ ...v, percent: p }))}
+                            className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(newTaskForm.percent) === p
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                          >
+                            {p}%
+                          </button>
                         ))}
                       </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2">
+                    </div>
+                  </form>
+                </Modal>
+              )}
+
+              {/* REPORT MODAL: Nhân viên gửi báo cáo */}
+              <ReportModal
+                open={reportModal.open}
+                onClose={() => setReportModal({ open: false, sessionId: null, task: null })}
+                task={reportModal.task}
+                sessionId={reportModal.sessionId}
+                onSave={handleSaveReport}
+              />
+
+              {/* MODAL: Sửa nội dung công việc (tên, chi tiết, báo cáo, %) */}
+              {editPercentModal.open && (
+                <Modal
+                  title="Sửa công việc"
+                  subtitle="Tên, chi tiết CV, báo cáo, ảnh (Cloudinary) và % — Ctrl+V trong ô báo cáo để dán ảnh"
+                  maxWidthClassName="max-w-2xl"
+                  bodyClassName="px-6 py-4 space-y-4 flex-grow overflow-y-auto max-h-[70vh]"
+                  onClose={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
+                  footerClassName="justify-between"
+                  footer={
+                    <>
                       <button
                         type="button"
-                        disabled={!isCloudinaryUploadConfigured() || editImagesUploading > 0}
-                        onClick={() => editTaskReportFileRef.current?.click()}
-                        className="h-9 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                        onClick={() => setEditPercentModal({ open: false, sessionId: null, subtaskId: null, title: '', work_detail: '', report_content: '', report_images: [], percent: 0 })}
+                        className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
                       >
-                        <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
-                        Chọn ảnh
+                        Hủy
                       </button>
-                      {editImagesUploading > 0 && (
-                        <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                          <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-                          Đang tải ảnh…
-                        </span>
+                      <button
+                        type="submit"
+                        form="edit-percent-form"
+                        disabled={isSavingPercent || editImagesUploading > 0}
+                        className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-blue-400 transition-all active:scale-95 flex items-center gap-2"
+                      >
+                        {isSavingPercent ? (
+                          <span className="text-[12px] font-black">...</span>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[18px]">save</span>
+                            Lưu
+                          </>
+                        )}
+                      </button>
+                    </>
+                  }
+                >
+                  <form id="edit-percent-form" onSubmit={handleSaveTaskPercent} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Tên công việc <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editPercentModal.title}
+                        onChange={(e) => setEditPercentModal(m => ({ ...m, title: e.target.value }))}
+                        className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px]"
+                        placeholder="Tên hiển thị trong ca làm việc"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Chi tiết CV</label>
+                      <textarea
+                        value={editPercentModal.work_detail}
+                        onChange={(e) => setEditPercentModal(m => ({ ...m, work_detail: e.target.value }))}
+                        rows={3}
+                        maxLength={2000}
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px]"
+                        placeholder="Mô tả nội dung đang làm…"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Báo cáo / nhận xét</label>
+                      <textarea
+                        value={editPercentModal.report_content}
+                        onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
+                        onPaste={(e) => {
+                          const files = getImageFilesFromClipboardEvent(e)
+                          if (files.length === 0) return
+                          e.preventDefault()
+                          void uploadEditTaskReportImages(files)
+                        }}
+                        rows={4}
+                        maxLength={8000}
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[96px]"
+                        placeholder="Nội dung báo cáo (nếu có)… Dán ảnh: Ctrl+V"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Hình ảnh (Cloudinary)</label>
+                      {!isCloudinaryUploadConfigured() ? (
+                        <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-snug">
+                          Chưa cấu hình Cloudinary — có thể xóa ảnh đã lưu; để thêm ảnh mới, đặt <span className="font-mono">VITE_CLOUDINARY_CLOUD_NAME</span> và{' '}
+                          <span className="font-mono">VITE_CLOUDINARY_UPLOAD_PRESET</span> trong <span className="font-mono">.env</span> (upload preset dạng Unsigned).
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-slate-500 leading-snug">
+                          Dán ảnh trong ô báo cáo phía trên (<kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">Ctrl</kbd>
+                          {' + '}
+                          <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">V</kbd>
+                          ) hoặc chọn nhiều file — mỗi ảnh tải lên Cloudinary và lưu URL.
+                        </p>
                       )}
-                    </div>
-                    <input
-                      ref={editTaskReportFileRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(ev) => {
-                        const f = ev.target.files
-                        if (f?.length) void uploadEditTaskReportImages(f)
-                        ev.target.value = ''
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
-                      <span className="text-[12px] font-black text-blue-600">{Number(editPercentModal.percent) || 0}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={editPercentModal.percent}
-                      onChange={(e) => setEditPercentModal(m => ({ ...m, percent: Number(e.target.value) }))}
-                      className="w-full"
-                    />
-                    <div className="grid grid-cols-5 gap-2">
-                      {[0, 25, 50, 75, 100].map(p => (
+                      {(editPercentModal.report_images || []).length > 0 && (
+                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                          {(editPercentModal.report_images || []).map((url, idx) => (
+                            <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                              <button
+                                type="button"
+                                title="Xem ảnh phóng to"
+                                onClick={() => setImageLightboxUrl(url)}
+                                className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
+                              >
+                                <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Gỡ ảnh"
+                                onClick={() => setEditPercentModal(m => ({
+                                  ...m,
+                                  report_images: (m.report_images || []).filter((_, i) => i !== idx),
+                                }))}
+                                className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-90 hover:opacity-100 shadow-sm"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">close</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
-                          key={p}
                           type="button"
-                          onClick={() => setEditPercentModal(m => ({ ...m, percent: p }))}
-                          className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(editPercentModal.percent) === p
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                            }`}
+                          disabled={!isCloudinaryUploadConfigured() || editImagesUploading > 0}
+                          onClick={() => editTaskReportFileRef.current?.click()}
+                          className="h-9 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
                         >
-                          {p}%
+                          <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
+                          Chọn ảnh
                         </button>
-                      ))}
+                        {editImagesUploading > 0 && (
+                          <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                            <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                            Đang tải ảnh…
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        ref={editTaskReportFileRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(ev) => {
+                          const f = ev.target.files
+                          if (f?.length) void uploadEditTaskReportImages(f)
+                          ev.target.value = ''
+                        }}
+                      />
                     </div>
-                  </div>
-                </form>
-              </Modal>
-            )}
-          </div>
-        </main >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
+                        <span className="text-[12px] font-black text-blue-600">{Number(editPercentModal.percent) || 0}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={editPercentModal.percent}
+                        onChange={(e) => setEditPercentModal(m => ({ ...m, percent: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                      <div className="grid grid-cols-5 gap-2">
+                        {[0, 25, 50, 75, 100].map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setEditPercentModal(m => ({ ...m, percent: p }))}
+                            className={`h-9 rounded-xl border font-bold text-[11px] transition-all active:scale-95 ${Number(editPercentModal.percent) === p
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                          >
+                            {p}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </form>
+                </Modal>
+              )}
+            </div>
+          </main >
+        </div >
       </div >
-    </div >
 
-    {imageLightboxUrl ? (
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Xem ảnh phóng to"
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
-        onClick={() => setImageLightboxUrl(null)}
-      >
-        <button
-          type="button"
-          className="absolute top-3 right-3 sm:top-4 sm:right-4 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white z-10"
-          aria-label="Đóng"
-          onClick={e => {
-            e.stopPropagation()
-            setImageLightboxUrl(null)
-          }}
+      {imageLightboxUrl ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Xem ảnh phóng to"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-[#131b2e]/92 backdrop-blur-sm p-0"
+          onClick={() => setImageLightboxUrl(null)}
         >
-          <span className="material-symbols-outlined text-[22px] leading-none block">close</span>
-        </button>
-        <img
-          src={imageLightboxUrl}
-          alt=""
-          className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
-          onClick={e => e.stopPropagation()}
-        />
-      </div>
-    ) : null}
+          <button
+            type="button"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 rounded-full bg-white/95 text-[#131b2e] p-2 shadow-lg hover:bg-white z-10"
+            aria-label="Đóng"
+            onClick={e => {
+              e.stopPropagation()
+              setImageLightboxUrl(null)
+            }}
+          >
+            <span className="material-symbols-outlined text-[22px] leading-none block">close</span>
+          </button>
+          <img
+            src={imageLightboxUrl}
+            alt=""
+            className="max-h-[100dvh] max-w-[100vw] h-auto w-auto object-contain shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </>
   )
 }

@@ -10,6 +10,7 @@ import StaffSubtasksPage from './pages/StaffSubtasksPage'
 import AttendancePage from './pages/AttendancePage'
 import StaffStatisticsPage from './pages/StaffStatisticsPage'
 import TaskTemplatePage from './pages/TaskTemplatePage'
+import WorkSchedulePage from './pages/WorkSchedulePage'
 import { AuthProvider, useAuth } from './utils/AuthContext'
 import './index.css'
 
@@ -34,7 +35,7 @@ function KeepAliveApp() {
       if (user) {
         const role = user.role || 'employee'
         const isEmployee = role === 'employee'
-        const employeeAllowedPaths = ['/staff-subtasks', '/attendance']
+        const employeeAllowedPaths = ['/staff-subtasks', '/attendance', '/schedule']
 
         // 1. Điều hướng mặc định khi vừa login hoặc vào trang chủ
         if (path === '/' || path === '/login') {
@@ -67,6 +68,7 @@ function KeepAliveApp() {
       <div style={{ display: path === '/staff-subtasks' ? 'contents' : 'none' }}><StaffSubtasksPage /></div>
       <div style={{ display: path === '/attendance' ? 'contents' : 'none' }}><AttendancePage /></div>
       <div style={{ display: path === '/task-templates' ? 'contents' : 'none' }}><TaskTemplatePage /></div>
+      <div style={{ display: path === '/schedule' ? 'contents' : 'none' }}><WorkSchedulePage /></div>
     </>
   )
 }

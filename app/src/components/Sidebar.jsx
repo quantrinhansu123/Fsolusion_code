@@ -104,6 +104,10 @@ export default function Sidebar() {
             <span className="material-symbols-outlined">calendar_month</span>
             Chấm Công
           </NavLink>
+          <NavLink to="/schedule" className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}>
+            <span className="material-symbols-outlined">event_note</span>
+            Lịch trình
+          </NavLink>
 
           {isAdminOrManager(role) && (
             <>
