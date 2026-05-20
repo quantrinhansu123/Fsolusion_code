@@ -111,6 +111,7 @@ export default function AttendancePage() {
   /** Phóng to ảnh báo cáo (toàn màn hình) */
   const [imageLightboxUrl, setImageLightboxUrl] = useState(null)
   const [loadingAction, setLoadingAction] = useState(null)
+  const [activeDropdown, setActiveDropdown] = useState(null)
 
   // -- TÀI KHOẢN ĐANG ĐĂNG NHẬP --
   const [currentUser, setCurrentUser] = useState(null)
@@ -183,7 +184,8 @@ export default function AttendancePage() {
                   status: newWS.status || 'in_progress',
                   percent: 0,
                   work_detail: newWS.description,
-                  report_images: newWS.image_urls || []
+                  report_images: newWS.image_urls || [],
+                  start_time: newWS.scheduled_at
                 }
                 const updatedTasks = [...currentTasks, newTask]
 
@@ -471,7 +473,7 @@ export default function AttendancePage() {
         .select('subtask_id, name, status, plan_target_at, deadline')
         .eq('assigned_to', currentUser.user_id)
         .neq('status', 'completed')
-        .or(`plan_target_at.lte.${endOfDay},deadline.lte.${endOfDay},status.eq.in_progress`)
+        .or(`plan_target_at.lte.${endOfDay},deadline.lte.${endOfDay},status.eq.in_progress,and(plan_target_at.is.null,deadline.is.null,status.eq.pending)`)
 
       const tasksData = []
 
@@ -483,7 +485,8 @@ export default function AttendancePage() {
           status: ws.status || 'in_progress',
           percent: 0,
           work_detail: ws.description,
-          report_images: ws.image_urls || []
+          report_images: ws.image_urls || [],
+          start_time: ws.scheduled_at
         })
       })
 
@@ -496,7 +499,8 @@ export default function AttendancePage() {
             status: st.status || 'in_progress',
             percent: 0,
             work_detail: '',
-            report_images: []
+            report_images: [],
+            start_time: st.plan_target_at
           })
         }
       })
@@ -2027,63 +2031,95 @@ export default function AttendancePage() {
                                                 <td className="px-4 py-3 text-right">
                                                   <div className="flex flex-wrap justify-end gap-1.5">
                                                     {role === 'admin' ? (
-                                                      tStatus === 'pending_approval' ? (
-                                                        <>
-                                                          {!task.end_time && (
-                                                            <button
-                                                              type="button"
-                                                              disabled={loadingAction === task.subtask_id}
-                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black active:scale-95 shadow-md shadow-blue-100 disabled:opacity-60"
-                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
-                                                            >
-                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                            </button>
-                                                          )}
-                                                          <button onClick={() => handleAcceptTask(row.id, task.subtask_id)}
-                                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all text-[10px] font-black active:scale-95 shadow-sm shadow-emerald-100">
-                                                            <span className="material-symbols-outlined text-[13px]">verified</span>
-                                                            NGHIỆM THU
-                                                          </button>
-                                                          <button onClick={() => setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })}
-                                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-500 hover:text-white transition-all text-[10px] font-black active:scale-95">
-                                                            <span className="material-symbols-outlined text-[13px]">cancel</span>
-                                                            TỪ CHỐI
-                                                          </button>
-                                                        </>
-                                                      ) : tStatus === 'completed' ? (
-                                                        <div className="flex flex-col items-end gap-1">
-                                                          {!task.end_time && (
-                                                            <button
-                                                              type="button"
-                                                              disabled={loadingAction === task.subtask_id}
-                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black disabled:opacity-60"
-                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
-                                                            >
-                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                            </button>
-                                                          )}
-                                                          <span className="text-emerald-600 font-bold text-[10px] flex items-center gap-1">
-                                                            <span className="material-symbols-outlined text-[14px]">check_circle</span>Đã nghiệm thu
-                                                          </span>
-                                                        </div>
-                                                      ) : (
-                                                        <div className="flex flex-col items-end gap-1">
-                                                          {!task.end_time && (
-                                                            <button
-                                                              type="button"
-                                                              disabled={loadingAction === task.subtask_id}
-                                                              onClick={() => handleFinishTask(row.id, task.subtask_id)}
-                                                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all text-[10px] font-black disabled:opacity-60"
-                                                              title="Ghi nhận giờ kết thúc để đo năng suất"
-                                                            >
-                                                              {loadingAction === task.subtask_id ? '...' : 'KẾT THÚC'}
-                                                            </button>
-                                                          )}
-                                                          <span className="text-slate-400 text-[10px] italic">Chờ nhân viên báo cáo</span>
-                                                        </div>
-                                                      )
+                                                      <div className="relative inline-block text-left">
+                                                        <button
+                                                          type="button"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            setActiveDropdown(activeDropdown === rowKey ? null : rowKey)
+                                                          }}
+                                                          className="p-1 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                                                        >
+                                                          <span className="material-symbols-outlined text-[20px]">more_vert</span>
+                                                        </button>
+
+                                                        {activeDropdown === rowKey && (
+                                                          <>
+                                                            <div className="fixed inset-0 z-40" onClick={() => setActiveDropdown(null)}></div>
+                                                            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-1.5 flex flex-col gap-1">
+                                                              {/* Xem Báo Cáo */}
+                                                              <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                  setActiveDropdown(null)
+                                                                  setReportModal({ open: true, sessionId: row.id, task })
+                                                                }}
+                                                                className="flex items-center gap-2 px-3 py-2 w-full text-left rounded-lg hover:bg-blue-50 text-[11px] font-bold text-blue-600 transition-colors"
+                                                              >
+                                                                <span className="material-symbols-outlined text-[15px]">visibility</span>
+                                                                Xem báo cáo
+                                                              </button>
+
+                                                              {/* Các Nút Theo Trạng Thái */}
+                                                              {tStatus === 'pending_approval' && (
+                                                                <>
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                      setActiveDropdown(null)
+                                                                      handleAcceptTask(row.id, task.subtask_id)
+                                                                    }}
+                                                                    className="flex items-center gap-2 px-3 py-2 w-full text-left rounded-lg hover:bg-emerald-50 text-[11px] font-bold text-emerald-600 transition-colors"
+                                                                  >
+                                                                    <span className="material-symbols-outlined text-[15px]">verified</span>
+                                                                    Nghiệm thu
+                                                                  </button>
+                                                                  <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                      setActiveDropdown(null)
+                                                                      setRejectModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, reason: '' })
+                                                                    }}
+                                                                    className="flex items-center gap-2 px-3 py-2 w-full text-left rounded-lg hover:bg-red-50 text-[11px] font-bold text-red-600 transition-colors"
+                                                                  >
+                                                                    <span className="material-symbols-outlined text-[15px]">cancel</span>
+                                                                    Từ chối
+                                                                  </button>
+                                                                </>
+                                                              )}
+
+                                                              {tStatus === 'completed' && (
+                                                                <div className="px-3 py-2 text-[10px] font-bold text-emerald-600 flex items-center gap-1.5 bg-emerald-50/50 rounded-lg">
+                                                                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                                                                  Đã nghiệm thu
+                                                                </div>
+                                                              )}
+
+                                                              {tStatus !== 'pending_approval' && tStatus !== 'completed' && (
+                                                                <div className="px-3 py-2 text-[10px] italic text-slate-400">
+                                                                  Chờ NV báo cáo
+                                                                </div>
+                                                              )}
+
+                                                              {/* Kết thúc (nếu chưa có end_time) */}
+                                                              {!task.end_time && (
+                                                                <button
+                                                                  type="button"
+                                                                  disabled={loadingAction === task.subtask_id}
+                                                                  onClick={() => {
+                                                                    setActiveDropdown(null)
+                                                                    handleFinishTask(row.id, task.subtask_id)
+                                                                  }}
+                                                                  className="flex items-center gap-2 px-3 py-2 w-full text-left rounded-lg hover:bg-slate-100 text-[11px] font-bold text-slate-700 transition-colors border-t border-slate-100 mt-1 disabled:opacity-60"
+                                                                >
+                                                                  <span className="material-symbols-outlined text-[15px]">stop_circle</span>
+                                                                  {loadingAction === task.subtask_id ? '...' : 'Kết thúc'}
+                                                                </button>
+                                                              )}
+                                                            </div>
+                                                          </>
+                                                        )}
+                                                      </div>
                                                     ) : (
                                                       // Employee view
                                                       tStatus === 'pending_approval' ? (
@@ -2893,7 +2929,7 @@ export default function AttendancePage() {
                           }
                           autoComplete="off"
                           disabled={pickListLoading || !newTaskForm.project_id || tasksForPickedProject.length === 0}
-                          className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-50 disabled:text-slate-400"
+                          className="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 font-medium text-[13px] disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                         />
                         {addTaskShowTaskSuggest && newTaskForm.project_id && tasksForPickedProject.length > 0 && (
                           addTaskTaskPickEntries.length > 0 ? (
@@ -2929,7 +2965,11 @@ export default function AttendancePage() {
                                     >
                                       <div className="text-[12px] font-bold text-slate-800 truncate">{entry.row.suggestLabel}</div>
                                       <div className="text-[10px] text-slate-400 font-medium">
-                                        {entry.row.pickKind === 'subtask' ? 'Được giao · ' : ''}{entry.row.status}
+                                        {entry.row.pickKind === 'subtask' ? 'Được giao · ' : ''}
+                                        {entry.row.status === 'pending' ? 'Chờ xử lý' :
+                                          entry.row.status === 'in_progress' ? 'Đang làm' :
+                                            entry.row.status === 'completed' ? 'Hoàn thành' :
+                                              entry.row.status}
                                       </div>
                                     </button>
                                   </li>
@@ -2950,7 +2990,7 @@ export default function AttendancePage() {
 
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                        Chi tiết CV
+                        Chi tiết công việc
                       </label>
                       <textarea
                         value={newTaskForm.work_detail}
@@ -2960,7 +3000,7 @@ export default function AttendancePage() {
                         maxLength={2000}
                         className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px] placeholder:text-slate-400"
                       />
-                      <p className="text-[9px] text-slate-400 font-medium">Tuỳ chọn — hiển thị trong bảng chi tiết ca làm việc.</p>
+                      <p className="text-[9px] text-slate-500 font-medium">Tuỳ chọn — hiển thị trong bảng chi tiết ca làm việc.</p>
                     </div>
 
                     <div className="space-y-1.5">
