@@ -71,6 +71,7 @@ export default function AttendancePage() {
   // -- MODAL: Báo cáo (employee) & Từ chối (admin) --
   const [reportModal, setReportModal] = useState({ open: false, sessionId: null, task: null })
   const [rejectModal, setRejectModal] = useState({ open: false, sessionId: null, subtaskId: null, reason: '' })
+  const [commentModal, setCommentModal] = useState({ open: false, sessionId: null, subtaskId: null, comment: '' })
 
   // -- THÊM CÔNG VIỆC THỦ CÔNG (trong ca đang làm) --
   const [addTaskModalOpen, setAddTaskModalOpen] = useState(false)
@@ -738,6 +739,34 @@ export default function AttendancePage() {
     } catch (err) {
       console.error(err)
       setToast({ message: 'Lỗi khi từ chối', type: 'error' })
+    }
+  }
+
+  // [Admin] Nhận xét: cập nhật comment mà không đổi trạng thái
+  const handleCommentTask = async () => {
+    if (role !== 'admin') return
+    const { sessionId, subtaskId, comment } = commentModal
+    if (!comment.trim()) {
+      setToast({ message: 'Vui lòng nhập nhận xét.', type: 'warning' })
+      return
+    }
+    try {
+      const session = attendanceList.find(s => s.id === sessionId)
+      if (!session) return
+      const updatedTasksData = session.tasks_data.map(t =>
+        t.subtask_id === subtaskId
+          ? { ...t, comment: comment.trim() }
+          : t
+      )
+      const { error } = await supabase.from('work_sessions')
+        .update({ tasks_data: updatedTasksData }).eq('session_id', sessionId)
+      if (error) throw error
+      setToast({ message: 'Đã lưu nhận xét!', type: 'success' })
+      setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })
+      fetchAttendanceData()
+    } catch (err) {
+      console.error(err)
+      setToast({ message: 'Lỗi khi lưu nhận xét', type: 'error' })
     }
   }
 
@@ -1917,7 +1946,7 @@ export default function AttendancePage() {
                                         <th className="px-4 py-2">Công việc</th>
                                         <th className="px-4 py-2">Trạng thái</th>
                                         <th className="px-4 py-2 w-1/5">Tiến độ</th>
-                                        <th className="px-4 py-2">Báo cáo / Nhận xét</th>
+                                        <th className="px-4 py-2">Nhận xét</th>
                                         <th className="px-4 py-2 text-right">Thao tác</th>
                                       </tr>
                                     </thead>
@@ -1991,40 +2020,10 @@ export default function AttendancePage() {
                                                 </td>
                                                 {/* Report content / comment */}
                                                 <td className="px-4 py-3 max-w-[220px]">
-                                                  {task.report_content ? (
-                                                    <div>
-                                                      <p className="text-[11px] text-slate-600 line-clamp-2">{task.report_content}</p>
-                                                      {task.report_images?.length > 0 && (
-                                                        <div className="flex gap-1 mt-1">
-                                                          {task.report_images.slice(0, 3).map((url, i) => (
-                                                            <button
-                                                              key={i}
-                                                              type="button"
-                                                              title="Xem ảnh phóng to"
-                                                              onClick={() => setImageLightboxUrl(url)}
-                                                              className="w-8 h-8 rounded border border-slate-200 overflow-hidden block cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500/40 p-0"
-                                                            >
-                                                              <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
-                                                            </button>
-                                                          ))}
-                                                          {task.report_images.length > 3 && (
-                                                            <button
-                                                              type="button"
-                                                              title="Xem ảnh tiếp theo"
-                                                              onClick={() => setImageLightboxUrl(task.report_images[3])}
-                                                              className="w-8 h-8 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500 cursor-zoom-in hover:bg-slate-200"
-                                                            >
-                                                              +{task.report_images.length - 3}
-                                                            </button>
-                                                          )}
-                                                        </div>
-                                                      )}
-                                                      {task.comment && tStatus === 'rejected' && (
-                                                        <p className="mt-1 text-[10px] text-red-500 italic border-l-2 border-red-200 pl-2">{task.comment}</p>
-                                                      )}
-                                                    </div>
+                                                  {task.comment ? (
+                                                    <p className={`text-[11px] italic border-l-2 pl-2 ${tStatus === 'rejected' ? 'text-red-500 border-red-200' : 'text-slate-600 border-slate-200'}`}>{task.comment}</p>
                                                   ) : (
-                                                    <span className="text-slate-300 text-[11px] italic">Chưa có báo cáo</span>
+                                                    <span className="text-slate-300 text-[11px] italic">—</span>
                                                   )}
                                                 </td>
                                                 {/* Actions */}
@@ -2058,6 +2057,19 @@ export default function AttendancePage() {
                                                               >
                                                                 <span className="material-symbols-outlined text-[15px]">visibility</span>
                                                                 Xem báo cáo
+                                                              </button>
+
+                                                              {/* Nhận Xét */}
+                                                              <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                  setActiveDropdown(null)
+                                                                  setCommentModal({ open: true, sessionId: row.id, subtaskId: task.subtask_id, comment: task.comment || '' })
+                                                                }}
+                                                                className="flex items-center gap-2 px-3 py-2 w-full text-left rounded-lg hover:bg-indigo-50 text-[11px] font-bold text-indigo-600 transition-colors"
+                                                              >
+                                                                <span className="material-symbols-outlined text-[15px]">rate_review</span>
+                                                                Nhận xét
                                                               </button>
 
                                                               {/* Các Nút Theo Trạng Thái */}
@@ -3045,6 +3057,33 @@ export default function AttendancePage() {
                 onSave={handleSaveReport}
               />
 
+              {/* COMMENT MODAL: Admin nhận xét */}
+              {commentModal.open && (
+                <Modal
+                  title="Nhận xét công việc"
+                  subtitle="Nhận xét này sẽ hiển thị ở cột Nhận xét"
+                  onClose={() => setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })}
+                  footer={
+                    <>
+                      <button type="button" onClick={() => setCommentModal({ open: false, sessionId: null, subtaskId: null, comment: '' })} className="px-4 py-2 text-slate-500 font-medium hover:bg-slate-100 rounded-lg transition-colors text-[13px]">Hủy</button>
+                      <button type="button" onClick={handleCommentTask} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200 text-[13px]">Lưu nhận xét</button>
+                    </>
+                  }
+                >
+                  <div className="p-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2">Nội dung nhận xét</label>
+                    <textarea
+                      value={commentModal.comment}
+                      onChange={(e) => setCommentModal(m => ({ ...m, comment: e.target.value }))}
+                      rows={4}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y"
+                      placeholder="Nhập nhận xét..."
+                      autoFocus
+                    />
+                  </div>
+                </Modal>
+              )}
+
               {/* MODAL: Sửa nội dung công việc (tên, chi tiết, báo cáo, %) */}
               {editPercentModal.open && (
                 <Modal
@@ -3082,118 +3121,122 @@ export default function AttendancePage() {
                   }
                 >
                   <form id="edit-percent-form" onSubmit={handleSaveTaskPercent} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                        Tên công việc <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={editPercentModal.title}
-                        onChange={(e) => setEditPercentModal(m => ({ ...m, title: e.target.value }))}
-                        className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px]"
-                        placeholder="Tên hiển thị trong ca làm việc"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Chi tiết CV</label>
-                      <textarea
-                        value={editPercentModal.work_detail}
-                        onChange={(e) => setEditPercentModal(m => ({ ...m, work_detail: e.target.value }))}
-                        rows={3}
-                        maxLength={2000}
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px]"
-                        placeholder="Mô tả nội dung đang làm…"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Báo cáo / nhận xét</label>
-                      <textarea
-                        value={editPercentModal.report_content}
-                        onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
-                        onPaste={(e) => {
-                          const files = getImageFilesFromClipboardEvent(e)
-                          if (files.length === 0) return
-                          e.preventDefault()
-                          void uploadEditTaskReportImages(files)
-                        }}
-                        rows={4}
-                        maxLength={8000}
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[96px]"
-                        placeholder="Nội dung báo cáo (nếu có)… Dán ảnh: Ctrl+V"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Hình ảnh (Cloudinary)</label>
-                      {!isCloudinaryUploadConfigured() ? (
-                        <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-snug">
-                          Chưa cấu hình Cloudinary — có thể xóa ảnh đã lưu; để thêm ảnh mới, đặt <span className="font-mono">VITE_CLOUDINARY_CLOUD_NAME</span> và{' '}
-                          <span className="font-mono">VITE_CLOUDINARY_UPLOAD_PRESET</span> trong <span className="font-mono">.env</span> (upload preset dạng Unsigned).
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-slate-500 leading-snug">
-                          Dán ảnh trong ô báo cáo phía trên (<kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">Ctrl</kbd>
-                          {' + '}
-                          <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">V</kbd>
-                          ) hoặc chọn nhiều file — mỗi ảnh tải lên Cloudinary và lưu URL.
-                        </p>
-                      )}
-                      {(editPercentModal.report_images || []).length > 0 && (
-                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                          {(editPercentModal.report_images || []).map((url, idx) => (
-                            <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                              <button
-                                type="button"
-                                title="Xem ảnh phóng to"
-                                onClick={() => setImageLightboxUrl(url)}
-                                className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
-                              >
-                                <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Gỡ ảnh"
-                                onClick={() => setEditPercentModal(m => ({
-                                  ...m,
-                                  report_images: (m.report_images || []).filter((_, i) => i !== idx),
-                                }))}
-                                className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-90 hover:opacity-100 shadow-sm"
-                              >
-                                <span className="material-symbols-outlined text-[14px]">close</span>
-                              </button>
-                            </div>
-                          ))}
+                    {role !== 'admin' && (
+                      <>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                            Tên công việc <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={editPercentModal.title}
+                            onChange={(e) => setEditPercentModal(m => ({ ...m, title: e.target.value }))}
+                            className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px]"
+                            placeholder="Tên hiển thị trong ca làm việc"
+                          />
                         </div>
-                      )}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={!isCloudinaryUploadConfigured() || editImagesUploading > 0}
-                          onClick={() => editTaskReportFileRef.current?.click()}
-                          className="h-9 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
-                          Chọn ảnh
-                        </button>
-                        {editImagesUploading > 0 && (
-                          <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                            <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-                            Đang tải ảnh…
-                          </span>
-                        )}
-                      </div>
-                      <input
-                        ref={editTaskReportFileRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={(ev) => {
-                          const f = ev.target.files
-                          if (f?.length) void uploadEditTaskReportImages(f)
-                          ev.target.value = ''
-                        }}
-                      />
-                    </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Chi tiết CV</label>
+                          <textarea
+                            value={editPercentModal.work_detail}
+                            onChange={(e) => setEditPercentModal(m => ({ ...m, work_detail: e.target.value }))}
+                            rows={3}
+                            maxLength={2000}
+                            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[72px]"
+                            placeholder="Mô tả nội dung đang làm…"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Báo cáo / nhận xét</label>
+                          <textarea
+                            value={editPercentModal.report_content}
+                            onChange={(e) => setEditPercentModal(m => ({ ...m, report_content: e.target.value }))}
+                            onPaste={(e) => {
+                              const files = getImageFilesFromClipboardEvent(e)
+                              if (files.length === 0) return
+                              e.preventDefault()
+                              void uploadEditTaskReportImages(files)
+                            }}
+                            rows={4}
+                            maxLength={8000}
+                            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 text-[13px] resize-y min-h-[96px]"
+                            placeholder="Nội dung báo cáo (nếu có)… Dán ảnh: Ctrl+V"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Hình ảnh (Cloudinary)</label>
+                          {!isCloudinaryUploadConfigured() ? (
+                            <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 leading-snug">
+                              Chưa cấu hình Cloudinary — có thể xóa ảnh đã lưu; để thêm ảnh mới, đặt <span className="font-mono">VITE_CLOUDINARY_CLOUD_NAME</span> và{' '}
+                              <span className="font-mono">VITE_CLOUDINARY_UPLOAD_PRESET</span> trong <span className="font-mono">.env</span> (upload preset dạng Unsigned).
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-slate-500 leading-snug">
+                              Dán ảnh trong ô báo cáo phía trên (<kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">Ctrl</kbd>
+                              {' + '}
+                              <kbd className="px-1 py-0.5 rounded border border-slate-200 bg-slate-50 font-mono text-[9px]">V</kbd>
+                              ) hoặc chọn nhiều file — mỗi ảnh tải lên Cloudinary và lưu URL.
+                            </p>
+                          )}
+                          {(editPercentModal.report_images || []).length > 0 && (
+                            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                              {(editPercentModal.report_images || []).map((url, idx) => (
+                                <div key={`${url}-${idx}`} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                                  <button
+                                    type="button"
+                                    title="Xem ảnh phóng to"
+                                    onClick={() => setImageLightboxUrl(url)}
+                                    className="block w-full h-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/40 p-0"
+                                  >
+                                    <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Gỡ ảnh"
+                                    onClick={() => setEditPercentModal(m => ({
+                                      ...m,
+                                      report_images: (m.report_images || []).filter((_, i) => i !== idx),
+                                    }))}
+                                    className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-90 hover:opacity-100 shadow-sm"
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={!isCloudinaryUploadConfigured() || editImagesUploading > 0}
+                              onClick={() => editTaskReportFileRef.current?.click()}
+                              className="h-9 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">add_photo_alternate</span>
+                              Chọn ảnh
+                            </button>
+                            {editImagesUploading > 0 && (
+                              <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                                <span className="inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                                Đang tải ảnh…
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            ref={editTaskReportFileRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(ev) => {
+                              const f = ev.target.files
+                              if (f?.length) void uploadEditTaskReportImages(f)
+                              ev.target.value = ''
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">% hoàn thành</label>
